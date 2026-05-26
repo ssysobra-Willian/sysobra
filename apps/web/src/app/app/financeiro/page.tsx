@@ -11,7 +11,7 @@ import {
   Plus, CheckCircle, XCircle, Pencil,
   RefreshCw, ChevronLeft, ChevronRight, Search, X,
   Wallet, Clock, CalendarDays, Eye,
-  ArrowDownCircle, ArrowUpCircle, Landmark, LayoutGrid,
+  ArrowDownCircle, ArrowUpCircle, Landmark, LayoutGrid, Users, Truck,
 } from 'lucide-react'
 import { TransactionModal } from '@/components/financial/TransactionModal'
 import { TransactionReceiptModal } from '@/components/financial/TransactionReceiptModal'
@@ -549,7 +549,7 @@ export default function FinanceiroPage() {
       {/* ── Acesso rápido ────────────────────────────────────────────── */}
       <div>
         <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">Acesso rápido</p>
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-3">
           {[
             {
               label: 'Contas a Pagar',
@@ -568,6 +568,18 @@ export default function FinanceiroPage() {
               icon:  Landmark,
               cls:   'text-blue-500 bg-blue-50',
               href:  '/app/financeiro/contas-bancarias',
+            },
+            {
+              label: 'Clientes',
+              icon:  Users,
+              cls:   'text-indigo-500 bg-indigo-50',
+              href:  '/app/financeiro/clientes',
+            },
+            {
+              label: 'Fornecedores',
+              icon:  Truck,
+              cls:   'text-orange-500 bg-orange-50',
+              href:  '/app/financeiro/fornecedores',
             },
             {
               label: 'Novo Lançamento',

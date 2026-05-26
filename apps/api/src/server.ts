@@ -8,14 +8,16 @@ import staticFiles from '@fastify/static'
 import { FastifyRequest, FastifyReply } from 'fastify'
 import path from 'path'
 
-import { authRoutes } from './routes/v1/auth.routes'
-import { userRoutes } from './routes/v1/user.routes'
-import { companyRoutes } from './routes/v1/company.routes'
-import { projectRoutes } from './routes/v1/project.routes'
-import { memberRoutes } from './routes/v1/member.routes'
-import { diaryRoutes }      from './routes/v1/diary.routes'
-import { financialRoutes }  from './routes/v1/financial.routes'
-import { stripeRoutes }     from './routes/stripe'
+import { authRoutes }     from './routes/v1/auth.routes'
+import { userRoutes }     from './routes/v1/user.routes'
+import { companyRoutes }  from './routes/v1/company.routes'
+import { projectRoutes }  from './routes/v1/project.routes'
+import { memberRoutes }   from './routes/v1/member.routes'
+import { diaryRoutes }    from './routes/v1/diary.routes'
+import { financialRoutes } from './routes/v1/financial.routes'
+import { clientRoutes }   from './routes/v1/client.routes'
+import { supplierRoutes } from './routes/v1/supplier.routes'
+import { stripeRoutes }   from './routes/stripe'
 import { env } from './utils/env'
 import { prisma } from '@sysobra/database'
 
@@ -142,6 +144,8 @@ async function bootstrap() {
   await app.register(memberRoutes, { prefix: '/api/v1/company' })
   await app.register(diaryRoutes,     { prefix: '/api/v1/diary' })
   await app.register(financialRoutes, { prefix: '/api/financial' })
+  await app.register(clientRoutes,   { prefix: '/api/v1/clients' })
+  await app.register(supplierRoutes, { prefix: '/api/v1/suppliers' })
 
   // ── Rotas Stripe ─────────────────────────────────────────────────────────
   await app.register(stripeRoutes, { prefix: '/api/stripe' })

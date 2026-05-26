@@ -95,6 +95,23 @@ export interface DashboardData {
 
 // ─── Formato bruto retornado pela API ─────────────────────────────────────────
 
+export interface AuditLogEntry {
+  id:           string
+  action:       string   // CREATED | EDITED | PAID | CANCELLED | DELETED | RECONCILED
+  newData:      Record<string, unknown> | null
+  previousData: Record<string, unknown> | null
+  createdAt:    string
+  transaction: {
+    id:          string
+    description: string
+    type:        string
+    netAmount:   number | string
+    isActive:    boolean
+    category:    { name: string; icon: string | null; color: string | null } | null
+  } | null
+  user: { id: string; name: string; avatarUrl: string | null } | null
+}
+
 export interface ApiDashboardResponse {
   currentBalance:    number
   periodIncome:      number
@@ -111,19 +128,7 @@ export interface ApiDashboardResponse {
   cashflowByMonth:   { month: string; income: number; expense: number }[]
   expensesByCategory:{ id: string; name: string; color: string | null; total: number }[]
   topProjectsByExpense: { id: string; name: string; total: number }[]
-  recentTransactions: {
-    id:          string
-    description: string
-    type:        string
-    isPaid:      boolean
-    netAmount:   number | string
-    referenceDate: string | null
-    paidAt:      string | null
-    createdAt:   string | null
-    category:    { name: string; color: string | null; icon: string | null } | null
-    bankAccount: { name: string } | null
-    createdBy:   { id: string; name: string; avatarUrl: string | null } | null
-  }[]
+  recentAuditLogs:   AuditLogEntry[]
 }
 
 // ─── Nomes dos meses em pt-BR ──────────────────────────────────────────────────

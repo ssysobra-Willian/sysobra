@@ -359,17 +359,24 @@ export async function financialRoutes(app: FastifyInstance) {
         },
         select: { amount: true, project: { select: { id: true, name: true } } },
       }),
-      // últimas 10 movimentações
-      prisma.financialTransaction.findMany({
-        where: { ...baseWhere },
+      // últimos 20 eventos do audit log financeiro
+      (prisma as any).financialAuditLog.findMany({
+        where: {
+          OR: [
+            { transactionId: { not: null }, transaction: { companyId } },
+          ],
+        },
         orderBy: { createdAt: 'desc' },
-        take: 10,
+        take: 20,
         select: {
-          id: true, description: true, type: true, isPaid: true,
-          netAmount: true, referenceDate: true, paidAt: true, createdAt: true,
-          category:    { select: { name: true, color: true, icon: true } },
-          bankAccount: { select: { name: true } },
-          createdBy:   { select: { id: true, name: true, avatarUrl: true } },
+          id: true, action: true, newData: true, previousData: true, createdAt: true,
+          transaction: {
+            select: {
+              id: true, description: true, type: true, netAmount: true, isActive: true,
+              category: { select: { name: true, icon: true, color: true } },
+            },
+          },
+          user: { select: { id: true, name: true, avatarUrl: true } },
         },
       }),
       // saldos de contas bancárias
@@ -435,7 +442,7 @@ export async function financialRoutes(app: FastifyInstance) {
       cashflowByMonth,
       expensesByCategory,
       topProjectsByExpense,
-      recentTransactions: recentTx,
+      recentAuditLogs: recentTx,
     })
   })
 

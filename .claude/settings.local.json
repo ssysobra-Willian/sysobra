@@ -52,7 +52,11 @@
       "PowerShell(cd C:\\\\projetos\\\\sysobra; $env:DATABASE_URL=\"postgresql://sysobra:sysobra123@127.0.0.1:5432/sysobra\"; npx prisma db push --accept-data-loss --schema packages/database/prisma/schema.prisma 2>&1)",
       "Bash(git add *)",
       "Bash(git commit *)",
-      "PowerShell(cd C:\\\\projetos\\\\sysobra\\\\packages\\\\database; $env:DATABASE_URL=\"postgresql://sysobra:sysobra123@127.0.0.1:5432/sysobra\"; npx ts-node prisma/seed-projects.ts 2>&1)"
+      "PowerShell(cd C:\\\\projetos\\\\sysobra\\\\packages\\\\database; $env:DATABASE_URL=\"postgresql://sysobra:sysobra123@127.0.0.1:5432/sysobra\"; npx ts-node prisma/seed-projects.ts 2>&1)",
+      "Bash(New-Item -ItemType Directory -Force -Path \"C:\\\\projetos\\\\sysobra\\\\apps\\\\web\\\\src\\\\app\\\\app\\\\financeiro\\\\clientes\")",
+      "Bash(Out-Null)",
+      "Bash(New-Item -ItemType Directory -Force -Path \"C:\\\\projetos\\\\sysobra\\\\apps\\\\web\\\\src\\\\app\\\\app\\\\financeiro\\\\clientes\\\\[id]\")",
+      "Bash(Write-Host \"dirs created\")"
     ]
   }
 }

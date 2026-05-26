@@ -259,6 +259,8 @@ model User {
   financialTransactions FinancialTransaction[] @relation("FinancialCreatedBy")
   financialAuditLogs    FinancialAuditLog[]
   projectsResponsible   Project[]              @relation("ProjectResponsible")
+  clientsCreated        Client[]               @relation("ClientCreatedBy")
+  suppliersCreated      Supplier[]             @relation("SupplierCreatedBy")
 
   @@map("users")
 }
@@ -493,45 +495,83 @@ model ProjectStage {
 // ─────────────────────────────────────────
 
 model Client {
-  id        String   @id @default(cuid())
-  companyId String   @map("company_id")
-  name      String
-  email     String?
-  phone     String?
-  cpfCnpj   String?  @map("cpf_cnpj")
-  address   String?
-  city      String?
-  state     String?
-  notes     String?
-  isActive  Boolean  @default(true) @map("is_active")
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  id            String   @id @default(cuid())
+  companyId     String   @map("company_id")
+  createdById   String?  @map("created_by_id")
+  type          String   @default("COMPANY") @map("type") // PERSON | COMPANY
+  name          String
+  tradeName     String?  @map("trade_name")
+  email         String?
+  phone         String?
+  phone2        String?  @map("phone2")
+  whatsapp      String?  @map("whatsapp")
+  cpfCnpj       String?  @map("cpf_cnpj")
+  address       String?
+  city          String?
+  state         String?
+  zipCode       String?  @map("zip_code")
+  // Contato principal (PJ)
+  contactName   String?  @map("contact_name")
+  contactRole   String?  @map("contact_role")
+  contactEmail  String?  @map("contact_email")
+  contactPhone  String?  @map("contact_phone")
+  notes         String?
+  isActive      Boolean  @default(true) @map("is_active")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
 
-  company              Company               @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  projects             Project[]
+  company               Company               @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  createdBy             User?                 @relation("ClientCreatedBy", fields: [createdById], references: [id])
+  projects              Project[]
   financialTransactions FinancialTransaction[]
 
   @@map("clients")
 }
 
 model Supplier {
-  id           String   @id @default(cuid())
-  companyId    String   @map("company_id")
-  name         String
-  email        String?
-  phone        String?
-  cnpj         String?
-  category     String?
-  address      String?
-  city         String?
-  state        String?
-  contactName  String?  @map("contact_name")
-  notes        String?
-  isActive     Boolean  @default(true) @map("is_active")
-  createdAt    DateTime @default(now()) @map("created_at")
-  updatedAt    DateTime @updatedAt @map("updated_at")
+  id            String   @id @default(cuid())
+  companyId     String   @map("company_id")
+  createdById   String?  @map("created_by_id")
+  type          String   @default("COMPANY") @map("type") // PERSON | COMPANY
+  name          String
+  tradeName     String?  @map("trade_name")
+  email         String?
+  phone         String?
+  phone2        String?  @map("phone2")
+  whatsapp      String?  @map("whatsapp")
+  cnpj          String?                                   // legado — usar cpfCnpj para novas entradas
+  cpfCnpj       String?  @map("cpf_cnpj")                // CPF (PF) ou CNPJ (PJ)
+  category      String?  @map("category")                // MATERIAL | LABOR | SERVICE | EQUIPMENT | TRANSPORT | OTHER
+  address       String?
+  city          String?
+  state         String?
+  zipCode       String?  @map("zip_code")
+  contactName   String?  @map("contact_name")
+  contactRole   String?  @map("contact_role")
+  contactEmail  String?  @map("contact_email")
+  contactPhone  String?  @map("contact_phone")
+  // Campos PF (autônomo)
+  profession    String?  @map("profession")
+  crea          String?  @map("crea")
+  // Campos PJ
+  stateRegistration     String? @map("state_registration")
+  municipalRegistration String? @map("municipal_registration")
+  // Dados bancários (para conciliação)
+  bankName      String?  @map("bank_name")
+  bankCode      String?  @map("bank_code")
+  bankAgency    String?  @map("bank_agency")
+  bankAccount   String?  @map("bank_account")
+  bankAccountType String? @map("bank_account_type")
+  pixKey        String?  @map("pix_key")
+  pixKeyType    String?  @map("pix_key_type")
+  rating        Int?     @map("rating")
+  notes         String?
+  isActive      Boolean  @default(true) @map("is_active")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
 
   company               Company               @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  createdBy             User?                 @relation("SupplierCreatedBy", fields: [createdById], references: [id])
   purchaseOrders        PurchaseOrder[]
   purchaseQuotations    PurchaseQuotation[]
   financialTransactions FinancialTransaction[]
@@ -740,16 +780,16 @@ model RecurringTransaction {
 /// Log de auditoria financeira por lançamento
 model FinancialAuditLog {
   id            String   @id @default(cuid())
-  transactionId String   @map("transaction_id")
-  userId        String   @map("user_id")
+  transactionId String?  @map("transaction_id")   // nullable para manter logs mesmo se tx for deletada
+  userId        String?  @map("user_id")           // nullable caso usuário seja removido
   action        String   // CREATED | EDITED | PAID | CANCELLED | DELETED | RECONCILED
   previousData  Json?    @map("previous_data")
   newData       Json?    @map("new_data")
   ipAddress     String?  @map("ip_address")
   createdAt     DateTime @default(now()) @map("created_at")
 
-  transaction FinancialTransaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
-  user        User                  @relation(fields: [userId], references: [id])
+  transaction FinancialTransaction? @relation(fields: [transactionId], references: [id], onDelete: SetNull)
+  user        User?                  @relation(fields: [userId], references: [id])
 
   @@map("financial_audit_logs")
 }

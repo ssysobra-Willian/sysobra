@@ -4,6 +4,7 @@ import {
   type DashboardFilters,
   type DashboardData,
   type ApiDashboardResponse,
+  type AuditLogEntry,
   type CashflowPoint,
   type BalancePoint,
   type ExpenseCategory,
@@ -68,26 +69,58 @@ function transformDashboard(api: ApiDashboardResponse): DashboardData {
   // ── top obras ─────────────────────────────────────────────────────────────
   const topObras = api.topProjectsByExpense.map((p) => ({ name: p.name, valor: p.total }))
 
-  // ── atividades recentes ───────────────────────────────────────────────────
-  const activities: Transaction[] = api.recentTransactions.map((tx) => {
-    const rawDate = tx.createdAt ?? tx.referenceDate ?? tx.paidAt ?? null
-    const isoDate = rawDate ? new Date(rawDate) : new Date()
+  // ── atividades recentes — audit log imutável ─────────────────────────────
+  const ACTION_ICONS: Record<string, string> = {
+    CREATED:    '➕',
+    EDITED:     '✏️',
+    PAID:       '✅',
+    CANCELLED:  '❌',
+    DELETED:    '🗑️',
+    RECONCILED: '🔄',
+  }
+  const ACTION_LABELS: Record<string, string> = {
+    CREATED:    'Criou',
+    EDITED:     'Editou',
+    PAID:       'Pagou',
+    CANCELLED:  'Cancelou',
+    DELETED:    'Excluiu',
+    RECONCILED: 'Conciliou',
+  }
+
+  const activities: Transaction[] = (api.recentAuditLogs ?? []).map((log: AuditLogEntry) => {
+    const isoDate = log.createdAt ? new Date(log.createdAt) : new Date()
     const date    = isoDate.toISOString().split('T')[0]
     const time    = isoDate.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+
+    // Descrição e valor: prioridade newData → previousData → transaction
+    const nd  = log.newData       as Record<string, unknown> | null
+    const pd  = log.previousData  as Record<string, unknown> | null
+    const tx  = log.transaction
+
+    const desc    = (nd?.description ?? pd?.description ?? tx?.description ?? 'Lançamento') as string
+    const amount  = Number(nd?.netAmount ?? pd?.netAmount ?? tx?.netAmount ?? 0)
+    const txType  = ((nd?.type ?? pd?.type ?? tx?.type ?? 'EXPENSE') as string)
+    const catName = (nd?.categoryName ?? pd?.categoryName ?? tx?.category?.name ?? 'Financeiro') as string
+    const catIcon = tx?.category?.icon as string | null | undefined
+
+    const actionLabel = ACTION_LABELS[log.action] ?? log.action
+    const deleted     = !tx?.isActive
+    const fullDesc    = `${actionLabel}: ${desc}${deleted ? ' (excluído)' : ''}`
+
     return {
-      id:          tx.id,
+      id:          log.id,
       date,
       time,
-      type:        tx.type === 'INCOME' ? 'entrada' : 'saida',
-      amount:      Number(tx.netAmount),
-      account:     tx.bankAccount?.name ?? '',
+      type:        txType === 'INCOME' ? 'entrada' : 'saida',
+      amount,
+      account:     '',
       projectId:   '',
       projectName: '',
-      category:    tx.category?.name ?? 'Financeiro',
-      description: tx.description,
-      icon:        tx.category?.icon ?? (tx.type === 'INCOME' ? '💰' : '📤'),
+      category:    catName,
+      description: fullDesc,
+      icon:        ACTION_ICONS[log.action] ?? catIcon ?? '📋',
       module:      'Financeiro',
-      createdBy:   tx.createdBy ?? null,
+      createdBy:   log.user ?? null,
     }
   })
 
