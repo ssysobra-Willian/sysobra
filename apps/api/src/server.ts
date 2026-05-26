@@ -3,13 +3,21 @@ import cors from '@fastify/cors'
 import jwt from '@fastify/jwt'
 import helmet from '@fastify/helmet'
 import rateLimit from '@fastify/rate-limit'
-
+import multipart from '@fastify/multipart'
+import staticFiles from '@fastify/static'
 import { FastifyRequest, FastifyReply } from 'fastify'
+import path from 'path'
+
 import { authRoutes } from './routes/v1/auth.routes'
 import { userRoutes } from './routes/v1/user.routes'
 import { companyRoutes } from './routes/v1/company.routes'
 import { projectRoutes } from './routes/v1/project.routes'
+import { memberRoutes } from './routes/v1/member.routes'
+import { diaryRoutes }      from './routes/v1/diary.routes'
+import { financialRoutes }  from './routes/v1/financial.routes'
+import { stripeRoutes }     from './routes/stripe'
 import { env } from './utils/env'
+import { prisma } from '@sysobra/database'
 
 const app = Fastify({
   logger: {
@@ -25,7 +33,7 @@ const app = Fastify({
 })
 
 async function bootstrap() {
-  // Plugins de segurança
+  // ── Segurança ────────────────────────────────────────────────────────────
   await app.register(helmet, { global: true })
 
   await app.register(rateLimit, {
@@ -33,20 +41,20 @@ async function bootstrap() {
     timeWindow: '1 minute',
   })
 
-  // CORS
+  // ── CORS ─────────────────────────────────────────────────────────────────
   await app.register(cors, {
     origin: env.ALLOWED_ORIGINS.split(','),
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   })
 
-  // JWT
+  // ── JWT ──────────────────────────────────────────────────────────────────
   await app.register(jwt, {
     secret: env.JWT_SECRET,
     sign: { expiresIn: '7d' },
   })
 
-  // Decorator de autenticação
+  // ── Authenticate decorator ───────────────────────────────────────────────
   app.decorate('authenticate', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       await request.jwtVerify()
@@ -55,18 +63,90 @@ async function bootstrap() {
     }
   })
 
-  // Health check
-  app.get('/health', async () => {
-    return { status: 'ok', timestamp: new Date().toISOString(), env: env.NODE_ENV }
+  // ── Multipart (upload de arquivos) ───────────────────────────────────────
+  await app.register(multipart, {
+    limits: { fileSize: 2 * 1024 * 1024 }, // 2 MB
   })
 
-  // Rotas v1
+  // ── Arquivos estáticos (uploads) ─────────────────────────────────────────
+  const uploadsDir = path.join(process.cwd(), 'uploads')
+  await app.register(staticFiles, {
+    root: uploadsDir,
+    prefix: '/uploads/',
+    decorateReply: false,
+  })
+
+  // ── Health check ─────────────────────────────────────────────────────────
+  app.get('/health', async () => ({
+    status: 'ok',
+    timestamp: new Date().toISOString(),
+    env: env.NODE_ENV,
+  }))
+
+  // ── Rota pública: verificação de lançamento por hash ─────────────────────
+  // Sem autenticação — usada pelo QR code / link público de recibo
+  app.get('/api/financial/verify/:hash', async (request, reply) => {
+    const { hash } = request.params as { hash: string }
+
+    const tx = await (prisma as any).financialTransaction.findFirst({
+      where: { transactionHash: hash },
+      select: {
+        id: true,
+        description: true,
+        type: true,
+        status: true,
+        isPaid: true,
+        netAmount: true,
+        grossAmount: true,
+        dueDate: true,
+        paidAt: true,
+        referenceDate: true,
+        transactionNumber: true,
+        transactionHash: true,
+        createdAt: true,
+        company: { select: { name: true, cnpj: true } },
+        category: { select: { name: true, color: true } },
+        client:   { select: { name: true } },
+        supplier: { select: { name: true } },
+      },
+    })
+
+    if (!tx) return reply.status(404).send({ valid: false, error: 'Lançamento não encontrado ou hash inválido' })
+
+    return reply.send({
+      valid: true,
+      transactionNumber: tx.transactionNumber,
+      transactionHash:   tx.transactionHash,
+      description:       tx.description,
+      type:              tx.type,
+      status:            tx.status,
+      isPaid:            tx.isPaid,
+      netAmount:         Number(tx.netAmount),
+      grossAmount:       Number(tx.grossAmount),
+      dueDate:           tx.dueDate,
+      paidAt:            tx.paidAt,
+      referenceDate:     tx.referenceDate,
+      createdAt:         tx.createdAt,
+      company:           tx.company,
+      category:          tx.category,
+      client:            tx.client,
+      supplier:          tx.supplier,
+    })
+  })
+
+  // ── Rotas v1 ─────────────────────────────────────────────────────────────
   await app.register(authRoutes, { prefix: '/api/v1/auth' })
   await app.register(userRoutes, { prefix: '/api/v1/users' })
   await app.register(companyRoutes, { prefix: '/api/v1/companies' })
   await app.register(projectRoutes, { prefix: '/api/v1/projects' })
+  await app.register(memberRoutes, { prefix: '/api/v1/company' })
+  await app.register(diaryRoutes,     { prefix: '/api/v1/diary' })
+  await app.register(financialRoutes, { prefix: '/api/financial' })
 
-  // Inicia o servidor
+  // ── Rotas Stripe ─────────────────────────────────────────────────────────
+  await app.register(stripeRoutes, { prefix: '/api/stripe' })
+
+  // ── Start ─────────────────────────────────────────────────────────────────
   const port = parseInt(env.PORT, 10)
   const host = env.HOST
 
