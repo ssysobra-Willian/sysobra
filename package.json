@@ -1,0 +1,29 @@
+{
+  "name": "sysobra",
+  "version": "1.0.0",
+  "private": true,
+  "description": "SaaS de gestão de obras para construtoras brasileiras",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "turbo run dev",
+    "build": "turbo run build",
+    "lint": "turbo run lint",
+    "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md}\"",
+    "db:generate": "turbo run db:generate",
+    "db:migrate": "turbo run db:migrate",
+    "db:studio": "turbo run db:studio"
+  },
+  "devDependencies": {
+    "turbo": "^2.0.0",
+    "prettier": "^3.3.0",
+    "typescript": "^5.5.0"
+  },
+  "packageManager": "npm@11.13.0",
+  "engines": {
+    "node": ">=20.0.0",
+    "npm": ">=10.0.0"
+  }
+}

@@ -1,0 +1,863 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────
+// ENUMS
+// ─────────────────────────────────────────
+
+enum UserRole {
+  SUPER_ADMIN
+  ADMIN
+  MANAGER
+  ENGINEER
+  TECHNICIAN
+  WORKER
+  FINANCIAL
+  VIEWER
+}
+
+enum CompanyPlan {
+  FREE
+  STARTER
+  PROFESSIONAL
+  ENTERPRISE
+}
+
+enum InviteStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+  EXPIRED
+}
+
+enum ProjectStatus {
+  PLANNING
+  IN_PROGRESS
+  ON_HOLD
+  COMPLETED
+  CANCELLED
+}
+
+enum ProjectStageStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum TransactionType {
+  INCOME
+  EXPENSE
+  TRANSFER
+}
+
+enum TransactionStatus {
+  PENDING
+  PAID
+  CANCELLED
+  OVERDUE
+}
+
+enum StockMovementType {
+  IN
+  OUT
+  ADJUSTMENT
+  TRANSFER
+}
+
+enum ToolMovementType {
+  CHECKOUT
+  RETURN
+  MAINTENANCE
+  LOST
+}
+
+enum PurchaseOrderStatus {
+  DRAFT
+  SENT
+  PARTIALLY_RECEIVED
+  RECEIVED
+  CANCELLED
+}
+
+enum VehicleStatus {
+  ACTIVE
+  MAINTENANCE
+  INACTIVE
+}
+
+enum ProblemStatus {
+  OPEN
+  IN_PROGRESS
+  RESOLVED
+  CLOSED
+}
+
+enum ProblemPriority {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum DocumentType {
+  CONTRACT
+  REPORT
+  BLUEPRINT
+  PERMIT
+  CERTIFICATE
+  INVOICE
+  OTHER
+}
+
+enum SignatureStatus {
+  PENDING
+  SIGNED
+  REJECTED
+}
+
+// ─────────────────────────────────────────
+// USUÁRIOS & AUTENTICAÇÃO
+// ─────────────────────────────────────────
+
+model User {
+  id           String    @id @default(cuid())
+  name         String
+  email        String    @unique
+  passwordHash String?   @map("password_hash")
+  avatarUrl    String?   @map("avatar_url")
+  phone        String?
+  cpf          String?   @unique
+  isActive     Boolean   @default(true) @map("is_active")
+  emailVerifiedAt DateTime? @map("email_verified_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  sessions       Session[]
+  companyMembers CompanyMember[]
+  invitesSent    Invite[]        @relation("InviteSender")
+  invitesReceived Invite[]       @relation("InviteReceiver")
+  auditLogs      AuditLog[]
+  signatures     Signature[]
+  epiDeliveries  EpiDelivery[]   @relation("EpiResponsible")
+  toolMovements  ToolMovement[]  @relation("ToolResponsible")
+  diaryEntries   DiaryEntry[]
+  problemComments ProblemComment[]
+
+  @@map("users")
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  userId    String   @map("user_id")
+  token     String   @unique
+  userAgent String?  @map("user_agent")
+  ipAddress String?  @map("ip_address")
+  expiresAt DateTime @map("expires_at")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("sessions")
+}
+
+// ─────────────────────────────────────────
+// EMPRESA (TENANT)
+// ─────────────────────────────────────────
+
+model Company {
+  id          String      @id @default(cuid())
+  name        String
+  cnpj        String?     @unique
+  logo        String?
+  address     String?
+  city        String?
+  state       String?
+  zipCode     String?     @map("zip_code")
+  phone       String?
+  email       String?
+  website     String?
+  plan        CompanyPlan @default(FREE)
+  isActive    Boolean     @default(true) @map("is_active")
+  trialEndsAt DateTime?   @map("trial_ends_at")
+  createdAt   DateTime    @default(now()) @map("created_at")
+  updatedAt   DateTime    @updatedAt @map("updated_at")
+
+  members      CompanyMember[]
+  invites      Invite[]
+  addons       CompanyAddon[]
+  projects     Project[]
+  clients      Client[]
+  suppliers    Supplier[]
+  bankAccounts BankAccount[]
+  transactions Transaction[]
+  employees    Employee[]
+  stockItems   StockItem[]
+  vehicles     Vehicle[]
+  problems     Problem[]
+  documents    Document[]
+  documentTemplates DocumentTemplate[]
+  auditLogs    AuditLog[]
+  purchaseMaps PurchaseMap[]
+  ddsThemes    DdsTheme[]
+
+  @@map("companies")
+}
+
+model CompanyMember {
+  id        String   @id @default(cuid())
+  companyId String   @map("company_id")
+  userId    String   @map("user_id")
+  role      UserRole @default(VIEWER)
+  joinedAt  DateTime @default(now()) @map("joined_at")
+  isActive  Boolean  @default(true) @map("is_active")
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, userId])
+  @@map("company_members")
+}
+
+model Invite {
+  id         String       @id @default(cuid())
+  companyId  String       @map("company_id")
+  senderId   String       @map("sender_id")
+  receiverId String?      @map("receiver_id")
+  email      String
+  role       UserRole     @default(VIEWER)
+  token      String       @unique @default(cuid())
+  status     InviteStatus @default(PENDING)
+  expiresAt  DateTime     @map("expires_at")
+  createdAt  DateTime     @default(now()) @map("created_at")
+  updatedAt  DateTime     @updatedAt @map("updated_at")
+
+  company  Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  sender   User     @relation("InviteSender", fields: [senderId], references: [id])
+  receiver User?    @relation("InviteReceiver", fields: [receiverId], references: [id])
+
+  @@map("invites")
+}
+
+model CompanyAddon {
+  id        String   @id @default(cuid())
+  companyId String   @map("company_id")
+  addonKey  String   @map("addon_key")
+  isEnabled Boolean  @default(true) @map("is_enabled")
+  config    Json?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, addonKey])
+  @@map("company_addons")
+}
+
+// ─────────────────────────────────────────
+// PROJETOS / OBRAS
+// ─────────────────────────────────────────
+
+model Project {
+  id           String        @id @default(cuid())
+  companyId    String        @map("company_id")
+  clientId     String?       @map("client_id")
+  name         String
+  description  String?
+  address      String?
+  city         String?
+  state        String?
+  status       ProjectStatus @default(PLANNING)
+  startDate    DateTime?     @map("start_date")
+  endDate      DateTime?     @map("end_date")
+  budget       Decimal?      @db.Decimal(15, 2)
+  contractValue Decimal?     @db.Decimal(15, 2) @map("contract_value")
+  coverImage   String?       @map("cover_image")
+  createdAt    DateTime      @default(now()) @map("created_at")
+  updatedAt    DateTime      @updatedAt @map("updated_at")
+
+  company      Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  client       Client?        @relation(fields: [clientId], references: [id])
+  stages       ProjectStage[]
+  transactions Transaction[]
+  stockMovements StockMovement[]
+  toolMovements  ToolMovement[]
+  problems     Problem[]
+  diaryEntries DiaryEntry[]
+  documents    Document[]
+  purchaseMaps PurchaseMap[]
+
+  @@map("projects")
+}
+
+model ProjectStage {
+  id          String            @id @default(cuid())
+  projectId   String            @map("project_id")
+  name        String
+  description String?
+  order       Int               @default(0)
+  status      ProjectStageStatus @default(PENDING)
+  startDate   DateTime?         @map("start_date")
+  endDate     DateTime?         @map("end_date")
+  progress    Int               @default(0)
+  createdAt   DateTime          @default(now()) @map("created_at")
+  updatedAt   DateTime          @updatedAt @map("updated_at")
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@map("project_stages")
+}
+
+// ─────────────────────────────────────────
+// CLIENTES & FORNECEDORES
+// ─────────────────────────────────────────
+
+model Client {
+  id        String   @id @default(cuid())
+  companyId String   @map("company_id")
+  name      String
+  email     String?
+  phone     String?
+  cpfCnpj   String?  @map("cpf_cnpj")
+  address   String?
+  city      String?
+  state     String?
+  notes     String?
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  company  Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  projects Project[]
+
+  @@map("clients")
+}
+
+model Supplier {
+  id           String   @id @default(cuid())
+  companyId    String   @map("company_id")
+  name         String
+  email        String?
+  phone        String?
+  cnpj         String?
+  category     String?
+  address      String?
+  city         String?
+  state        String?
+  contactName  String?  @map("contact_name")
+  notes        String?
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  company          Company            @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  purchaseOrders   PurchaseOrder[]
+  purchaseQuotations PurchaseQuotation[]
+
+  @@map("suppliers")
+}
+
+// ─────────────────────────────────────────
+// FINANCEIRO
+// ─────────────────────────────────────────
+
+model BankAccount {
+  id            String   @id @default(cuid())
+  companyId     String   @map("company_id")
+  name          String
+  bank          String?
+  agency        String?
+  accountNumber String?  @map("account_number")
+  accountType   String?  @map("account_type")
+  balance       Decimal  @default(0) @db.Decimal(15, 2)
+  isActive      Boolean  @default(true) @map("is_active")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  company      Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  transactions Transaction[]
+
+  @@map("bank_accounts")
+}
+
+model Transaction {
+  id            String            @id @default(cuid())
+  companyId     String            @map("company_id")
+  projectId     String?           @map("project_id")
+  bankAccountId String?           @map("bank_account_id")
+  type          TransactionType
+  status        TransactionStatus @default(PENDING)
+  description   String
+  amount        Decimal           @db.Decimal(15, 2)
+  dueDate       DateTime?         @map("due_date")
+  paidAt        DateTime?         @map("paid_at")
+  category      String?
+  tags          String[]
+  notes         String?
+  attachmentUrl String?           @map("attachment_url")
+  createdAt     DateTime          @default(now()) @map("created_at")
+  updatedAt     DateTime          @updatedAt @map("updated_at")
+
+  company     Company      @relation(fields: [companyId], references: [id])
+  project     Project?     @relation(fields: [projectId], references: [id])
+  bankAccount BankAccount? @relation(fields: [bankAccountId], references: [id])
+
+  @@map("transactions")
+}
+
+// ─────────────────────────────────────────
+// RH — FUNCIONÁRIOS
+// ─────────────────────────────────────────
+
+model Employee {
+  id           String    @id @default(cuid())
+  companyId    String    @map("company_id")
+  name         String
+  cpf          String?
+  rg           String?
+  position     String?
+  department   String?
+  salary       Decimal?  @db.Decimal(10, 2)
+  admissionDate DateTime? @map("admission_date")
+  dismissalDate DateTime? @map("dismissal_date")
+  phone        String?
+  email        String?
+  address      String?
+  city         String?
+  state        String?
+  bloodType    String?   @map("blood_type")
+  emergencyContact String? @map("emergency_contact")
+  isActive     Boolean   @default(true) @map("is_active")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  company      Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  epiDeliveries EpiDelivery[]
+  toolMovements ToolMovement[] @relation("ToolEmployee")
+
+  @@map("employees")
+}
+
+// ─────────────────────────────────────────
+// ESTOQUE
+// ─────────────────────────────────────────
+
+model StockItem {
+  id          String   @id @default(cuid())
+  companyId   String   @map("company_id")
+  name        String
+  description String?
+  category    String?
+  unit        String   @default("un")
+  quantity    Decimal  @default(0) @db.Decimal(10, 3)
+  minQuantity Decimal  @default(0) @db.Decimal(10, 3) @map("min_quantity")
+  unitCost    Decimal? @db.Decimal(10, 2) @map("unit_cost")
+  location    String?
+  code        String?
+  imageUrl    String?  @map("image_url")
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  company   Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  movements StockMovement[]
+  purchaseMapItems PurchaseMapItem[]
+
+  @@map("stock_items")
+}
+
+model StockMovement {
+  id          String            @id @default(cuid())
+  stockItemId String            @map("stock_item_id")
+  projectId   String?           @map("project_id")
+  type        StockMovementType
+  quantity    Decimal           @db.Decimal(10, 3)
+  unitCost    Decimal?          @db.Decimal(10, 2) @map("unit_cost")
+  reason      String?
+  notes       String?
+  createdAt   DateTime          @default(now()) @map("created_at")
+
+  stockItem StockItem @relation(fields: [stockItemId], references: [id], onDelete: Cascade)
+  project   Project?  @relation(fields: [projectId], references: [id])
+
+  @@map("stock_movements")
+}
+
+// ─────────────────────────────────────────
+// EPI — Equipamentos de Proteção Individual
+// ─────────────────────────────────────────
+
+model EpiDelivery {
+  id            String   @id @default(cuid())
+  employeeId    String   @map("employee_id")
+  responsibleId String   @map("responsible_id")
+  epiName       String   @map("epi_name")
+  epiCode       String?  @map("epi_code")
+  quantity      Int      @default(1)
+  deliveredAt   DateTime @default(now()) @map("delivered_at")
+  returnedAt    DateTime? @map("returned_at")
+  condition     String?
+  notes         String?
+  signatureUrl  String?  @map("signature_url")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  employee    Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  responsible User     @relation("EpiResponsible", fields: [responsibleId], references: [id])
+
+  @@map("epi_deliveries")
+}
+
+// ─────────────────────────────────────────
+// FERRAMENTAS & EQUIPAMENTOS
+// ─────────────────────────────────────────
+
+model ToolMovement {
+  id            String           @id @default(cuid())
+  companyId     String           @map("company_id")
+  employeeId    String?          @map("employee_id")
+  responsibleId String           @map("responsible_id")
+  toolName      String           @map("tool_name")
+  toolCode      String?          @map("tool_code")
+  type          ToolMovementType
+  projectId     String?          @map("project_id")
+  checkedOutAt  DateTime?        @map("checked_out_at")
+  returnedAt    DateTime?        @map("returned_at")
+  condition     String?
+  notes         String?
+  createdAt     DateTime         @default(now()) @map("created_at")
+
+  employee    Employee? @relation("ToolEmployee", fields: [employeeId], references: [id])
+  responsible User      @relation("ToolResponsible", fields: [responsibleId], references: [id])
+  project     Project?  @relation(fields: [projectId], references: [id])
+
+  @@map("tool_movements")
+}
+
+// ─────────────────────────────────────────
+// MAPA DE COMPRAS / COTAÇÕES / PEDIDOS
+// ─────────────────────────────────────────
+
+model PurchaseMap {
+  id          String   @id @default(cuid())
+  companyId   String   @map("company_id")
+  projectId   String?  @map("project_id")
+  name        String
+  description String?
+  status      String   @default("draft")
+  dueDate     DateTime? @map("due_date")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  company    Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  project    Project?          @relation(fields: [projectId], references: [id])
+  items      PurchaseMapItem[]
+  quotations PurchaseQuotation[]
+  orders     PurchaseOrder[]
+
+  @@map("purchase_maps")
+}
+
+model PurchaseMapItem {
+  id            String  @id @default(cuid())
+  purchaseMapId String  @map("purchase_map_id")
+  stockItemId   String? @map("stock_item_id")
+  name          String
+  unit          String  @default("un")
+  quantity      Decimal @db.Decimal(10, 3)
+  notes         String?
+
+  purchaseMap PurchaseMap @relation(fields: [purchaseMapId], references: [id], onDelete: Cascade)
+  stockItem   StockItem?  @relation(fields: [stockItemId], references: [id])
+
+  @@map("purchase_map_items")
+}
+
+model PurchaseQuotation {
+  id            String   @id @default(cuid())
+  purchaseMapId String   @map("purchase_map_id")
+  supplierId    String   @map("supplier_id")
+  totalAmount   Decimal? @db.Decimal(15, 2) @map("total_amount")
+  validUntil    DateTime? @map("valid_until")
+  notes         String?
+  attachmentUrl String?  @map("attachment_url")
+  isSelected    Boolean  @default(false) @map("is_selected")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  purchaseMap PurchaseMap @relation(fields: [purchaseMapId], references: [id], onDelete: Cascade)
+  supplier    Supplier    @relation(fields: [supplierId], references: [id])
+
+  @@map("purchase_quotations")
+}
+
+model PurchaseOrder {
+  id            String              @id @default(cuid())
+  purchaseMapId String              @map("purchase_map_id")
+  supplierId    String              @map("supplier_id")
+  status        PurchaseOrderStatus @default(DRAFT)
+  totalAmount   Decimal             @db.Decimal(15, 2) @map("total_amount")
+  expectedAt    DateTime?           @map("expected_at")
+  receivedAt    DateTime?           @map("received_at")
+  notes         String?
+  createdAt     DateTime            @default(now()) @map("created_at")
+  updatedAt     DateTime            @updatedAt @map("updated_at")
+
+  purchaseMap PurchaseMap @relation(fields: [purchaseMapId], references: [id], onDelete: Cascade)
+  supplier    Supplier    @relation(fields: [supplierId], references: [id])
+
+  @@map("purchase_orders")
+}
+
+// ─────────────────────────────────────────
+// VEÍCULOS
+// ─────────────────────────────────────────
+
+model Vehicle {
+  id           String        @id @default(cuid())
+  companyId    String        @map("company_id")
+  name         String
+  plate        String?       @unique
+  brand        String?
+  model        String?
+  year         Int?
+  color        String?
+  chassi       String?
+  renavam      String?
+  status       VehicleStatus @default(ACTIVE)
+  currentKm    Int           @default(0) @map("current_km")
+  imageUrl     String?       @map("image_url")
+  createdAt    DateTime      @default(now()) @map("created_at")
+  updatedAt    DateTime      @updatedAt @map("updated_at")
+
+  company       Company              @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  maintenances  VehicleMaintenance[]
+  refuels       VehicleRefuel[]
+
+  @@map("vehicles")
+}
+
+model VehicleMaintenance {
+  id          String   @id @default(cuid())
+  vehicleId   String   @map("vehicle_id")
+  description String
+  cost        Decimal? @db.Decimal(10, 2)
+  km          Int?
+  provider    String?
+  date        DateTime @default(now())
+  nextDate    DateTime? @map("next_date")
+  nextKm      Int?     @map("next_km")
+  notes       String?
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  vehicle Vehicle @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+
+  @@map("vehicle_maintenances")
+}
+
+model VehicleRefuel {
+  id          String   @id @default(cuid())
+  vehicleId   String   @map("vehicle_id")
+  fuelType    String   @map("fuel_type")
+  liters      Decimal  @db.Decimal(8, 3)
+  pricePerLiter Decimal @db.Decimal(8, 3) @map("price_per_liter")
+  totalCost   Decimal  @db.Decimal(10, 2) @map("total_cost")
+  km          Int?
+  station     String?
+  date        DateTime @default(now())
+  notes       String?
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  vehicle Vehicle @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+
+  @@map("vehicle_refuels")
+}
+
+// ─────────────────────────────────────────
+// PROBLEMAS / OCORRÊNCIAS
+// ─────────────────────────────────────────
+
+model Problem {
+  id          String          @id @default(cuid())
+  companyId   String          @map("company_id")
+  projectId   String?         @map("project_id")
+  reportedById String         @map("reported_by_id")
+  title       String
+  description String
+  status      ProblemStatus   @default(OPEN)
+  priority    ProblemPriority @default(MEDIUM)
+  category    String?
+  imageUrls   String[]        @map("image_urls")
+  resolvedAt  DateTime?       @map("resolved_at")
+  createdAt   DateTime        @default(now()) @map("created_at")
+  updatedAt   DateTime        @updatedAt @map("updated_at")
+
+  company  Company          @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  project  Project?         @relation(fields: [projectId], references: [id])
+  comments ProblemComment[]
+
+  @@map("problems")
+}
+
+model ProblemComment {
+  id        String   @id @default(cuid())
+  problemId String   @map("problem_id")
+  userId    String   @map("user_id")
+  content   String
+  imageUrls String[] @map("image_urls")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  problem Problem @relation(fields: [problemId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id])
+
+  @@map("problem_comments")
+}
+
+// ─────────────────────────────────────────
+// DIÁRIO DE OBRA
+// ─────────────────────────────────────────
+
+model DiaryEntry {
+  id           String   @id @default(cuid())
+  projectId    String   @map("project_id")
+  authorId     String   @map("author_id")
+  date         DateTime @default(now())
+  weather      String?
+  temperature  Decimal? @db.Decimal(4, 1)
+  workers      Int?
+  activities   String?
+  observations String?
+  imageUrls    String[] @map("image_urls")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  author  User    @relation(fields: [authorId], references: [id])
+
+  @@map("diary_entries")
+}
+
+// ─────────────────────────────────────────
+// DOCUMENTOS & ASSINATURAS
+// ─────────────────────────────────────────
+
+model Document {
+  id          String       @id @default(cuid())
+  companyId   String       @map("company_id")
+  projectId   String?      @map("project_id")
+  templateId  String?      @map("template_id")
+  title       String
+  type        DocumentType @default(OTHER)
+  content     String?      @db.Text
+  fileUrl     String?      @map("file_url")
+  tags        String[]
+  isPublished Boolean      @default(false) @map("is_published")
+  expiresAt   DateTime?    @map("expires_at")
+  createdAt   DateTime     @default(now()) @map("created_at")
+  updatedAt   DateTime     @updatedAt @map("updated_at")
+
+  company    Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  project    Project?          @relation(fields: [projectId], references: [id])
+  template   DocumentTemplate? @relation(fields: [templateId], references: [id])
+  signatures Signature[]
+
+  @@map("documents")
+}
+
+model DocumentTemplate {
+  id          String       @id @default(cuid())
+  companyId   String       @map("company_id")
+  name        String
+  type        DocumentType @default(OTHER)
+  content     String       @db.Text
+  variables   Json?
+  isActive    Boolean      @default(true) @map("is_active")
+  createdAt   DateTime     @default(now()) @map("created_at")
+  updatedAt   DateTime     @updatedAt @map("updated_at")
+
+  company   Company    @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  documents Document[]
+
+  @@map("document_templates")
+}
+
+model Signature {
+  id          String          @id @default(cuid())
+  documentId  String          @map("document_id")
+  userId      String          @map("user_id")
+  status      SignatureStatus @default(PENDING)
+  signedAt    DateTime?       @map("signed_at")
+  signatureData String?       @map("signature_data") @db.Text
+  ipAddress   String?         @map("ip_address")
+  token       String          @unique @default(cuid())
+  expiresAt   DateTime?       @map("expires_at")
+  createdAt   DateTime        @default(now()) @map("created_at")
+
+  document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  user     User     @relation(fields: [userId], references: [id])
+
+  @@map("signatures")
+}
+
+// ─────────────────────────────────────────
+// AUDITORIA
+// ─────────────────────────────────────────
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  companyId  String   @map("company_id")
+  userId     String   @map("user_id")
+  action     String
+  entity     String
+  entityId   String   @map("entity_id")
+  before     Json?
+  after      Json?
+  ipAddress  String?  @map("ip_address")
+  userAgent  String?  @map("user_agent")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  company Company @relation(fields: [companyId], references: [id])
+  user    User    @relation(fields: [userId], references: [id])
+
+  @@index([companyId, entity, entityId])
+  @@index([userId])
+  @@map("audit_logs")
+}
+
+// ─────────────────────────────────────────
+// CATÁLOGO GLOBAL & DDS
+// ─────────────────────────────────────────
+
+model GlobalMaterial {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  category    String?
+  unit        String   @default("un")
+  ncm         String?
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@map("global_materials")
+}
+
+model DdsTheme {
+  id          String   @id @default(cuid())
+  companyId   String?  @map("company_id")
+  title       String
+  content     String   @db.Text
+  category    String?
+  imageUrl    String?  @map("image_url")
+  isGlobal    Boolean  @default(false) @map("is_global")
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  company Company? @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@map("dds_themes")
+}

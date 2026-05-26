@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(New-Item *)",
+      "PowerShell(docker exec sysobra_postgres *)",
+      "PowerShell(cd C:\\\\projetos\\\\sysobra\\\\packages\\\\database; $env:DATABASE_URL=\"postgresql://sysobra:sysobra123@localhost:5432/sysobra\"; npx prisma migrate dev --name init --skip-seed 2>&1)",
+      "PowerShell(cd C:\\\\projetos\\\\sysobra\\\\packages\\\\database; $env:DATABASE_URL=\"postgresql://sysobra:sysobra123@127.0.0.1:5432/sysobra\"; npx prisma migrate dev --name init --skip-seed 2>&1)",
+      "PowerShell(npm *)",
+      "PowerShell(Get-NetTCPConnection *)"
+    ]
+  }
+}
