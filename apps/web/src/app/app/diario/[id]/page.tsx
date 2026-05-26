@@ -279,7 +279,11 @@ export default function DiarioDetailPage() {
       <PageHeader
         title={`Registro — ${fmtDate(entry.date)}`}
         subtitle={entry.project.name}
-        breadcrumb={['Diário de Obra', entry.project.name]}
+        breadcrumbs={[
+          { label: 'Diário de Obra', href: '/app/diario' },
+          { label: entry.project.name, href: '/app/diario' },
+          { label: fmtDate(entry.date) },
+        ]}
         actions={
           <div className="flex items-center gap-2 flex-wrap">
             {/* Editar — autor ou com permissão edit, se PENDING */}

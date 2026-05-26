@@ -8,6 +8,7 @@ import {
   TrendingUp, FileText, Briefcase, CheckCircle, XCircle,
   Plus, Pencil, ChevronRight, Sparkles, Download,
 } from 'lucide-react'
+import { Breadcrumb } from '@/components/ui/Breadcrumb'
 import {
   Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, Line, ComposedChart,
@@ -200,16 +201,16 @@ export default function ClienteDetailPage() {
 
   return (
     <div className="space-y-5">
-      {/* Breadcrumb + Header */}
+      {/* Breadcrumb */}
+      <Breadcrumb items={[
+        { label: 'Financeiro',  href: '/app/financeiro' },
+        { label: 'Clientes',    href: '/app/financeiro/clientes' },
+        { label: client.name },
+      ]} className="mb-1" />
+
+      {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <div className="flex items-center gap-2 text-sm text-gray-400 mb-1">
-            <Link href="/app/financeiro" className="hover:text-gray-600">Financeiro</Link>
-            <ChevronRight size={14} />
-            <Link href="/app/financeiro/clientes" className="hover:text-gray-600">Clientes</Link>
-            <ChevronRight size={14} />
-            <span className="text-gray-700 font-medium truncate max-w-[200px]">{client.name}</span>
-          </div>
           <h1 className="text-2xl font-bold text-gray-900">{client.name}</h1>
           {client.tradeName && <p className="text-sm text-gray-500">{client.tradeName}</p>}
         </div>

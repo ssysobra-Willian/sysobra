@@ -142,7 +142,11 @@ export default function EditarDiarioPage() {
       <PageHeader
         title="Editar registro"
         subtitle={projectName}
-        breadcrumb={['Diário de Obra', 'Editar registro']}
+        breadcrumbs={[
+          { label: 'Diário de Obra', href: '/app/diario' },
+          ...(projectName ? [{ label: projectName, href: '/app/diario' }] : []),
+          { label: 'Editar registro' },
+        ]}
       />
 
       <form onSubmit={handleSubmit} className="max-w-2xl space-y-5">

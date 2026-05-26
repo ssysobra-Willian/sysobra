@@ -10,6 +10,7 @@ import {
 import { TransactionModal } from '@/components/financial/TransactionModal'
 import { TransactionReceiptModal } from '@/components/financial/TransactionReceiptModal'
 import { TableActionMenu } from '@/components/ui/TableActionMenu'
+import { Breadcrumb } from '@/components/ui/Breadcrumb'
 import { useQueryClient } from '@tanstack/react-query'
 import { formatCurrency } from '@/lib/format'
 
@@ -308,6 +309,11 @@ export default function ContasPagarPage() {
 
   return (
     <div className="space-y-5">
+      {/* Breadcrumb */}
+      <Breadcrumb items={[
+        { label: 'Financeiro', href: '/app/financeiro' },
+        { label: 'Contas a Pagar' },
+      ]} />
 
       {/* ── Header ───────────────────────────────────────────────────── */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">

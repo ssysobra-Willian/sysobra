@@ -17,6 +17,7 @@ import {
 import { formatCurrency } from '@/lib/format'
 import { UserAvatar } from '@/components/ui/UserAvatar'
 import { TableActionMenu } from '@/components/ui/TableActionMenu'
+import { Breadcrumb } from '@/components/ui/Breadcrumb'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
 
@@ -532,16 +533,13 @@ export default function ObraDetailPage() {
   return (
     <div className="space-y-5">
       {/* ── Breadcrumb + Header ──────────────────────────────────────────── */}
+      <Breadcrumb items={[
+        { label: 'Centro de Custo', href: '/app/centro-de-custo' },
+        { label: 'Todas as obras',  href: '/app/centro-de-custo' },
+        { label: project.name },
+      ]} className="mb-1" />
+
       <div>
-        <div className="flex items-center gap-2 text-sm text-gray-500 mb-2">
-          <Link href="/app/centro-de-custo" className="hover:text-gray-900 flex items-center gap-1">
-            <ChevronLeft size={14} /> Centro de Custo
-          </Link>
-          <span>/</span>
-          <span className="text-gray-400">Todas as obras</span>
-          <span>/</span>
-          <span className="text-gray-900 font-medium truncate max-w-[200px]">{project.name}</span>
-        </div>
 
         <div className="flex items-start justify-between gap-4 flex-wrap">
           <div>

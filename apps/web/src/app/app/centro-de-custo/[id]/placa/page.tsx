@@ -7,6 +7,7 @@ import {
   ChevronLeft, Download, Printer, Eye, EyeOff, HardHat,
   Calendar, MapPin, Building2, User, Loader2,
 } from 'lucide-react'
+import { Breadcrumb } from '@/components/ui/Breadcrumb'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
 
@@ -246,15 +247,11 @@ export default function PlacaObraPage() {
   return (
     <div className="max-w-5xl mx-auto space-y-6">
       {/* ── Breadcrumb ─────────────────────────────────────────────────── */}
-      <div className="flex items-center gap-2 text-sm text-gray-500">
-        <Link href="/app/centro-de-custo" className="hover:text-gray-900 flex items-center gap-1">
-          <ChevronLeft size={14} /> Centro de Custo
-        </Link>
-        <span>/</span>
-        <Link href={`/app/centro-de-custo/${id}`} className="hover:text-gray-900">{data.projectName}</Link>
-        <span>/</span>
-        <span className="text-gray-900 font-medium">Placa de obra</span>
-      </div>
+      <Breadcrumb items={[
+        { label: 'Centro de Custo', href: '/app/centro-de-custo' },
+        { label: data.projectName,  href: `/app/centro-de-custo/${id}` },
+        { label: 'Placa de obra' },
+      ]} />
 
       <div>
         <h1 className="text-2xl font-bold text-gray-900">Gerador de placa de obra</h1>

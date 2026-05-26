@@ -16,6 +16,7 @@ import {
   ResponsiveContainer, Legend, Line, ComposedChart,
 } from 'recharts'
 import { formatCurrency, formatCurrencyCompact } from '@/lib/format'
+import { Breadcrumb } from '@/components/ui/Breadcrumb'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
 const fmt  = formatCurrency
@@ -255,16 +256,16 @@ export default function FornecedorDetailPage() {
   return (
     <div className="space-y-5">
 
-      {/* Breadcrumb + Header */}
+      {/* Breadcrumb */}
+      <Breadcrumb items={[
+        { label: 'Financeiro',    href: '/app/financeiro' },
+        { label: 'Fornecedores',  href: '/app/financeiro/fornecedores' },
+        { label: supplier.name },
+      ]} className="mb-1" />
+
+      {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <div className="flex items-center gap-2 text-sm text-gray-400 mb-1">
-            <Link href="/app/financeiro" className="hover:text-gray-600">Financeiro</Link>
-            <ChevronRight size={14} />
-            <Link href="/app/financeiro/fornecedores" className="hover:text-gray-600">Fornecedores</Link>
-            <ChevronRight size={14} />
-            <span className="text-gray-700 font-medium truncate max-w-[200px]">{supplier.name}</span>
-          </div>
           <h1 className="text-2xl font-bold text-gray-900">{supplier.name}</h1>
           {supplier.tradeName && <p className="text-sm text-gray-500">{supplier.tradeName}</p>}
         </div>

@@ -9,6 +9,7 @@ import {
 } from 'lucide-react'
 import { BankAccountModal } from '@/components/financial/BankAccountModal'
 import { TableActionMenu } from '@/components/ui/TableActionMenu'
+import { Breadcrumb } from '@/components/ui/Breadcrumb'
 import { formatCurrency } from '@/lib/format'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
@@ -383,6 +384,11 @@ export default function ContasBancariasPage() {
 
   return (
     <div className="space-y-5">
+      {/* Breadcrumb */}
+      <Breadcrumb items={[
+        { label: 'Financeiro', href: '/app/financeiro' },
+        { label: 'Contas Bancárias' },
+      ]} />
 
       {/* ── Header ────────────────────────────────────────────────────── */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">

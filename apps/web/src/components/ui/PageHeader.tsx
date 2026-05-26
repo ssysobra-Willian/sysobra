@@ -1,5 +1,6 @@
 import { HTMLAttributes, ReactNode } from 'react'
 import { cn } from '@/lib/utils'
+import { Breadcrumb, type BreadcrumbItem } from '@/components/ui/Breadcrumb'
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -8,7 +9,15 @@ interface PageHeaderProps extends HTMLAttributes<HTMLDivElement> {
   subtitle?:  string
   /** Slot para botões e ações no canto direito */
   actions?:   ReactNode
-  /** Breadcrumb simples (array de labels) */
+  /**
+   * Breadcrumb com links clicáveis.
+   * Substitui `breadcrumb` quando fornecido.
+   */
+  breadcrumbs?: BreadcrumbItem[]
+  /**
+   * Breadcrumb legado — apenas texto, sem links.
+   * @deprecated Prefira `breadcrumbs` com BreadcrumbItem[].
+   */
   breadcrumb?: string[]
   className?: string
 }
@@ -19,6 +28,7 @@ export function PageHeader({
   title,
   subtitle,
   actions,
+  breadcrumbs,
   breadcrumb,
   className,
   ...props
@@ -28,8 +38,13 @@ export function PageHeader({
       className={cn('mb-6', className)}
       {...props}
     >
-      {/* Breadcrumb */}
-      {breadcrumb && breadcrumb.length > 0 && (
+      {/* Breadcrumb com links (preferido) */}
+      {breadcrumbs && breadcrumbs.length > 0 && (
+        <Breadcrumb items={breadcrumbs} className="mb-2" />
+      )}
+
+      {/* Breadcrumb legado (só texto) */}
+      {!breadcrumbs && breadcrumb && breadcrumb.length > 0 && (
         <nav className="flex items-center gap-1.5 text-xs text-gray-400 dark:text-gray-500 mb-2">
           {breadcrumb.map((crumb, idx) => (
             <span key={idx} className="flex items-center gap-1.5">

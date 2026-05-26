@@ -12,6 +12,7 @@ import { TableActionMenu }  from '@/components/ui/TableActionMenu'
 import { MaskedInput }      from '@/components/ui/MaskedInput'
 import { AddressForm, type AddressData, EMPTY_ADDRESS } from '@/components/ui/AddressForm'
 import { BankSearchInput }  from '@/components/ui/BankSearchInput'
+import { Breadcrumb } from '@/components/ui/Breadcrumb'
 import { maskCpfCnpj, formatPhone } from '@/lib/validators'
 import { formatCurrency } from '@/lib/format'
 
@@ -479,6 +480,12 @@ export default function FornecedoresPage() {
 
   return (
     <div className="space-y-5">
+      {/* Breadcrumb */}
+      <Breadcrumb items={[
+        { label: 'Financeiro', href: '/app/financeiro' },
+        { label: 'Fornecedores' },
+      ]} />
+
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>

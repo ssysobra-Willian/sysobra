@@ -448,7 +448,10 @@ export default function UsuariosPage() {
       <PageHeader
         title="Usuários"
         subtitle="Gerencie membros, permissões e convites da empresa."
-        breadcrumb={['Configurações', 'Usuários']}
+        breadcrumbs={[
+          { label: 'Configurações', href: '/app/configuracoes' },
+          { label: 'Usuários' },
+        ]}
         actions={
           <Button
             onClick={() => {
