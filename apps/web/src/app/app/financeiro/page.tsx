@@ -12,14 +12,24 @@ import {
   RefreshCw, ChevronLeft, ChevronRight, Search, X,
   Wallet, Clock, CalendarDays, Eye,
   ArrowDownCircle, ArrowUpCircle, Landmark, LayoutGrid, Users, Truck,
+  SlidersHorizontal, HardHat,
 } from 'lucide-react'
 import { TransactionModal } from '@/components/financial/TransactionModal'
 import { TransactionReceiptModal } from '@/components/financial/TransactionReceiptModal'
 import { TableActionMenu } from '@/components/ui/TableActionMenu'
 import { UserAvatar } from '@/components/ui/UserAvatar'
 import { useQueryClient } from '@tanstack/react-query'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { formatCurrency, formatCurrencyCompact } from '@/lib/format'
+
+// ─── Tipo projeto para dropdown ───────────────────────────────────────────────
+
+interface ProjectOption {
+  id:     string
+  name:   string
+  code:   string | null
+  stages: { id: string; name: string; order: number }[]
+}
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
 
@@ -244,7 +254,8 @@ function AlertsCard({ data, loading }: { data: DashboardData | null; loading: bo
 const TX_PER_PAGE = 15
 
 export default function FinanceiroPage() {
-  const router = useRouter()
+  const router       = useRouter()
+  const searchParams = useSearchParams()
 
   const [dash,       setDash]       = useState<DashboardData | null>(null)
   const [loadingDash,setLoadingDash]= useState(true)
@@ -258,8 +269,14 @@ export default function FinanceiroPage() {
   const [dateFrom,   setDateFrom]   = useState('')
   const [dateTo,     setDateTo]     = useState('')
 
-  const [bankAccounts, setBankAccounts] = useState<{ id: string; name: string }[]>([])
-  const [filterBank,   setFilterBank]   = useState('')
+  const [bankAccounts,  setBankAccounts]  = useState<{ id: string; name: string }[]>([])
+  const [filterBank,    setFilterBank]    = useState('')
+
+  // ── Filtros CC / Etapa ────────────────────────────────────────────────────
+  const [projects,      setProjects]      = useState<ProjectOption[]>([])
+  const [filterProject, setFilterProject] = useState(() => searchParams?.get('projectId') ?? '')
+  const [filterStage,   setFilterStage]   = useState(() => searchParams?.get('stageId')   ?? '')
+  const [filtersOpen,   setFiltersOpen]   = useState(false)
 
   const [showModal,  setShowModal]   = useState(false)
   const [editingTx,  setEditingTx]   = useState<Transaction | null>(null)
@@ -286,13 +303,15 @@ export default function FinanceiroPage() {
     setLoadingDash(true)
     try {
       const qp = new URLSearchParams()
-      if (dateFrom)   qp.set('startDate', dateFrom)
-      if (dateTo)     qp.set('endDate',   dateTo)
-      if (filterBank) qp.set('bankAccountId', filterBank)
+      if (dateFrom)       qp.set('startDate',    dateFrom)
+      if (dateTo)         qp.set('endDate',       dateTo)
+      if (filterBank)     qp.set('bankAccountId', filterBank)
+      if (filterStage)    qp.set('stageId',       filterStage)
+      else if (filterProject) qp.set('projectId', filterProject)
       const res = await fetch(`${API}/api/financial/dashboard?${qp}`, { headers: headers() })
       if (res.ok) setDash(await res.json())
     } catch { /* silent */ } finally { setLoadingDash(false) }
-  }, [dateFrom, dateTo, filterBank])
+  }, [dateFrom, dateTo, filterBank, filterProject, filterStage])
 
   // ── Load transactions ────────────────────────────────────────────────────
 
@@ -300,18 +319,20 @@ export default function FinanceiroPage() {
     setLoadingTx(true)
     try {
       const qp = new URLSearchParams({ page: String(page), limit: String(TX_PER_PAGE) })
-      if (search)     qp.set('search', search)
-      if (filterType) qp.set('type',   filterType)
-      if (filterPaid) qp.set('isPaid', filterPaid)
-      if (dateFrom)   qp.set('startDate', dateFrom)
-      if (dateTo)     qp.set('endDate',   dateTo)
-      if (filterBank) qp.set('bankAccountId', filterBank)
+      if (search)         qp.set('search',       search)
+      if (filterType)     qp.set('type',         filterType)
+      if (filterPaid)     qp.set('isPaid',        filterPaid)
+      if (dateFrom)       qp.set('startDate',     dateFrom)
+      if (dateTo)         qp.set('endDate',        dateTo)
+      if (filterBank)     qp.set('bankAccountId', filterBank)
+      if (filterStage)    qp.set('stageId',       filterStage)
+      else if (filterProject) qp.set('projectId', filterProject)
       const res = await fetch(`${API}/api/financial/transactions?${qp}`, { headers: headers() })
       if (res.ok) setTxPage(await res.json())
     } catch { /* silent */ } finally { setLoadingTx(false) }
-  }, [page, search, filterType, filterPaid, dateFrom, dateTo, filterBank])
+  }, [page, search, filterType, filterPaid, dateFrom, dateTo, filterBank, filterProject, filterStage])
 
-  // ── Load bank accounts for filter ───────────────────────────────────────
+  // ── Load bank accounts + projects for filters ────────────────────────────
 
   useEffect(() => {
     async function loadBanks() {
@@ -323,7 +344,17 @@ export default function FinanceiroPage() {
         }
       } catch { /* silent */ }
     }
+    async function loadProjects() {
+      try {
+        const res = await fetch(`${API}/api/financial/projects`, { headers: headers() })
+        if (res.ok) {
+          const data = await res.json()
+          setProjects(data.projects ?? [])
+        }
+      } catch { /* silent */ }
+    }
     loadBanks()
+    loadProjects()
   }, [])
 
   useEffect(() => { loadDash() }, [loadDash])
@@ -418,10 +449,12 @@ export default function FinanceiroPage() {
     }`
 
   const activeFilterCount =
-    (filterBank ? 1 : 0) +
-    (filterType ? 1 : 0) +
-    (filterPaid ? 1 : 0) +
-    ((dateFrom || dateTo) ? 1 : 0)
+    (filterBank    ? 1 : 0) +
+    (filterType    ? 1 : 0) +
+    (filterPaid    ? 1 : 0) +
+    ((dateFrom || dateTo) ? 1 : 0) +
+    (filterProject ? 1 : 0) +
+    (filterStage   ? 1 : 0)
 
   return (
     <div className="space-y-5">
@@ -441,42 +474,124 @@ export default function FinanceiroPage() {
       </div>
 
       {/* ── Filtros ──────────────────────────────────────────────────── */}
-      <div className="flex flex-wrap items-center gap-2">
-        {activeFilterCount > 0 && (
-          <button onClick={() => { setFilterBank(''); setFilterType(''); setFilterPaid(''); setDateFrom(''); setDateTo(''); setPage(1) }}
-            className="flex items-center gap-1.5 text-xs font-semibold text-white bg-[#F5A623] px-3 py-1.5 rounded-full hover:bg-[#d4891a] transition-colors">
-            {activeFilterCount} {activeFilterCount === 1 ? 'filtro ativo' : 'filtros ativos'} <X size={12} />
+      <div className="space-y-2">
+
+        {/* Accordion toggle — mobile only */}
+        <div className="flex items-center gap-2 sm:hidden">
+          <button
+            onClick={() => setFiltersOpen((v) => !v)}
+            className="flex items-center gap-1.5 text-sm font-medium text-gray-600 border border-gray-200 px-3 py-2 rounded-lg hover:bg-gray-50 transition-colors"
+          >
+            <SlidersHorizontal size={14} />
+            Filtros
+            {activeFilterCount > 0 && (
+              <span className="bg-[#F5A623] text-white text-xs font-bold px-1.5 py-0.5 rounded-full leading-none">
+                {activeFilterCount}
+              </span>
+            )}
           </button>
-        )}
-
-        <select value={filterBank} onChange={(e) => { setFilterBank(e.target.value); setPage(1) }} className={selectCls(!!filterBank)}>
-          <option value="">Todas as contas</option>
-          {bankAccounts.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
-        </select>
-
-        <select value={filterType} onChange={(e) => { setFilterType(e.target.value); setPage(1) }} className={selectCls(!!filterType)}>
-          <option value="">Entradas e saídas</option>
-          <option value="INCOME">Entradas</option>
-          <option value="EXPENSE">Saídas</option>
-        </select>
-
-        <select value={filterPaid} onChange={(e) => { setFilterPaid(e.target.value); setPage(1) }} className={selectCls(!!filterPaid)}>
-          <option value="">Todos os status</option>
-          <option value="true">Pagos</option>
-          <option value="false">Pendentes</option>
-        </select>
-
-        <div className="flex items-center gap-1.5">
-          <input type="date" value={dateFrom} onChange={(e) => { setDateFrom(e.target.value); setPage(1) }} className={selectCls(!!(dateFrom || dateTo))} />
-          <span className="text-gray-400 text-sm">–</span>
-          <input type="date" value={dateTo}   onChange={(e) => { setDateTo(e.target.value); setPage(1) }} className={selectCls(!!(dateFrom || dateTo))} />
+          <button onClick={() => { loadDash(); loadTx() }}
+            className="flex items-center gap-1.5 text-xs text-gray-500 border border-gray-200 px-3 py-2 rounded-lg hover:bg-gray-50 transition-colors ml-auto">
+            <RefreshCw size={13} /> Atualizar
+          </button>
         </div>
 
-        <button onClick={() => { loadDash(); loadTx() }}
-          className="ml-auto flex items-center gap-1.5 text-xs text-gray-500 border border-gray-200 px-3 py-2 rounded-lg hover:bg-gray-50 transition-colors">
-          <RefreshCw size={13} /> Atualizar
-        </button>
+        {/* Filter panel */}
+        <div className={`flex-wrap items-center gap-2 ${filtersOpen ? 'flex' : 'hidden sm:flex'}`}>
+          {activeFilterCount > 0 && (
+            <button
+              onClick={() => { setFilterBank(''); setFilterType(''); setFilterPaid(''); setDateFrom(''); setDateTo(''); setFilterProject(''); setFilterStage(''); setPage(1) }}
+              className="flex items-center gap-1.5 text-xs font-semibold text-white bg-[#F5A623] px-3 py-1.5 rounded-full hover:bg-[#d4891a] transition-colors"
+            >
+              {activeFilterCount} {activeFilterCount === 1 ? 'filtro ativo' : 'filtros ativos'} <X size={12} />
+            </button>
+          )}
+
+          <select value={filterBank} onChange={(e) => { setFilterBank(e.target.value); setPage(1) }} className={selectCls(!!filterBank)}>
+            <option value="">Todas as contas</option>
+            {bankAccounts.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+          </select>
+
+          <select value={filterType} onChange={(e) => { setFilterType(e.target.value); setPage(1) }} className={selectCls(!!filterType)}>
+            <option value="">Entradas e saídas</option>
+            <option value="INCOME">Entradas</option>
+            <option value="EXPENSE">Saídas</option>
+          </select>
+
+          <select value={filterPaid} onChange={(e) => { setFilterPaid(e.target.value); setPage(1) }} className={selectCls(!!filterPaid)}>
+            <option value="">Todos os status</option>
+            <option value="true">Pagos</option>
+            <option value="false">Pendentes</option>
+          </select>
+
+          <div className="flex items-center gap-1.5">
+            <input type="date" value={dateFrom} onChange={(e) => { setDateFrom(e.target.value); setPage(1) }} className={selectCls(!!(dateFrom || dateTo))} />
+            <span className="text-gray-400 text-sm">–</span>
+            <input type="date" value={dateTo}   onChange={(e) => { setDateTo(e.target.value); setPage(1) }} className={selectCls(!!(dateFrom || dateTo))} />
+          </div>
+
+          {/* Centro de custo */}
+          <select
+            value={filterProject}
+            onChange={(e) => { setFilterProject(e.target.value); setFilterStage(''); setPage(1) }}
+            className={selectCls(!!filterProject)}
+          >
+            <option value="">Todas as obras</option>
+            {projects.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.code ? `${p.code} — ${p.name}` : p.name}
+              </option>
+            ))}
+          </select>
+
+          {/* Etapa — dependente do CC */}
+          <select
+            value={filterStage}
+            onChange={(e) => { setFilterStage(e.target.value); setPage(1) }}
+            disabled={!filterProject}
+            className={`${selectCls(!!filterStage)} disabled:opacity-50 disabled:cursor-not-allowed`}
+            title={!filterProject ? 'Selecione uma obra primeiro' : undefined}
+          >
+            <option value="">{filterProject ? 'Todas as etapas' : 'Selecione uma obra primeiro'}</option>
+            {(projects.find((p) => p.id === filterProject)?.stages ?? []).map((s) => (
+              <option key={s.id} value={s.id}>{s.name}</option>
+            ))}
+          </select>
+
+          <button onClick={() => { loadDash(); loadTx() }}
+            className="hidden sm:flex ml-auto items-center gap-1.5 text-xs text-gray-500 border border-gray-200 px-3 py-2 rounded-lg hover:bg-gray-50 transition-colors">
+            <RefreshCw size={13} /> Atualizar
+          </button>
+        </div>
       </div>
+
+      {/* ── Banner de contexto (obra/etapa selecionada) ───────────────── */}
+      {filterProject && (() => {
+        const proj = projects.find((p) => p.id === filterProject)
+        if (!proj) return null
+        const stageLabel = proj.stages.find((s) => s.id === filterStage)?.name
+        return (
+          <div className="flex items-center gap-3 bg-blue-50 border border-blue-200 rounded-xl px-4 py-2.5">
+            <HardHat size={15} className="text-blue-500 flex-shrink-0" />
+            <p className="text-sm text-blue-700 flex-1 font-medium">
+              Visualizando:{' '}
+              <span className="font-semibold">{proj.name}</span>
+              {proj.code && (
+                <span className="ml-1 text-blue-500 font-normal text-xs">({proj.code})</span>
+              )}
+              {stageLabel && (
+                <> — <span className="font-semibold">{stageLabel}</span></>
+              )}
+            </p>
+            <button
+              onClick={() => { setFilterProject(''); setFilterStage(''); setPage(1) }}
+              className="p-1 text-blue-400 hover:text-blue-600 rounded-lg hover:bg-blue-100 transition-colors flex-shrink-0"
+            >
+              <X size={13} />
+            </button>
+          </div>
+        )
+      })()}
 
       {/* ── Métricas ─────────────────────────────────────────────────── */}
       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4">

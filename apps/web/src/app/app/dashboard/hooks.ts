@@ -187,6 +187,7 @@ export function useFilterState() {
   const activeCount =
     (filters.contaBancaria ? 1 : 0) +
     (filters.centroCusto   ? 1 : 0) +
+    (filters.etapa         ? 1 : 0) +
     (filters.periodoInicio !== DEFAULT_FILTERS.periodoInicio ||
      filters.periodoFim    !== DEFAULT_FILTERS.periodoFim    ? 1 : 0)
 
@@ -211,9 +212,11 @@ export function useDashboardData(filters: DashboardFilters): {
   if (filters.periodoInicio) qp.set('startDate',     filters.periodoInicio)
   if (filters.periodoFim)    qp.set('endDate',       filters.periodoFim)
   if (filters.contaBancaria) qp.set('bankAccountId', filters.contaBancaria)
+  if (filters.etapa)         qp.set('stageId',       filters.etapa)
+  else if (filters.centroCusto) qp.set('projectId',  filters.centroCusto)
 
   const { data, isFetching, isError, refetch } = useQuery<DashboardData>({
-    queryKey: ['dashboard', filters.contaBancaria, filters.periodoInicio, filters.periodoFim],
+    queryKey: ['dashboard', filters.contaBancaria, filters.centroCusto, filters.etapa, filters.periodoInicio, filters.periodoFim],
     queryFn:  async () => {
       const token = getToken()
       const res = await fetch(`${API}/api/financial/dashboard?${qp.toString()}`, {
@@ -255,16 +258,23 @@ export function useBankAccounts() {
 }
 
 // ─── useProjects ──────────────────────────────────────────────────────────────
-// Retorna os projetos para popular o dropdown de centro de custo.
+// Retorna os projetos (com código e etapas) para os dropdowns de filtro.
 
-export function useProjects() {
-  const { data } = useQuery<{ id: string; name: string }[]>({
+export interface ProjectOption {
+  id:     string
+  name:   string
+  code:   string | null
+  stages: { id: string; name: string; order: number }[]
+}
+
+export function useProjects(): ProjectOption[] {
+  const { data } = useQuery<ProjectOption[]>({
     queryKey: ['projects-filter'],
     queryFn:  async () => {
       const res = await fetch(`${API}/api/financial/projects`, { headers: authHeaders() })
       if (!res.ok) return []
       const json = await res.json()
-      return (json.projects ?? []) as { id: string; name: string }[]
+      return (json.projects ?? []) as ProjectOption[]
     },
     staleTime: 5 * 60_000,
     enabled:   typeof window !== 'undefined' && !!getToken(),

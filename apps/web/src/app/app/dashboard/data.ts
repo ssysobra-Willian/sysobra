@@ -2,7 +2,8 @@
 
 export interface DashboardFilters {
   contaBancaria: string  // '' = todas
-  centroCusto:   string  // '' = todos (filtro visual; não enviado à API por ora)
+  centroCusto:   string  // '' = todos — enviado à API como projectId
+  etapa:         string  // '' = todas — enviado à API como stageId (dependente do centroCusto)
   periodoInicio: string  // YYYY-MM-DD
   periodoFim:    string  // YYYY-MM-DD
 }
@@ -22,6 +23,7 @@ function currentMonthRange(): { periodoInicio: string; periodoFim: string } {
 export const DEFAULT_FILTERS: DashboardFilters = {
   contaBancaria: '',
   centroCusto:   '',
+  etapa:         '',
   ...currentMonthRange(),
 }
 

@@ -9,6 +9,9 @@ import {
   CheckCircle, XCircle, MoreVertical,
 } from 'lucide-react'
 import { TableActionMenu } from '@/components/ui/TableActionMenu'
+import { MaskedInput }   from '@/components/ui/MaskedInput'
+import { AddressForm, type AddressData, EMPTY_ADDRESS } from '@/components/ui/AddressForm'
+import { maskCpfCnpj, formatPhone } from '@/lib/validators'
 import { formatCurrency } from '@/lib/format'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
@@ -61,10 +64,7 @@ interface ClientForm {
   phone2:       string
   whatsapp:     string
   cpfCnpj:      string
-  address:      string
-  city:         string
-  state:        string
-  zipCode:      string
+  addr:         AddressData
   contactName:  string
   contactRole:  string
   contactEmail: string
@@ -74,18 +74,8 @@ interface ClientForm {
 
 const DEFAULT_FORM: ClientForm = {
   type: 'COMPANY', name: '', tradeName: '', email: '', phone: '', phone2: '',
-  whatsapp: '', cpfCnpj: '', address: '', city: '', state: '', zipCode: '',
+  whatsapp: '', cpfCnpj: '', addr: EMPTY_ADDRESS,
   contactName: '', contactRole: '', contactEmail: '', contactPhone: '', notes: '',
-}
-
-async function fetchCep(cep: string) {
-  try {
-    const r = await fetch(`https://viacep.com.br/ws/${cep.replace(/\D/g,'')}/json/`)
-    if (!r.ok) return null
-    const d = await r.json()
-    if (d.erro) return null
-    return { address: d.logradouro, city: d.localidade, state: d.uf }
-  } catch { return null }
 }
 
 function ClientModal({
@@ -94,10 +84,12 @@ function ClientModal({
   open: boolean; onClose: () => void; onSaved: () => void
   editId?: string | null; token: string
 }) {
-  const [form, setForm]   = useState<ClientForm>(DEFAULT_FORM)
+  const [form, setForm]       = useState<ClientForm>(DEFAULT_FORM)
   const [loading, setLoading] = useState(false)
   const [error,   setError]   = useState('')
   const overlayRef = useRef<HTMLDivElement>(null)
+
+  const iCls = 'w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F5A623]'
 
   useEffect(() => {
     if (!open) { setForm(DEFAULT_FORM); setError(''); return }
@@ -113,18 +105,23 @@ function ClientModal({
           name:         c.name         ?? '',
           tradeName:    c.tradeName    ?? '',
           email:        c.email        ?? '',
-          phone:        c.phone        ?? '',
-          phone2:       c.phone2       ?? '',
-          whatsapp:     c.whatsapp     ?? '',
-          cpfCnpj:      c.cpfCnpj      ?? '',
-          address:      c.address      ?? '',
-          city:         c.city         ?? '',
-          state:        c.state        ?? '',
-          zipCode:      c.zipCode      ?? '',
+          phone:        c.phone ? formatPhone(c.phone) : '',
+          phone2:       c.phone2 ? formatPhone(c.phone2) : '',
+          whatsapp:     c.whatsapp ? formatPhone(c.whatsapp) : '',
+          cpfCnpj:      c.cpfCnpj ? maskCpfCnpj(c.cpfCnpj) : '',
+          addr: {
+            zipCode:    c.zipCode    ?? '',
+            address:    c.address    ?? '',
+            number:     c.addressNumber ?? '',
+            complement: c.complement ?? '',
+            district:   c.district   ?? '',
+            city:       c.city       ?? '',
+            state:      c.state      ?? '',
+          },
           contactName:  c.contactName  ?? '',
           contactRole:  c.contactRole  ?? '',
           contactEmail: c.contactEmail ?? '',
-          contactPhone: c.contactPhone ?? '',
+          contactPhone: c.contactPhone ? formatPhone(c.contactPhone) : '',
           notes:        c.notes        ?? '',
         })
       })
@@ -132,12 +129,6 @@ function ClientModal({
   }, [open, editId, token])
 
   function setF(k: keyof ClientForm, v: string) { setForm(p => ({...p, [k]: v})); setError('') }
-
-  async function handleCep(cep: string) {
-    if (cep.replace(/\D/g,'').length !== 8) return
-    const d = await fetchCep(cep)
-    if (d) setForm(p => ({...p, address: d.address || p.address, city: d.city, state: d.state}))
-  }
 
   async function handleSubmit() {
     if (!form.name.trim()) { setError('Nome obrigatório'); return }
@@ -152,10 +143,10 @@ function ClientModal({
         phone2:       form.phone2.trim()       || null,
         whatsapp:     form.whatsapp.trim()     || null,
         cpfCnpj:      form.cpfCnpj.trim()      || null,
-        address:      form.address.trim()      || null,
-        city:         form.city.trim()         || null,
-        state:        form.state.trim()        || null,
-        zipCode:      form.zipCode.trim()      || null,
+        address:      form.addr.address.trim() || null,
+        city:         form.addr.city.trim()    || null,
+        state:        form.addr.state.trim()   || null,
+        zipCode:      form.addr.zipCode.trim() || null,
         contactName:  form.contactName.trim()  || null,
         contactRole:  form.contactRole.trim()  || null,
         contactEmail: form.contactEmail.trim() || null,
@@ -204,82 +195,47 @@ function ClientModal({
               <label className="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wide">
                 {form.type==='PERSON' ? 'Nome completo *' : 'Razão social *'}
               </label>
-              <input value={form.name} onChange={e => setF('name', e.target.value)}
-                className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F5A623]" />
+              <input value={form.name} onChange={e => setF('name', e.target.value)} className={iCls} />
             </div>
             {form.type==='COMPANY' && (
               <div>
                 <label className="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wide">Nome fantasia</label>
-                <input value={form.tradeName} onChange={e => setF('tradeName', e.target.value)}
-                  className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F5A623]" />
+                <input value={form.tradeName} onChange={e => setF('tradeName', e.target.value)} className={iCls} />
               </div>
             )}
           </div>
 
           {/* CPF/CNPJ + Email */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wide">
-                {form.type==='PERSON' ? 'CPF' : 'CNPJ'}
-              </label>
-              <input value={form.cpfCnpj} onChange={e => setF('cpfCnpj', e.target.value)}
-                placeholder={form.type==='PERSON' ? '000.000.000-00' : '00.000.000/0001-00'}
-                className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F5A623]" />
-            </div>
+            <MaskedInput
+              mask="cpfCnpj"
+              value={form.cpfCnpj}
+              onChange={v => setF('cpfCnpj', v)}
+              label={form.type==='PERSON' ? 'CPF' : 'CNPJ'}
+              placeholder={form.type==='PERSON' ? '000.000.000-00' : '00.000.000/0001-00'}
+              showValid
+              inputMode="numeric"
+            />
             <div>
               <label className="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wide">E-mail</label>
-              <input type="email" value={form.email} onChange={e => setF('email', e.target.value)}
-                className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F5A623]" />
+              <input type="email" value={form.email} onChange={e => setF('email', e.target.value)} className={iCls} />
             </div>
           </div>
 
           {/* Telefones */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <div>
-              <label className="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wide">Telefone</label>
-              <input value={form.phone} onChange={e => setF('phone', e.target.value)}
-                placeholder="(11) 99999-9999"
-                className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F5A623]" />
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wide">Telefone 2</label>
-              <input value={form.phone2} onChange={e => setF('phone2', e.target.value)}
-                className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F5A623]" />
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wide">WhatsApp</label>
-              <input value={form.whatsapp} onChange={e => setF('whatsapp', e.target.value)}
-                className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F5A623]" />
-            </div>
+            <MaskedInput mask="phone" value={form.phone}    onChange={v => setF('phone',    v)} label="Telefone"   placeholder="(11) 99999-9999" inputMode="numeric" />
+            <MaskedInput mask="phone" value={form.phone2}   onChange={v => setF('phone2',   v)} label="Telefone 2" inputMode="numeric" />
+            <MaskedInput mask="phone" value={form.whatsapp} onChange={v => setF('whatsapp', v)} label="WhatsApp"   inputMode="numeric" />
           </div>
 
           {/* Endereço */}
           <div>
             <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Endereço</p>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <div>
-                <label className="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wide">CEP</label>
-                <input value={form.zipCode} onChange={e => setF('zipCode', e.target.value)}
-                  onBlur={e => handleCep(e.target.value)} placeholder="00000-000"
-                  className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F5A623]" />
-              </div>
-              <div className="sm:col-span-2">
-                <label className="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wide">Logradouro</label>
-                <input value={form.address} onChange={e => setF('address', e.target.value)}
-                  className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F5A623]" />
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wide">Cidade</label>
-                <input value={form.city} onChange={e => setF('city', e.target.value)}
-                  className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F5A623]" />
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wide">UF</label>
-                <input value={form.state} onChange={e => setF('state', e.target.value.toUpperCase().slice(0,2))}
-                  maxLength={2} placeholder="SP"
-                  className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F5A623]" />
-              </div>
-            </div>
+            <AddressForm
+              data={form.addr}
+              onChange={addr => setForm(p => ({...p, addr}))}
+            />
           </div>
 
           {/* Contato principal — só PJ */}
@@ -289,24 +245,17 @@ function ClientModal({
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wide">Nome</label>
-                  <input value={form.contactName} onChange={e => setF('contactName', e.target.value)}
-                    className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F5A623]" />
+                  <input value={form.contactName} onChange={e => setF('contactName', e.target.value)} className={iCls} />
                 </div>
                 <div>
                   <label className="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wide">Cargo</label>
-                  <input value={form.contactRole} onChange={e => setF('contactRole', e.target.value)}
-                    className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F5A623]" />
+                  <input value={form.contactRole} onChange={e => setF('contactRole', e.target.value)} className={iCls} />
                 </div>
                 <div>
                   <label className="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wide">E-mail contato</label>
-                  <input type="email" value={form.contactEmail} onChange={e => setF('contactEmail', e.target.value)}
-                    className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F5A623]" />
+                  <input type="email" value={form.contactEmail} onChange={e => setF('contactEmail', e.target.value)} className={iCls} />
                 </div>
-                <div>
-                  <label className="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wide">Telefone contato</label>
-                  <input value={form.contactPhone} onChange={e => setF('contactPhone', e.target.value)}
-                    className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F5A623]" />
-                </div>
+                <MaskedInput mask="phone" value={form.contactPhone} onChange={v => setF('contactPhone', v)} label="Telefone contato" inputMode="numeric" />
               </div>
             </div>
           )}
@@ -315,7 +264,7 @@ function ClientModal({
           <div>
             <label className="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wide">Observações</label>
             <textarea value={form.notes} onChange={e => setF('notes', e.target.value)}
-              rows={2} className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F5A623] resize-none" />
+              rows={2} className={`${iCls} resize-none`} />
           </div>
 
           {error && <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-600">{error}</div>}

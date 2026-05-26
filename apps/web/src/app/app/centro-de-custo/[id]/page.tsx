@@ -567,6 +567,12 @@ export default function ObraDetailPage() {
               <FileText size={15} /> Placa de obra
             </button>
             <Link
+              href={`/app/financeiro?projectId=${id}`}
+              className="flex items-center gap-2 text-sm font-medium text-gray-700 border border-gray-200 px-4 py-2 rounded-lg hover:bg-gray-50 transition-colors"
+            >
+              <ExternalLink size={15} /> Ver no financeiro
+            </Link>
+            <Link
               href={`/app/centro-de-custo/${id}/editar`}
               className="flex items-center gap-2 bg-[#F5A623] hover:bg-[#e09610] text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
             >

@@ -236,6 +236,7 @@ export async function financialRoutes(app: FastifyInstance) {
     const query = request.query as {
       startDate?: string; endDate?: string
       bankAccountId?: string; centroCusto?: string
+      projectId?: string; stageId?: string
     }
 
     const now   = new Date()
@@ -248,8 +249,22 @@ export async function financialRoutes(app: FastifyInstance) {
     const in7Days    = new Date(todayStart); in7Days.setDate(todayStart.getDate() + 7)
     const in30Days   = new Date(todayStart); in30Days.setDate(todayStart.getDate() + 30)
 
-    const baseWhere = { companyId, isActive: true }
+    const baseWhere: any = { companyId, isActive: true }
     const bankFilter = query.bankAccountId ? { bankAccountId: query.bankAccountId } : {}
+
+    // ── Filtro de projeto / etapa ──────────────────────────────────────────
+    // projStageFilter: aplicado em cima de baseWhere em TODAS as queries de tx
+    const projStageFilter: any = {}
+    if (query.stageId) {
+      // Etapa específica — só via alocação (stageId não está direto na tx)
+      projStageFilter.costCenterAllocations = { some: { stageId: query.stageId } }
+    } else if (query.projectId) {
+      // Obra: match direto OU via alocação (UNION)
+      projStageFilter.OR = [
+        { projectId: query.projectId },
+        { costCenterAllocations: { some: { projectId: query.projectId } } },
+      ]
+    }
 
     // ── queries paralelas ─────────────────────────────────────────────────
     const [
@@ -273,68 +288,68 @@ export async function financialRoutes(app: FastifyInstance) {
     ] = await Promise.all([
       // saldo atual: INCOME pago - EXPENSE pago
       prisma.financialTransaction.aggregate({
-        where: { ...baseWhere, ...bankFilter, type: 'INCOME', isPaid: true },
+        where: { ...baseWhere, ...bankFilter, ...projStageFilter, type: 'INCOME', isPaid: true },
         _sum: { netAmount: true },
       }),
       prisma.financialTransaction.aggregate({
-        where: { ...baseWhere, ...bankFilter, type: 'EXPENSE', isPaid: true },
+        where: { ...baseWhere, ...bankFilter, ...projStageFilter, type: 'EXPENSE', isPaid: true },
         _sum: { netAmount: true },
       }),
       // entradas no período
       prisma.financialTransaction.aggregate({
-        where: { ...baseWhere, ...bankFilter, type: 'INCOME', isPaid: true, paidAt: { gte: start, lte: end } },
+        where: { ...baseWhere, ...bankFilter, ...projStageFilter, type: 'INCOME', isPaid: true, paidAt: { gte: start, lte: end } },
         _sum: { netAmount: true },
       }),
       // saídas no período
       prisma.financialTransaction.aggregate({
-        where: { ...baseWhere, ...bankFilter, type: 'EXPENSE', isPaid: true, paidAt: { gte: start, lte: end } },
+        where: { ...baseWhere, ...bankFilter, ...projStageFilter, type: 'EXPENSE', isPaid: true, paidAt: { gte: start, lte: end } },
         _sum: { netAmount: true },
       }),
       // a pagar hoje
       prisma.financialTransaction.aggregate({
-        where: { ...baseWhere, type: 'EXPENSE', isPaid: false, dueDate: { gte: todayStart, lte: todayEnd } },
+        where: { ...baseWhere, ...projStageFilter, type: 'EXPENSE', isPaid: false, dueDate: { gte: todayStart, lte: todayEnd } },
         _sum: { netAmount: true },
         _count: true,
       }),
       // a receber no mês
       prisma.financialTransaction.aggregate({
-        where: { ...baseWhere, type: 'INCOME', isPaid: false, dueDate: { gte: now, lte: monthEnd } },
+        where: { ...baseWhere, ...projStageFilter, type: 'INCOME', isPaid: false, dueDate: { gte: now, lte: monthEnd } },
         _sum: { netAmount: true },
         _count: true,
       }),
       // contas vencidas a pagar
       prisma.financialTransaction.aggregate({
-        where: { ...baseWhere, type: 'EXPENSE', isPaid: false, dueDate: { lt: todayStart } },
+        where: { ...baseWhere, ...projStageFilter, type: 'EXPENSE', isPaid: false, dueDate: { lt: todayStart } },
         _sum: { netAmount: true },
         _count: true,
       }),
       // recebimentos vencidos
       prisma.financialTransaction.aggregate({
-        where: { ...baseWhere, type: 'INCOME', isPaid: false, dueDate: { lt: todayStart } },
+        where: { ...baseWhere, ...projStageFilter, type: 'INCOME', isPaid: false, dueDate: { lt: todayStart } },
         _sum: { netAmount: true },
         _count: true,
       }),
       // a pagar nos próximos 7 dias (a partir de hoje)
       prisma.financialTransaction.aggregate({
-        where: { ...baseWhere, type: 'EXPENSE', isPaid: false, dueDate: { gte: todayStart, lte: in7Days } },
+        where: { ...baseWhere, ...projStageFilter, type: 'EXPENSE', isPaid: false, dueDate: { gte: todayStart, lte: in7Days } },
         _sum: { netAmount: true },
         _count: true,
       }),
       // a pagar nos próximos 8-30 dias
       prisma.financialTransaction.aggregate({
-        where: { ...baseWhere, type: 'EXPENSE', isPaid: false, dueDate: { gt: in7Days, lte: in30Days } },
+        where: { ...baseWhere, ...projStageFilter, type: 'EXPENSE', isPaid: false, dueDate: { gt: in7Days, lte: in30Days } },
         _sum: { netAmount: true },
         _count: true,
       }),
       // a receber nos próximos 7 dias
       prisma.financialTransaction.aggregate({
-        where: { ...baseWhere, type: 'INCOME', isPaid: false, dueDate: { gte: todayStart, lte: in7Days } },
+        where: { ...baseWhere, ...projStageFilter, type: 'INCOME', isPaid: false, dueDate: { gte: todayStart, lte: in7Days } },
         _sum: { netAmount: true },
         _count: true,
       }),
       // a receber nos próximos 8-30 dias
       prisma.financialTransaction.aggregate({
-        where: { ...baseWhere, type: 'INCOME', isPaid: false, dueDate: { gt: in7Days, lte: in30Days } },
+        where: { ...baseWhere, ...projStageFilter, type: 'INCOME', isPaid: false, dueDate: { gt: in7Days, lte: in30Days } },
         _sum: { netAmount: true },
         _count: true,
       }),
@@ -342,6 +357,7 @@ export async function financialRoutes(app: FastifyInstance) {
       prisma.financialTransaction.findMany({
         where: {
           ...baseWhere,
+          ...projStageFilter,
           isPaid: true,
           paidAt: { gte: new Date(now.getFullYear(), now.getMonth() - 11, 1) },
         },
@@ -349,13 +365,13 @@ export async function financialRoutes(app: FastifyInstance) {
       }),
       // despesas por categoria no período
       prisma.financialTransaction.findMany({
-        where: { ...baseWhere, type: 'EXPENSE', isPaid: true, paidAt: { gte: start, lte: end } },
+        where: { ...baseWhere, ...projStageFilter, type: 'EXPENSE', isPaid: true, paidAt: { gte: start, lte: end } },
         select: { netAmount: true, category: { select: { id: true, name: true, color: true } } },
       }),
       // top projetos por despesa no período
       prisma.costCenterAllocation.findMany({
         where: {
-          transaction: { ...baseWhere, type: 'EXPENSE', isPaid: true, paidAt: { gte: start, lte: end } },
+          transaction: { ...baseWhere, ...projStageFilter, type: 'EXPENSE', isPaid: true, paidAt: { gte: start, lte: end } },
         },
         select: { amount: true, project: { select: { id: true, name: true } } },
       }),
@@ -455,7 +471,7 @@ export async function financialRoutes(app: FastifyInstance) {
     const q = request.query as {
       startDate?: string; endDate?: string; type?: string
       isPaid?: string; categoryId?: string; bankAccountId?: string
-      projectId?: string; supplierId?: string; clientId?: string
+      projectId?: string; stageId?: string; supplierId?: string; clientId?: string
       page?: string; limit?: string; search?: string
     }
 
@@ -478,8 +494,15 @@ export async function financialRoutes(app: FastifyInstance) {
     if (q.supplierId)    where.supplierId    = q.supplierId
     if (q.clientId)      where.clientId      = q.clientId
     if (q.search)        where.description   = { contains: q.search, mode: 'insensitive' }
-    if (q.projectId) {
-      where.costCenterAllocations = { some: { projectId: q.projectId } }
+    if (q.stageId) {
+      // Etapa específica — filtra por alocação de custo com stageId
+      where.costCenterAllocations = { some: { stageId: q.stageId } }
+    } else if (q.projectId) {
+      // Obra: match direto (projectId) OU via alocação de custo (UNION)
+      where.OR = [
+        { projectId: q.projectId },
+        { costCenterAllocations: { some: { projectId: q.projectId } } },
+      ]
     }
 
     const [total, transactions] = await Promise.all([
@@ -1352,7 +1375,7 @@ export async function financialRoutes(app: FastifyInstance) {
       where: { companyId, status: { not: 'CANCELLED' } },
       orderBy: { name: 'asc' },
       select: {
-        id: true, name: true, status: true,
+        id: true, name: true, code: true, status: true,
         stages: { select: { id: true, name: true, order: true }, orderBy: { order: 'asc' } },
       },
     })

@@ -8,7 +8,11 @@ import {
   User, Building2, Phone, ChevronLeft, ChevronRight,
   CheckCircle, XCircle,
 } from 'lucide-react'
-import { TableActionMenu } from '@/components/ui/TableActionMenu'
+import { TableActionMenu }  from '@/components/ui/TableActionMenu'
+import { MaskedInput }      from '@/components/ui/MaskedInput'
+import { AddressForm, type AddressData, EMPTY_ADDRESS } from '@/components/ui/AddressForm'
+import { BankSearchInput }  from '@/components/ui/BankSearchInput'
+import { maskCpfCnpj, formatPhone } from '@/lib/validators'
 import { formatCurrency } from '@/lib/format'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
@@ -89,10 +93,7 @@ interface SupplierForm {
   whatsapp:              string
   cpfCnpj:               string
   category:              string
-  address:               string
-  city:                  string
-  state:                 string
-  zipCode:               string
+  addr:                  AddressData
   contactName:           string
   contactRole:           string
   contactEmail:          string
@@ -102,6 +103,7 @@ interface SupplierForm {
   stateRegistration:     string
   municipalRegistration: string
   bankName:              string
+  bankId:                string
   bankCode:              string
   bankAgency:            string
   bankAccount:           string
@@ -114,21 +116,11 @@ interface SupplierForm {
 
 const DEFAULT_FORM: SupplierForm = {
   type: 'COMPANY', name: '', tradeName: '', email: '', phone: '', phone2: '',
-  whatsapp: '', cpfCnpj: '', category: '', address: '', city: '', state: '',
-  zipCode: '', contactName: '', contactRole: '', contactEmail: '', contactPhone: '',
+  whatsapp: '', cpfCnpj: '', category: '', addr: EMPTY_ADDRESS,
+  contactName: '', contactRole: '', contactEmail: '', contactPhone: '',
   profession: '', crea: '', stateRegistration: '', municipalRegistration: '',
-  bankName: '', bankCode: '', bankAgency: '', bankAccount: '', bankAccountType: '',
+  bankName: '', bankId: '', bankCode: '', bankAgency: '', bankAccount: '', bankAccountType: '',
   pixKey: '', pixKeyType: '', rating: '', notes: '',
-}
-
-async function fetchCep(cep: string) {
-  try {
-    const r = await fetch(`https://viacep.com.br/ws/${cep.replace(/\D/g,'')}/json/`)
-    if (!r.ok) return null
-    const d = await r.json()
-    if (d.erro) return null
-    return { address: d.logradouro, city: d.localidade, state: d.uf }
-  } catch { return null }
 }
 
 function SupplierModal({
@@ -137,11 +129,14 @@ function SupplierModal({
   open: boolean; onClose: () => void; onSaved: () => void
   editId?: string | null; token: string
 }) {
-  const [form, setForm]   = useState<SupplierForm>(DEFAULT_FORM)
+  const [form, setForm]       = useState<SupplierForm>(DEFAULT_FORM)
   const [loading, setLoading] = useState(false)
   const [error,   setError]   = useState('')
   const [bankOpen, setBankOpen] = useState(false)
   const overlayRef = useRef<HTMLDivElement>(null)
+
+  const lCls = "block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wide"
+  const iCls = "w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F5A623]"
 
   useEffect(() => {
     if (!open) { setForm(DEFAULT_FORM); setError(''); setBankOpen(false); return }
@@ -156,24 +151,30 @@ function SupplierModal({
           name:                  s.name                  ?? '',
           tradeName:             s.tradeName             ?? '',
           email:                 s.email                 ?? '',
-          phone:                 s.phone                 ?? '',
-          phone2:                s.phone2                ?? '',
-          whatsapp:              s.whatsapp              ?? '',
-          cpfCnpj:               s.cpfCnpj ?? s.cnpj    ?? '',
+          phone:                 s.phone    ? formatPhone(s.phone)    : '',
+          phone2:                s.phone2   ? formatPhone(s.phone2)   : '',
+          whatsapp:              s.whatsapp ? formatPhone(s.whatsapp) : '',
+          cpfCnpj:               s.cpfCnpj ?? s.cnpj ? maskCpfCnpj(s.cpfCnpj ?? s.cnpj) : '',
           category:              s.category              ?? '',
-          address:               s.address               ?? '',
-          city:                  s.city                  ?? '',
-          state:                 s.state                 ?? '',
-          zipCode:               s.zipCode               ?? '',
+          addr: {
+            zipCode:    s.zipCode    ?? '',
+            address:    s.address    ?? '',
+            number:     s.addressNumber ?? '',
+            complement: s.complement ?? '',
+            district:   s.district   ?? '',
+            city:       s.city       ?? '',
+            state:      s.state      ?? '',
+          },
           contactName:           s.contactName           ?? '',
           contactRole:           s.contactRole           ?? '',
           contactEmail:          s.contactEmail          ?? '',
-          contactPhone:          s.contactPhone          ?? '',
+          contactPhone:          s.contactPhone ? formatPhone(s.contactPhone) : '',
           profession:            s.profession            ?? '',
           crea:                  s.crea                  ?? '',
           stateRegistration:     s.stateRegistration     ?? '',
           municipalRegistration: s.municipalRegistration ?? '',
           bankName:              s.bankName              ?? '',
+          bankId:                '',
           bankCode:              s.bankCode              ?? '',
           bankAgency:            s.bankAgency            ?? '',
           bankAccount:           s.bankAccount           ?? '',
@@ -190,19 +191,13 @@ function SupplierModal({
 
   function setF(k: keyof SupplierForm, v: string) { setForm(p => ({...p, [k]: v})); setError('') }
 
-  async function handleCep(cep: string) {
-    if (cep.replace(/\D/g,'').length !== 8) return
-    const d = await fetchCep(cep)
-    if (d) setForm(p => ({...p, address: d.address || p.address, city: d.city, state: d.state}))
-  }
-
   async function handleSubmit() {
     if (!form.name.trim()) { setError('Nome obrigatório'); return }
     setLoading(true); setError('')
     try {
       const body: any = {
-        type:    form.type,
-        name:    form.name.trim(),
+        type:                  form.type,
+        name:                  form.name.trim(),
         tradeName:             form.tradeName.trim()             || null,
         email:                 form.email.trim()                 || null,
         phone:                 form.phone.trim()                 || null,
@@ -210,10 +205,10 @@ function SupplierModal({
         whatsapp:              form.whatsapp.trim()              || null,
         cpfCnpj:               form.cpfCnpj.trim()               || null,
         category:              form.category                      || null,
-        address:               form.address.trim()               || null,
-        city:                  form.city.trim()                  || null,
-        state:                 form.state.trim()                 || null,
-        zipCode:               form.zipCode.trim()               || null,
+        address:               form.addr.address.trim()          || null,
+        city:                  form.addr.city.trim()             || null,
+        state:                 form.addr.state.trim()            || null,
+        zipCode:               form.addr.zipCode.trim()          || null,
         contactName:           form.contactName.trim()           || null,
         contactRole:           form.contactRole.trim()           || null,
         contactEmail:          form.contactEmail.trim()          || null,
@@ -247,9 +242,6 @@ function SupplierModal({
 
   if (!open) return null
 
-  const labelCls = "block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wide"
-  const inputCls = "w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F5A623]"
-
   return (
     <div ref={overlayRef} onClick={e => { if (e.target === overlayRef.current) onClose() }}
       className="fixed inset-0 z-50 bg-black/50 flex items-start justify-center p-4 overflow-y-auto">
@@ -273,28 +265,31 @@ function SupplierModal({
           {/* Nome */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
-              <label className={labelCls}>{form.type==='PERSON'?'Nome completo *':'Razão social *'}</label>
-              <input value={form.name} onChange={e => setF('name', e.target.value)} className={inputCls} />
+              <label className={lCls}>{form.type==='PERSON'?'Nome completo *':'Razão social *'}</label>
+              <input value={form.name} onChange={e => setF('name', e.target.value)} className={iCls} />
             </div>
             {form.type==='COMPANY' && (
               <div>
-                <label className={labelCls}>Nome fantasia</label>
-                <input value={form.tradeName} onChange={e => setF('tradeName', e.target.value)} className={inputCls} />
+                <label className={lCls}>Nome fantasia</label>
+                <input value={form.tradeName} onChange={e => setF('tradeName', e.target.value)} className={iCls} />
               </div>
             )}
           </div>
 
           {/* CPF/CNPJ + Categoria */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <MaskedInput
+              mask="cpfCnpj"
+              value={form.cpfCnpj}
+              onChange={v => setF('cpfCnpj', v)}
+              label={form.type==='PERSON' ? 'CPF' : 'CNPJ'}
+              placeholder={form.type==='PERSON' ? '000.000.000-00' : '00.000.000/0001-00'}
+              showValid
+              inputMode="numeric"
+            />
             <div>
-              <label className={labelCls}>{form.type==='PERSON'?'CPF':'CNPJ'}</label>
-              <input value={form.cpfCnpj} onChange={e => setF('cpfCnpj', e.target.value)}
-                placeholder={form.type==='PERSON'?'000.000.000-00':'00.000.000/0001-00'} className={inputCls} />
-            </div>
-            <div>
-              <label className={labelCls}>Categoria</label>
-              <select value={form.category} onChange={e => setF('category', e.target.value)}
-                className={inputCls + ' bg-white'}>
+              <label className={lCls}>Categoria</label>
+              <select value={form.category} onChange={e => setF('category', e.target.value)} className={iCls + ' bg-white'}>
                 <option value="">Selecionar...</option>
                 {CATEGORY_OPTIONS.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
               </select>
@@ -304,74 +299,35 @@ function SupplierModal({
           {/* PF: profissão + CREA */}
           {form.type==='PERSON' && (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div>
-                <label className={labelCls}>Profissão / Especialidade</label>
-                <input value={form.profession} onChange={e => setF('profession', e.target.value)} className={inputCls} />
-              </div>
-              <div>
-                <label className={labelCls}>Registro profissional (CREA, CRQ...)</label>
-                <input value={form.crea} onChange={e => setF('crea', e.target.value)} className={inputCls} />
-              </div>
+              <div><label className={lCls}>Profissão / Especialidade</label><input value={form.profession} onChange={e => setF('profession', e.target.value)} className={iCls} /></div>
+              <div><label className={lCls}>Registro profissional (CREA, CRQ...)</label><input value={form.crea} onChange={e => setF('crea', e.target.value)} className={iCls} /></div>
             </div>
           )}
 
           {/* PJ: IE + IM */}
           {form.type==='COMPANY' && (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div>
-                <label className={labelCls}>Inscrição estadual</label>
-                <input value={form.stateRegistration} onChange={e => setF('stateRegistration', e.target.value)} className={inputCls} />
-              </div>
-              <div>
-                <label className={labelCls}>Inscrição municipal</label>
-                <input value={form.municipalRegistration} onChange={e => setF('municipalRegistration', e.target.value)} className={inputCls} />
-              </div>
+              <div><label className={lCls}>Inscrição estadual</label><input value={form.stateRegistration} onChange={e => setF('stateRegistration', e.target.value)} className={iCls} /></div>
+              <div><label className={lCls}>Inscrição municipal</label><input value={form.municipalRegistration} onChange={e => setF('municipalRegistration', e.target.value)} className={iCls} /></div>
             </div>
           )}
 
           {/* Contatos */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <div>
-              <label className={labelCls}>Telefone</label>
-              <input value={form.phone} onChange={e => setF('phone', e.target.value)} placeholder="(11) 99999-9999" className={inputCls} />
-            </div>
-            <div>
-              <label className={labelCls}>Telefone 2</label>
-              <input value={form.phone2} onChange={e => setF('phone2', e.target.value)} className={inputCls} />
-            </div>
-            <div>
-              <label className={labelCls}>WhatsApp</label>
-              <input value={form.whatsapp} onChange={e => setF('whatsapp', e.target.value)} className={inputCls} />
-            </div>
+            <MaskedInput mask="phone" value={form.phone}    onChange={v => setF('phone',    v)} label="Telefone"   placeholder="(11) 99999-9999" inputMode="numeric" />
+            <MaskedInput mask="phone" value={form.phone2}   onChange={v => setF('phone2',   v)} label="Telefone 2" inputMode="numeric" />
+            <MaskedInput mask="phone" value={form.whatsapp} onChange={v => setF('whatsapp', v)} label="WhatsApp"   inputMode="numeric" />
           </div>
 
           <div>
-            <label className={labelCls}>E-mail</label>
-            <input type="email" value={form.email} onChange={e => setF('email', e.target.value)} className={inputCls} />
+            <label className={lCls}>E-mail</label>
+            <input type="email" value={form.email} onChange={e => setF('email', e.target.value)} className={iCls} />
           </div>
 
           {/* Endereço */}
           <div>
             <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Endereço</p>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <div>
-                <label className={labelCls}>CEP</label>
-                <input value={form.zipCode} onChange={e => setF('zipCode', e.target.value)}
-                  onBlur={e => handleCep(e.target.value)} placeholder="00000-000" className={inputCls} />
-              </div>
-              <div className="sm:col-span-2">
-                <label className={labelCls}>Logradouro</label>
-                <input value={form.address} onChange={e => setF('address', e.target.value)} className={inputCls} />
-              </div>
-              <div>
-                <label className={labelCls}>Cidade</label>
-                <input value={form.city} onChange={e => setF('city', e.target.value)} className={inputCls} />
-              </div>
-              <div>
-                <label className={labelCls}>UF</label>
-                <input value={form.state} onChange={e => setF('state', e.target.value.toUpperCase().slice(0,2))} maxLength={2} className={inputCls} />
-              </div>
-            </div>
+            <AddressForm data={form.addr} onChange={addr => setForm(p => ({...p, addr}))} />
           </div>
 
           {/* Contato principal — PJ */}
@@ -379,26 +335,24 @@ function SupplierModal({
             <div>
               <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Contato principal</p>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div><label className={labelCls}>Nome</label><input value={form.contactName} onChange={e => setF('contactName', e.target.value)} className={inputCls} /></div>
-                <div><label className={labelCls}>Cargo</label><input value={form.contactRole} onChange={e => setF('contactRole', e.target.value)} className={inputCls} /></div>
-                <div><label className={labelCls}>E-mail</label><input type="email" value={form.contactEmail} onChange={e => setF('contactEmail', e.target.value)} className={inputCls} /></div>
-                <div><label className={labelCls}>Telefone</label><input value={form.contactPhone} onChange={e => setF('contactPhone', e.target.value)} className={inputCls} /></div>
+                <div><label className={lCls}>Nome</label><input value={form.contactName} onChange={e => setF('contactName', e.target.value)} className={iCls} /></div>
+                <div><label className={lCls}>Cargo</label><input value={form.contactRole} onChange={e => setF('contactRole', e.target.value)} className={iCls} /></div>
+                <div><label className={lCls}>E-mail</label><input type="email" value={form.contactEmail} onChange={e => setF('contactEmail', e.target.value)} className={iCls} /></div>
+                <MaskedInput mask="phone" value={form.contactPhone} onChange={v => setF('contactPhone', v)} label="Telefone" inputMode="numeric" />
               </div>
             </div>
           )}
 
           {/* Avaliação */}
-          <div className="flex items-center gap-4">
-            <div>
-              <label className={labelCls}>Avaliação</label>
-              <div className="flex gap-1 mt-1">
-                {[1,2,3,4,5].map(n => (
-                  <button key={n} type="button" onClick={() => setF('rating', form.rating===String(n)?'':String(n))}
-                    className="p-1 rounded hover:bg-gray-100 transition-colors">
-                    <Star size={20} className={parseInt(form.rating)>=n?'text-[#F5A623] fill-[#F5A623]':'text-gray-300'} />
-                  </button>
-                ))}
-              </div>
+          <div>
+            <label className={lCls}>Avaliação</label>
+            <div className="flex gap-1 mt-1">
+              {[1,2,3,4,5].map(n => (
+                <button key={n} type="button" onClick={() => setF('rating', form.rating===String(n)?'':String(n))}
+                  className="p-1 rounded hover:bg-gray-100 transition-colors">
+                  <Star size={20} className={parseInt(form.rating)>=n?'text-[#F5A623] fill-[#F5A623]':'text-gray-300'} />
+                </button>
+              ))}
             </div>
           </div>
 
@@ -412,24 +366,29 @@ function SupplierModal({
             {bankOpen && (
               <div className="p-4 space-y-3">
                 <p className="text-xs text-gray-400">ℹ️ Dados usados apenas para conciliação — não para pagamentos pelo sistema.</p>
+                <BankSearchInput
+                  token={token}
+                  value={form.bankName ? (form.bankCode ? `${form.bankCode} — ${form.bankName}` : form.bankName) : ''}
+                  bankCode={form.bankCode}
+                  onChange={opt => { setF('bankName', opt.value); setF('bankCode', opt.code); setF('bankId', opt.id) }}
+                  label="Banco"
+                />
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div><label className={labelCls}>Banco</label><input value={form.bankName} onChange={e => setF('bankName', e.target.value)} className={inputCls} /></div>
-                  <div><label className={labelCls}>Código do banco</label><input value={form.bankCode} onChange={e => setF('bankCode', e.target.value)} className={inputCls} /></div>
-                  <div><label className={labelCls}>Agência</label><input value={form.bankAgency} onChange={e => setF('bankAgency', e.target.value)} className={inputCls} /></div>
-                  <div><label className={labelCls}>Conta</label><input value={form.bankAccount} onChange={e => setF('bankAccount', e.target.value)} className={inputCls} /></div>
+                  <MaskedInput mask="bankAgency" value={form.bankAgency} onChange={v => setF('bankAgency', v)} label="Agência" placeholder="0000-0" inputMode="numeric" />
+                  <MaskedInput mask="bankAccount" value={form.bankAccount} onChange={v => setF('bankAccount', v)} label="Conta" placeholder="00000-0" inputMode="numeric" />
                   <div>
-                    <label className={labelCls}>Tipo de conta</label>
-                    <select value={form.bankAccountType} onChange={e => setF('bankAccountType', e.target.value)} className={inputCls + ' bg-white'}>
+                    <label className={lCls}>Tipo de conta</label>
+                    <select value={form.bankAccountType} onChange={e => setF('bankAccountType', e.target.value)} className={iCls + ' bg-white'}>
                       <option value="">Selecionar...</option>
                       <option value="corrente">Conta Corrente</option>
                       <option value="poupanca">Poupança</option>
                       <option value="pagamento">Conta Pagamento</option>
                     </select>
                   </div>
-                  <div><label className={labelCls}>Chave PIX</label><input value={form.pixKey} onChange={e => setF('pixKey', e.target.value)} className={inputCls} /></div>
+                  <div><label className={lCls}>Chave PIX</label><input value={form.pixKey} onChange={e => setF('pixKey', e.target.value)} className={iCls} /></div>
                   <div>
-                    <label className={labelCls}>Tipo da chave PIX</label>
-                    <select value={form.pixKeyType} onChange={e => setF('pixKeyType', e.target.value)} className={inputCls + ' bg-white'}>
+                    <label className={lCls}>Tipo da chave PIX</label>
+                    <select value={form.pixKeyType} onChange={e => setF('pixKeyType', e.target.value)} className={iCls + ' bg-white'}>
                       <option value="">Selecionar...</option>
                       <option value="cpf">CPF</option>
                       <option value="cnpj">CNPJ</option>
@@ -445,9 +404,9 @@ function SupplierModal({
 
           {/* Observações */}
           <div>
-            <label className={labelCls}>Observações</label>
+            <label className={lCls}>Observações</label>
             <textarea value={form.notes} onChange={e => setF('notes', e.target.value)} rows={2}
-              className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F5A623] resize-none" />
+              className={`${iCls} resize-none`} />
           </div>
 
           {error && <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-600">{error}</div>}

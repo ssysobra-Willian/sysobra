@@ -12,9 +12,10 @@ import {
   TrendingUp, TrendingDown, Scale, Wallet,
   Bell, AlertTriangle, Info,
   ChevronLeft, ChevronRight, X, RefreshCw, AlertCircle,
+  SlidersHorizontal, HardHat, Layers,
 } from 'lucide-react'
 
-import { useFilterState, useDashboardData, useBankAccounts, useProjects, useProjectAlerts } from './hooks'
+import { useFilterState, useDashboardData, useBankAccounts, useProjects, useProjectAlerts, type ProjectOption } from './hooks'
 import { ChartModal, ChartDropdown, ZoomBtn, makeChartTooltip, useChartExport, exportCsv } from './chart-actions'
 import type { BillGroup, Transaction, ExpenseCategory, CashflowPoint, BalancePoint } from './data'
 import { formatCurrency, formatCurrencyCompact } from '@/lib/format'
@@ -377,9 +378,17 @@ export default function DashboardPage() {
   const projects      = useProjects()
   const { alerts: projectAlerts } = useProjectAlerts()
 
+  // Estado do accordion de filtros (mobile)
+  const [filtersOpen, setFiltersOpen] = useState(false)
+
   // Estados de modal
   const [zoomCashflow, setZoomCashflow]   = useState(false)
   const [zoomBalance,  setZoomBalance]    = useState(false)
+
+  // Projeto/etapa selecionados — para exibir o banner
+  const selectedProject: ProjectOption | undefined = projects.find(p => p.id === filters.centroCusto)
+  const selectedStageLabel = selectedProject?.stages.find(s => s.id === filters.etapa)?.name
+  const availableStages    = selectedProject?.stages ?? []
 
   // Refs para exportação
   const cashflowRef = useRef<HTMLDivElement>(null)
@@ -482,7 +491,16 @@ export default function DashboardPage() {
           <p className="text-sm text-gray-500 mt-0.5">Visão geral financeira e operacional</p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex items-center gap-2">
+          {/* Botão accordion mobile */}
+          <button
+            onClick={() => setFiltersOpen(v => !v)}
+            className={`sm:hidden flex items-center gap-1.5 text-xs font-semibold border px-3 py-2 rounded-lg transition-colors ${filtersOpen ? 'bg-[#F5A623] text-white border-[#F5A623]' : 'bg-white text-gray-600 border-gray-200'}`}
+          >
+            <SlidersHorizontal size={13} />
+            Filtros {activeCount > 0 && `(${activeCount})`}
+          </button>
+
           {activeCount > 0 && (
             <button onClick={resetFilters}
               className="flex items-center gap-1.5 text-xs font-semibold text-white bg-[#F5A623] px-3 py-1.5 rounded-full hover:bg-[#d4891a] transition-colors">
@@ -491,40 +509,86 @@ export default function DashboardPage() {
             </button>
           )}
 
-          {/* Conta bancária — alimentado pela API */}
-          <select value={filters.contaBancaria} onChange={(e) => setFilter('contaBancaria', e.target.value)}
-            className={SELECT_CLS(!!filters.contaBancaria)}>
-            <option value="">Todas as contas</option>
-            {bankAccounts.map((b) => (
-              <option key={b.id} value={b.id}>{b.name}</option>
-            ))}
-          </select>
-
-          {/* Centro de custo — alimentado pela API */}
-          <select value={filters.centroCusto} onChange={(e) => setFilter('centroCusto', e.target.value)}
-            className={SELECT_CLS(!!filters.centroCusto)}>
-            <option value="">Todos os centros</option>
-            {projects.map((p) => (
-              <option key={p.id} value={p.id}>{p.name}</option>
-            ))}
-          </select>
-
-          <div className="flex items-center gap-1.5">
-            <input type="date" value={filters.periodoInicio}
-              onChange={(e) => setFilter('periodoInicio', e.target.value)}
-              className={SELECT_CLS(isPeriodoAlterado)} />
-            <span className="text-gray-400 text-sm">–</span>
-            <input type="date" value={filters.periodoFim}
-              onChange={(e) => setFilter('periodoFim', e.target.value)}
-              className={SELECT_CLS(isPeriodoAlterado)} />
-          </div>
-
           <button onClick={refetch} title="Atualizar dados"
-            className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors">
+            className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors ml-auto sm:ml-0">
             <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
           </button>
         </div>
       </div>
+
+      {/* ── Painel de filtros (desktop sempre visível; mobile accordion) ─── */}
+      <div className={`flex-wrap items-center gap-2 ${filtersOpen ? 'flex' : 'hidden sm:flex'}`}>
+        {/* Conta bancária */}
+        <select value={filters.contaBancaria} onChange={(e) => setFilter('contaBancaria', e.target.value)}
+          className={SELECT_CLS(!!filters.contaBancaria)}>
+          <option value="">Todas as contas</option>
+          {bankAccounts.map((b) => (
+            <option key={b.id} value={b.id}>{b.name}</option>
+          ))}
+        </select>
+
+        {/* Centro de Custo */}
+        <select
+          value={filters.centroCusto}
+          onChange={(e) => { setFilter('centroCusto', e.target.value); setFilter('etapa', '') }}
+          className={SELECT_CLS(!!filters.centroCusto)}
+        >
+          <option value="">Todos os centros de custo</option>
+          {projects.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.code ? `${p.code} — ${p.name}` : p.name}
+            </option>
+          ))}
+        </select>
+
+        {/* Etapa (dependente do CC) */}
+        <select
+          value={filters.etapa}
+          onChange={(e) => setFilter('etapa', e.target.value)}
+          disabled={!filters.centroCusto}
+          className={`${SELECT_CLS(!!filters.etapa)} disabled:opacity-50 disabled:cursor-not-allowed`}
+        >
+          <option value="">{filters.centroCusto ? 'Todas as etapas' : 'Selecione uma obra primeiro'}</option>
+          {availableStages.map((s) => (
+            <option key={s.id} value={s.id}>
+              {String(s.order + 1).padStart(2, '0')} — {s.name}
+            </option>
+          ))}
+        </select>
+
+        {/* Período */}
+        <div className="flex items-center gap-1.5">
+          <input type="date" value={filters.periodoInicio}
+            onChange={(e) => setFilter('periodoInicio', e.target.value)}
+            className={SELECT_CLS(isPeriodoAlterado)} />
+          <span className="text-gray-400 text-sm">–</span>
+          <input type="date" value={filters.periodoFim}
+            onChange={(e) => setFilter('periodoFim', e.target.value)}
+            className={SELECT_CLS(isPeriodoAlterado)} />
+        </div>
+      </div>
+
+      {/* ── Banner de contexto CC/Etapa ─────────────────────────────────── */}
+      {filters.centroCusto && selectedProject && (
+        <div className="flex items-center gap-3 bg-blue-50 border border-blue-200 rounded-xl px-4 py-2.5">
+          <HardHat size={15} className="text-blue-500 flex-shrink-0" />
+          <p className="text-sm text-blue-700 flex-1 font-medium">
+            Visualizando:{' '}
+            <span className="font-semibold">{selectedProject.name}</span>
+            {selectedProject.code && <span className="text-blue-500 font-normal"> ({selectedProject.code})</span>}
+            {selectedStageLabel && (
+              <> <span className="text-blue-400 mx-1">—</span> <span className="font-semibold">{selectedStageLabel}</span></>
+            )}
+          </p>
+          <button
+            onClick={() => { setFilter('centroCusto', ''); setFilter('etapa', '') }}
+            className="text-blue-400 hover:text-blue-600 p-1 rounded-lg hover:bg-blue-100 transition-colors flex-shrink-0"
+            title="Limpar filtro de obra"
+          >
+            <X size={13} />
+          </button>
+        </div>
+      )}
 
       {/* ── Banner de erro ────────────────────────────────────────────── */}
       {error && (

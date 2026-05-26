@@ -3,6 +3,9 @@
 import { useState, useEffect } from 'react'
 import { X, Info } from 'lucide-react'
 import { NumericFormat } from 'react-number-format'
+import { MaskedInput }     from '@/components/ui/MaskedInput'
+import { BankSearchInput } from '@/components/ui/BankSearchInput'
+import { maskCpfCnpj }     from '@/lib/validators'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
 
@@ -85,7 +88,7 @@ export function BankAccountModal({ open, onClose, onSaved, editAccount, token }:
       setAccountType(editAccount.accountType ?? 'CHECKING')
       setPixKey(editAccount.pixKey ?? '')
       setHolderName(editAccount.holderName ?? '')
-      setHolderDocument(editAccount.holderDocument ?? '')
+      setHolderDocument(editAccount.holderDocument ? maskCpfCnpj(editAccount.holderDocument) : '')
       setInitialBalance(Number(editAccount.initialBalance) || 0)
       setIntegrationActive(editAccount.integrationActive)
     } else {
@@ -179,26 +182,19 @@ export function BankAccountModal({ open, onClose, onSaved, editAccount, token }:
                 </select>
               </div>
 
-              {/* Banco */}
-              <div className="relative">
-                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Banco</label>
-                <input value={bankSearch}
-                  onChange={(e) => { setBankSearch(e.target.value); setShowBanks(true) }}
-                  onFocus={() => setShowBanks(true)}
-                  placeholder="Buscar banco..."
-                  className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F5A623]" />
-                {showBanks && banks.length > 0 && (
-                  <div className="absolute top-full left-0 right-0 z-10 bg-white border border-gray-200 rounded-xl shadow-lg max-h-44 overflow-y-auto mt-1">
-                    {banks.slice(0, 10).map((b) => (
-                      <button key={b.id} onClick={() => selectBank(b)}
-                        className="w-full text-left px-4 py-2.5 hover:bg-gray-50 text-sm border-b border-gray-50 last:border-0">
-                        <span className="font-medium text-gray-700">{b.code ? `${b.code} ` : ''}{b.name}</span>
-                        {b.fullName && <span className="text-xs text-gray-400 block truncate">{b.fullName}</span>}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
+              {/* Banco com busca inteligente */}
+              <BankSearchInput
+                token={token}
+                value={bankSearch}
+                bankCode={bankCode}
+                onChange={(opt) => {
+                  setBankSearch(opt.value)
+                  setBankId(opt.id)
+                  setBankCode(opt.code)
+                  setShowBanks(false)
+                }}
+                label="Banco"
+              />
 
               <div>
                 <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Código do banco</label>
@@ -209,13 +205,11 @@ export function BankAccountModal({ open, onClose, onSaved, editAccount, token }:
 
               <div className="grid grid-cols-3 gap-2">
                 <div className="col-span-2">
-                  <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Agência</label>
-                  <input value={agency} onChange={(e) => setAgency(e.target.value)}
-                    placeholder="0001"
-                    className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F5A623]" />
+                  <MaskedInput mask="bankAgency" value={agency} onChange={setAgency}
+                    label="Agência" placeholder="0000-0" inputMode="numeric" />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Dígito</label>
+                  <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Dígito ag.</label>
                   <input value={agencyDigit} onChange={(e) => setAgencyDigit(e.target.value)}
                     placeholder="0"
                     className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F5A623]" />
@@ -230,7 +224,7 @@ export function BankAccountModal({ open, onClose, onSaved, editAccount, token }:
                     className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F5A623]" />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Dígito</label>
+                  <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Dígito ct.</label>
                   <input value={accountDigit} onChange={(e) => setAccountDigit(e.target.value)}
                     placeholder="6"
                     className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F5A623]" />
@@ -280,12 +274,16 @@ export function BankAccountModal({ open, onClose, onSaved, editAccount, token }:
                     placeholder="Nome completo ou razão social"
                     className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F5A623] bg-white" />
                 </div>
-                <div>
-                  <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">CPF / CNPJ</label>
-                  <input value={holderDocument} onChange={(e) => setHolderDocument(e.target.value)}
-                    placeholder="000.000.000-00"
-                    className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F5A623] bg-white" />
-                </div>
+                <MaskedInput
+                  mask="cpfCnpj"
+                  value={holderDocument}
+                  onChange={setHolderDocument}
+                  label="CPF / CNPJ"
+                  placeholder="000.000.000-00 ou 00.000.000/0001-00"
+                  showValid
+                  inputMode="numeric"
+                  className="bg-white"
+                />
                 <p className="text-[11px] text-blue-600">
                   Esses dados ajudam na identificação no Open Finance e conciliação bancária.
                 </p>
