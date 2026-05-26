@@ -7,7 +7,8 @@ import {
   ChevronLeft, Edit2, MoreHorizontal, HardHat, TrendingUp, TrendingDown,
   DollarSign, AlertTriangle, Calendar, MapPin, User, CheckCircle2,
   Circle, Clock, Banknote, ShoppingCart, FileText, BarChart3,
-  ExternalLink, RefreshCw, ClipboardList,
+  ExternalLink, RefreshCw, ClipboardList, ChevronDown, ChevronRight,
+  Layers, Plus,
 } from 'lucide-react'
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
@@ -21,6 +22,12 @@ const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
+interface StageTx {
+  id: string; description: string; type: string; isPaid: boolean
+  netAmount: number; referenceDate: string | null; dueDate: string | null
+  category: { name: string; color: string | null; icon: string | null } | null
+}
+
 interface Stage {
   id: string
   code: string | null
@@ -32,6 +39,12 @@ interface Stage {
   budgetLabor: number
   budgetTotal: number
   realizedValue: number
+  // computed by backend
+  realizedFromAllocations: number
+  balance: number
+  deviationPercent: number
+  isOverBudget: boolean
+  recentTransactions: StageTx[]
   startDate: string | null
   endDate: string | null
 }
@@ -129,6 +142,285 @@ function budgetBadgeInfo(proj: Project) {
   if (proj.budgetAlert || proj.delayAlert) return { label: 'Atenção', cls: 'bg-yellow-100 text-yellow-700' }
   return { label: 'Dentro do orçamento', cls: 'bg-green-100 text-green-700' }
 }
+
+// ─── Tabela Orçado x Realizado ────────────────────────────────────────────────
+
+function deviationCls(d: number) {
+  if (d > 5)  return 'text-red-600'
+  if (d > 0)  return 'text-amber-600'
+  return 'text-green-600'
+}
+function deviationBg(d: number) {
+  if (d > 5)  return 'bg-red-100 text-red-700'
+  if (d > 0)  return 'bg-amber-100 text-amber-700'
+  return 'bg-green-100 text-green-700'
+}
+function progressBarBudget(pct: number, d: number) {
+  if (d > 5)  return 'bg-red-400'
+  if (d > 0)  return 'bg-amber-400'
+  return 'bg-green-400'
+}
+
+const STAGE_STATUS_BADGE: Record<string, string> = {
+  PENDING:     'bg-gray-100 text-gray-500',
+  IN_PROGRESS: 'bg-blue-100 text-blue-700',
+  COMPLETED:   'bg-green-100 text-green-700',
+  CANCELLED:   'bg-red-100 text-red-600',
+}
+
+function BudgetTable({
+  stages,
+  projectId,
+  onUpdateProgress,
+}: {
+  stages: Stage[]
+  projectId: string
+  onUpdateProgress: (stage: Stage) => void
+}) {
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({})
+  const fmt = formatCurrency
+
+  const totalBudgetMat = stages.reduce((a, s) => a + s.budgetMaterial, 0)
+  const totalBudgetLab = stages.reduce((a, s) => a + s.budgetLabor, 0)
+  const totalBudget    = stages.reduce((a, s) => a + s.budgetTotal, 0)
+  const totalRealized  = stages.reduce((a, s) => a + (s.realizedFromAllocations ?? s.realizedValue), 0)
+  const totalBalance   = totalBudget - totalRealized
+  const totalDeviation = totalBudget > 0 ? ((totalRealized - totalBudget) / totalBudget) * 100 : 0
+  const avgProgress    = stages.length > 0
+    ? stages.reduce((a, s) => a + s.progressPercent, 0) / stages.length
+    : 0
+
+  if (stages.length === 0) {
+    return (
+      <div className="text-center py-10">
+        <Layers size={32} className="text-gray-300 mx-auto mb-2" />
+        <p className="text-sm text-gray-400">Nenhuma etapa cadastrada</p>
+      </div>
+    )
+  }
+
+  return (
+    <div>
+      {/* Cards resumo */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-5">
+        <div className="bg-white rounded-xl border border-gray-200 p-4">
+          <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide">Total orçado</p>
+          <p className="text-xl font-bold text-blue-600 mt-1">{fmt(totalBudget)}</p>
+          <p className="text-xs text-gray-400 mt-0.5">Orçamento total da obra</p>
+        </div>
+        <div className="bg-white rounded-xl border border-gray-200 p-4">
+          <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide">Total realizado</p>
+          <p className="text-xl font-bold text-gray-800 mt-1">{fmt(totalRealized)}</p>
+          <div className="mt-1.5 w-full bg-gray-100 rounded-full h-1.5">
+            <div
+              className={`h-1.5 rounded-full ${progressBarBudget(0, totalDeviation)}`}
+              style={{ width: `${Math.min(100, totalBudget > 0 ? (totalRealized / totalBudget) * 100 : 0)}%` }}
+            />
+          </div>
+          <p className="text-xs text-gray-400 mt-0.5">
+            {totalBudget > 0 ? ((totalRealized / totalBudget) * 100).toFixed(1) : '0'}% do orçamento consumido
+          </p>
+        </div>
+        <div className="bg-white rounded-xl border border-gray-200 p-4">
+          <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide">Saldo disponível</p>
+          <p className={`text-xl font-bold mt-1 ${totalBalance < 0 ? 'text-red-600' : 'text-emerald-600'}`}>
+            {fmt(Math.abs(totalBalance))}
+          </p>
+          <p className={`text-xs mt-0.5 ${totalBalance < 0 ? 'text-red-500' : 'text-gray-400'}`}>
+            {totalBalance < 0 ? 'Saldo negativo' : 'Disponível no orçamento'}
+          </p>
+        </div>
+        <div className="bg-white rounded-xl border border-gray-200 p-4">
+          <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide">Desvio geral</p>
+          <p className={`text-xl font-bold mt-1 ${deviationCls(totalDeviation)}`}>
+            {totalDeviation > 0 ? '+' : ''}{totalDeviation.toFixed(1)}%
+          </p>
+          <p className="text-xs text-gray-400 mt-0.5">
+            {totalDeviation > 5 ? '⚠ Acima do orçamento' : totalDeviation > 0 ? '⚡ Atenção ao desvio' : '✅ Dentro do orçamento'}
+          </p>
+        </div>
+      </div>
+
+      {/* Tabela */}
+      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="bg-gray-50 border-b border-gray-200">
+              <tr>
+                <th className="px-4 py-3 text-left text-[11px] font-semibold text-gray-500 uppercase whitespace-nowrap">Etapa</th>
+                <th className="px-4 py-3 text-right text-[11px] font-semibold text-gray-500 uppercase whitespace-nowrap hidden md:table-cell">Orç. Material</th>
+                <th className="px-4 py-3 text-right text-[11px] font-semibold text-gray-500 uppercase whitespace-nowrap hidden md:table-cell">Orç. MO</th>
+                <th className="px-4 py-3 text-right text-[11px] font-semibold text-gray-500 uppercase whitespace-nowrap">Orç. Total</th>
+                <th className="px-4 py-3 text-right text-[11px] font-semibold text-gray-500 uppercase whitespace-nowrap">Realizado</th>
+                <th className="px-4 py-3 text-right text-[11px] font-semibold text-gray-500 uppercase whitespace-nowrap hidden lg:table-cell">Saldo</th>
+                <th className="px-4 py-3 text-right text-[11px] font-semibold text-gray-500 uppercase whitespace-nowrap hidden lg:table-cell">Desvio</th>
+                <th className="px-4 py-3 text-center text-[11px] font-semibold text-gray-500 uppercase whitespace-nowrap">Progresso</th>
+                <th className="px-4 py-3 text-center text-[11px] font-semibold text-gray-500 uppercase whitespace-nowrap hidden xl:table-cell">Status</th>
+                <th className="px-2 py-3 w-8"></th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {stages.map((stage) => {
+                const realized = stage.realizedFromAllocations ?? stage.realizedValue
+                const balance  = stage.balance ?? (stage.budgetTotal - realized)
+                const dev      = stage.deviationPercent ?? (stage.budgetTotal > 0 ? ((realized - stage.budgetTotal) / stage.budgetTotal) * 100 : 0)
+                const isExp    = expanded[stage.id]
+                const stBadge  = STAGE_STATUS_BADGE[stage.status] ?? 'bg-gray-100 text-gray-500'
+                return (
+                  <>
+                    <tr
+                      key={stage.id}
+                      className="hover:bg-gray-50 transition-colors cursor-pointer"
+                      onClick={() => setExpanded(e => ({ ...e, [stage.id]: !e[stage.id] }))}
+                    >
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-2">
+                          {isExp ? <ChevronDown size={13} className="text-gray-400 flex-shrink-0" /> : <ChevronRight size={13} className="text-gray-400 flex-shrink-0" />}
+                          <span className="font-medium text-gray-800 text-sm">{stage.name}</span>
+                          {stage.code && <span className="text-[10px] text-gray-400 font-mono hidden sm:inline">{stage.code}</span>}
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 text-right text-xs text-gray-600 hidden md:table-cell">{fmt(stage.budgetMaterial)}</td>
+                      <td className="px-4 py-3 text-right text-xs text-gray-600 hidden md:table-cell">{fmt(stage.budgetLabor)}</td>
+                      <td className="px-4 py-3 text-right text-xs font-semibold text-gray-800">{fmt(stage.budgetTotal)}</td>
+                      <td className="px-4 py-3 text-right text-xs font-semibold text-gray-800">{fmt(realized)}</td>
+                      <td className={`px-4 py-3 text-right text-xs font-semibold hidden lg:table-cell ${balance < 0 ? 'text-red-600' : 'text-emerald-600'}`}>
+                        {balance < 0 ? '-' : ''}{fmt(Math.abs(balance))}
+                      </td>
+                      <td className="px-4 py-3 text-right hidden lg:table-cell">
+                        {stage.budgetTotal > 0 ? (
+                          <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${deviationBg(dev)}`}>
+                            {dev > 0 ? '+' : ''}{dev.toFixed(1)}%
+                          </span>
+                        ) : <span className="text-xs text-gray-400">—</span>}
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex flex-col items-center gap-1 min-w-[70px]">
+                          <div className="w-full bg-gray-100 rounded-full h-1.5">
+                            <div
+                              className={`h-1.5 rounded-full ${progressBarBudget(stage.progressPercent, dev)}`}
+                              style={{ width: `${Math.min(100, stage.progressPercent)}%` }}
+                            />
+                          </div>
+                          <span className="text-[10px] text-gray-500">{stage.progressPercent.toFixed(0)}%</span>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 text-center hidden xl:table-cell">
+                        <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${stBadge}`}>
+                          {STAGE_STATUS_LABELS[stage.status] ?? stage.status}
+                        </span>
+                      </td>
+                      <td className="px-2 py-3">
+                        <button
+                          title="Atualizar progresso"
+                          onClick={(e) => { e.stopPropagation(); onUpdateProgress(stage) }}
+                          className="text-gray-300 hover:text-[#F5A623] transition-colors"
+                        >
+                          <Edit2 size={13} />
+                        </button>
+                      </td>
+                    </tr>
+
+                    {/* Linha expandida */}
+                    {isExp && (
+                      <tr key={`${stage.id}-exp`} className="bg-amber-50/40">
+                        <td colSpan={10} className="px-6 py-3">
+                          {stage.recentTransactions && stage.recentTransactions.length > 0 ? (
+                            <div>
+                              <p className="text-[11px] font-semibold text-gray-500 uppercase mb-2">Últimos lançamentos desta etapa</p>
+                              <table className="w-full">
+                                <thead>
+                                  <tr className="text-[10px] text-gray-400 uppercase">
+                                    <th className="text-left pb-1 font-semibold">Descrição</th>
+                                    <th className="text-left pb-1 font-semibold hidden sm:table-cell">Categoria</th>
+                                    <th className="text-right pb-1 font-semibold">Valor</th>
+                                    <th className="text-center pb-1 font-semibold">Status</th>
+                                  </tr>
+                                </thead>
+                                <tbody className="divide-y divide-amber-100">
+                                  {stage.recentTransactions.map(tx => (
+                                    <tr key={tx.id}>
+                                      <td className="py-1.5 pr-3 text-xs text-gray-700">{tx.description}</td>
+                                      <td className="py-1.5 pr-3 text-xs text-gray-500 hidden sm:table-cell">
+                                        {tx.category?.name ?? '—'}
+                                      </td>
+                                      <td className={`py-1.5 text-xs font-semibold text-right ${tx.type === 'INCOME' ? 'text-green-600' : 'text-red-500'}`}>
+                                        {tx.type === 'INCOME' ? '+' : '-'}{fmt(tx.netAmount)}
+                                      </td>
+                                      <td className="py-1.5 text-center">
+                                        <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-semibold ${tx.isPaid ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}`}>
+                                          {tx.isPaid ? 'Pago' : 'Pendente'}
+                                        </span>
+                                      </td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                              <div className="flex items-center justify-between mt-2">
+                                <a
+                                  href={`/app/financeiro?projectId=${projectId}&stageId=${stage.id}`}
+                                  className="text-[11px] text-[#F5A623] hover:underline font-medium"
+                                >
+                                  Ver todos os lançamentos desta etapa →
+                                </a>
+                                <button
+                                  onClick={() => onUpdateProgress(stage)}
+                                  className="text-[11px] font-semibold text-gray-600 border border-gray-200 px-2.5 py-1 rounded-lg hover:bg-white flex items-center gap-1"
+                                >
+                                  <Edit2 size={10} /> Atualizar progresso
+                                </button>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="flex items-center justify-between">
+                              <p className="text-xs text-gray-400 italic">Nenhum lançamento vinculado a esta etapa via rateio.</p>
+                              <button
+                                onClick={() => onUpdateProgress(stage)}
+                                className="text-[11px] font-semibold text-gray-600 border border-gray-200 px-2.5 py-1 rounded-lg hover:bg-white flex items-center gap-1"
+                              >
+                                <Edit2 size={10} /> Atualizar progresso
+                              </button>
+                            </div>
+                          )}
+                        </td>
+                      </tr>
+                    )}
+                  </>
+                )
+              })}
+            </tbody>
+
+            {/* Linha de totais */}
+            <tfoot className="bg-gray-50 border-t-2 border-gray-200">
+              <tr>
+                <td className="px-4 py-3 font-bold text-sm text-gray-800">TOTAL</td>
+                <td className="px-4 py-3 text-right text-xs font-bold text-gray-700 hidden md:table-cell">{fmt(totalBudgetMat)}</td>
+                <td className="px-4 py-3 text-right text-xs font-bold text-gray-700 hidden md:table-cell">{fmt(totalBudgetLab)}</td>
+                <td className="px-4 py-3 text-right text-xs font-bold text-gray-800">{fmt(totalBudget)}</td>
+                <td className="px-4 py-3 text-right text-xs font-bold text-gray-800">{fmt(totalRealized)}</td>
+                <td className={`px-4 py-3 text-right text-xs font-bold hidden lg:table-cell ${totalBalance < 0 ? 'text-red-600' : 'text-emerald-600'}`}>
+                  {totalBalance < 0 ? '-' : ''}{fmt(Math.abs(totalBalance))}
+                </td>
+                <td className="px-4 py-3 text-right hidden lg:table-cell">
+                  <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${deviationBg(totalDeviation)}`}>
+                    {totalDeviation > 0 ? '+' : ''}{totalDeviation.toFixed(1)}%
+                  </span>
+                </td>
+                <td className="px-4 py-3 text-center">
+                  <span className="text-xs font-bold text-gray-700">{avgProgress.toFixed(0)}%</span>
+                </td>
+                <td className="hidden xl:table-cell" />
+                <td />
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── StageIcon (mantido) ──────────────────────────────────────────────────────
 
 function StageIcon({ status }: { status: string }) {
   if (status === 'COMPLETED')  return <CheckCircle2 size={14} className="text-green-500 flex-shrink-0" />
@@ -554,57 +846,38 @@ export default function ObraDetailPage() {
             </div>
           )}
 
-          {/* Etapas da obra */}
+          {/* Etapas — compacto (visão rápida) */}
           <div className="bg-white rounded-xl border border-gray-200 p-4">
             <div className="flex items-center justify-between mb-3">
-              <h4 className="text-sm font-semibold text-gray-700">Etapas da obra</h4>
+              <h4 className="text-sm font-semibold text-gray-700">Etapas ({project.stages.length})</h4>
               <button onClick={loadProject} className="text-gray-400 hover:text-gray-600">
                 <RefreshCw size={13} />
               </button>
             </div>
-            <div className="space-y-3">
-              {project.stages.length === 0 && (
-                <p className="text-xs text-gray-400 text-center py-4">Nenhuma etapa cadastrada</p>
-              )}
-              {project.stages.map(stage => (
-                <div key={stage.id} className="group">
-                  <div className="flex items-center justify-between mb-1">
-                    <div className="flex items-center gap-1.5 min-w-0">
-                      <StageIcon status={stage.status} />
-                      <span className="text-xs font-medium text-gray-800 truncate">{stage.name}</span>
-                    </div>
-                    <div className="flex items-center gap-2 flex-shrink-0">
-                      <span className="text-[10px] text-gray-500 font-mono">{stage.progressPercent.toFixed(0)}%</span>
-                      <TableActionMenu actions={[
-                        {
-                          label: 'Atualizar progresso',
-                          onClick: () => {
-                            setProgressStage(stage)
-                            setProgressVal(String(stage.progressPercent))
-                            setRealizedVal(String(stage.realizedValue))
-                            setShowProgressModal(true)
-                          },
-                        },
-                      ]} menuWidth={180} />
+            {project.stages.length === 0 ? (
+              <p className="text-xs text-gray-400 text-center py-4">Nenhuma etapa cadastrada</p>
+            ) : (
+              <div className="space-y-2">
+                {project.stages.map(stage => (
+                  <div key={stage.id} className="flex items-center gap-2">
+                    <StageIcon status={stage.status} />
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between mb-0.5">
+                        <span className="text-xs font-medium text-gray-700 truncate">{stage.name}</span>
+                        <span className="text-[10px] text-gray-500 flex-shrink-0 ml-2">{stage.progressPercent.toFixed(0)}%</span>
+                      </div>
+                      <div className="w-full h-1 bg-gray-100 rounded-full overflow-hidden">
+                        <div
+                          className={`h-full rounded-full ${progressBarColor(stage.progressPercent, stage.status)}`}
+                          style={{ width: `${Math.min(100, stage.progressPercent)}%` }}
+                        />
+                      </div>
                     </div>
                   </div>
-                  <div className="w-full h-1.5 bg-gray-100 rounded-full overflow-hidden">
-                    <div
-                      className={`h-full rounded-full transition-all ${progressBarColor(stage.progressPercent, stage.status)}`}
-                      style={{ width: `${Math.min(100, stage.progressPercent)}%` }}
-                    />
-                  </div>
-                  <div className="flex items-center justify-between mt-0.5">
-                    <span className={`text-[9px] ${stage.status === 'COMPLETED' ? 'text-green-500' : stage.status === 'IN_PROGRESS' ? 'text-amber-500' : 'text-gray-400'}`}>
-                      {STAGE_STATUS_LABELS[stage.status] ?? stage.status}
-                    </span>
-                    {stage.budgetTotal > 0 && (
-                      <span className="text-[9px] text-gray-400">{formatCurrency(stage.realizedValue)} / {formatCurrency(stage.budgetTotal)}</span>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            )}
+            <p className="text-[10px] text-gray-400 text-center mt-3">↓ Ver tabela completa abaixo</p>
           </div>
 
           {/* RT (Responsável Técnico) */}
@@ -634,6 +907,32 @@ export default function ObraDetailPage() {
             </div>
           )}
         </div>
+      </div>
+
+      {/* ── Tabela Orçado x Realizado (full-width) ────────────────────────────── */}
+      <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <h2 className="text-base font-semibold text-gray-800 flex items-center gap-2">
+            <Layers size={16} className="text-[#F5A623]" />
+            Orçado × Realizado por etapa
+          </h2>
+          <Link
+            href={`/app/financeiro?projectId=${id}`}
+            className="text-xs text-[#F5A623] hover:underline font-medium flex items-center gap-1"
+          >
+            Ver todos os lançamentos <ExternalLink size={11} />
+          </Link>
+        </div>
+        <BudgetTable
+          stages={project.stages}
+          projectId={id}
+          onUpdateProgress={(stage) => {
+            setProgressStage(stage)
+            setProgressVal(String(stage.progressPercent))
+            setRealizedVal(String(stage.realizedFromAllocations ?? stage.realizedValue))
+            setShowProgressModal(true)
+          }}
+        />
       </div>
 
       {/* ── Modal de progresso ──────────────────────────────────────────────── */}

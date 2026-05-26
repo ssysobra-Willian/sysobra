@@ -365,6 +365,73 @@ export async function projectRoutes(app: FastifyInstance) {
       netAmount:      Number(tx.netAmount),
     }))
 
+    // ── Enriquecer etapas com realizado calculado via CostCenterAllocation ──
+    try {
+      // Buscar todas as alocações da obra com dados da transação
+      const allocations = await p.costCenterAllocation.findMany({
+        where: { projectId: id },
+        include: {
+          transaction: {
+            select: {
+              id: true, description: true, type: true, isPaid: true,
+              netAmount: true, dueDate: true, paidAt: true, referenceDate: true, createdAt: true,
+              category: { select: { name: true, color: true, icon: true } },
+            },
+          },
+        },
+        orderBy: { createdAt: 'desc' },
+      })
+
+      // Mapas por stageId
+      const stageRealizedMap:   Record<string, number>   = {}
+      const stageTxMap:         Record<string, any[]>    = {}
+
+      for (const alloc of allocations) {
+        if (!alloc.stageId) continue
+        const tx = alloc.transaction
+        if (!tx) continue
+
+        // Realizado = apenas despesas pagas
+        if (tx.type === 'EXPENSE' && tx.isPaid) {
+          stageRealizedMap[alloc.stageId] = (stageRealizedMap[alloc.stageId] ?? 0) + Number(alloc.amount)
+        }
+
+        // Últimas 5 transações por etapa (qualquer tipo)
+        if (!stageTxMap[alloc.stageId]) stageTxMap[alloc.stageId] = []
+        if (stageTxMap[alloc.stageId].length < 5) {
+          stageTxMap[alloc.stageId].push({
+            id:            tx.id,
+            description:   tx.description,
+            type:          tx.type,
+            isPaid:        tx.isPaid,
+            netAmount:     Number(tx.netAmount),
+            dueDate:       tx.dueDate,
+            paidAt:        tx.paidAt,
+            referenceDate: tx.referenceDate,
+            createdAt:     tx.createdAt,
+            category:      tx.category,
+          })
+        }
+      }
+
+      // Enriquecer cada etapa com os dados calculados
+      serialised.stages = serialised.stages.map((stage: any) => {
+        const realizedFromAllocations = stageRealizedMap[stage.id] ?? stage.realizedValue ?? 0
+        const balance                 = stage.budgetTotal - realizedFromAllocations
+        const deviationPercent        = stage.budgetTotal > 0
+          ? ((realizedFromAllocations - stage.budgetTotal) / stage.budgetTotal) * 100
+          : 0
+        return {
+          ...stage,
+          realizedFromAllocations,
+          balance:           Math.round(balance * 100) / 100,
+          deviationPercent:  Math.round(deviationPercent * 100) / 100,
+          isOverBudget:      deviationPercent > 5,
+          recentTransactions: stageTxMap[stage.id] ?? [],
+        }
+      })
+    } catch { /* silencioso: enriquecimento não bloqueia resposta */ }
+
     return reply.send({ project: serialised })
   })
 
