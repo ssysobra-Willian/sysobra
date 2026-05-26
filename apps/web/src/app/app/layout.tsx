@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
 import { Sidebar } from '@/components/Sidebar'
 import { useTheme } from 'next-themes'
-import { Sun, Moon } from 'lucide-react'
+import { Sun, Moon, Menu } from 'lucide-react'
 import { updateSubStatus } from '@/lib/auth-cookies'
 import { ReactQueryProvider } from '@/providers/ReactQueryProvider'
 
@@ -17,28 +17,47 @@ const STATUS_PAGES = [
   '/app/pagamento-recusado',
 ]
 
-function Header() {
+function Header({ onToggleSidebar }: { onToggleSidebar: () => void }) {
   const { theme, setTheme } = useTheme()
   const [info, setInfo] = useState({ company: '', user: '' })
 
   useEffect(() => {
     setInfo({
       company: localStorage.getItem('companyName') || 'Empresa',
-      user: localStorage.getItem('userName') || '',
+      user:    localStorage.getItem('userName')    || '',
     })
   }, [])
 
   return (
-    <header className="h-14 bg-[#1a1a1a] flex items-center justify-between px-6 flex-shrink-0">
-      {/* Logo SYSOBRA — sempre fixa, nunca substituída pela logo do cliente */}
-      <div className="flex items-center gap-3">
+    <header className="h-14 bg-[#1a1a1a] flex items-center justify-between px-4 md:px-6 flex-shrink-0 gap-3">
+      {/* ── Hamburger (apenas mobile/tablet) ─────────────────────────── */}
+      <button
+        onClick={onToggleSidebar}
+        className="lg:hidden flex items-center justify-center w-8 h-8 rounded-lg text-gray-400 hover:text-white hover:bg-white/10 transition-colors flex-shrink-0"
+        title="Abrir menu"
+        aria-label="Abrir menu"
+      >
+        <Menu size={20} />
+      </button>
+
+      {/* ── Logo SYSOBRA (visível só no mobile quando sidebar fechada) ── */}
+      <div className="lg:hidden flex items-center gap-2 flex-1 min-w-0">
+        <div className="h-6 w-6 rounded bg-[#F5A623] flex items-center justify-center flex-shrink-0">
+          <span className="text-white text-[10px] font-bold">S</span>
+        </div>
+        <span className="text-white font-semibold text-sm truncate">{info.company}</span>
+      </div>
+
+      {/* Desktop: empresa no centro/esquerda */}
+      <div className="hidden lg:flex items-center gap-3 flex-1">
         <div className="h-7 w-7 rounded bg-[#F5A623] flex items-center justify-center">
           <span className="text-white text-xs font-bold">S</span>
         </div>
         <span className="text-white font-semibold text-sm">{info.company}</span>
       </div>
 
-      <div className="flex items-center gap-4">
+      {/* ── Direita: tema + usuário ───────────────────────────────────── */}
+      <div className="flex items-center gap-3 flex-shrink-0">
         <button
           onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
           className="text-gray-400 hover:text-white transition-colors"
@@ -60,85 +79,71 @@ function Header() {
 }
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
-  const router = useRouter()
+  const router   = useRouter()
   const pathname = usePathname()
+  const [sidebarOpen, setSidebarOpen] = useState(false)
 
-  const isStatusPage = STATUS_PAGES.some((p) => pathname.startsWith(p))
+  const isStatusPage = STATUS_PAGES.some(p => pathname.startsWith(p))
 
+  // Fecha sidebar mobile ao mudar de rota
+  useEffect(() => { setSidebarOpen(false) }, [pathname])
+
+  // Fecha sidebar mobile ao redimensionar para desktop
   useEffect(() => {
-    // 1. Auth check — token e empresa devem existir
+    function onResize() {
+      if (window.innerWidth >= 1024) setSidebarOpen(false)
+    }
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [])
+
+  // Verificação de auth e subscription
+  useEffect(() => {
     const token     = localStorage.getItem('token')
     const companyId = localStorage.getItem('companyId')
 
-    if (!token) {
-      router.replace('/login')
-      return
-    }
+    if (!token) { router.replace('/login'); return }
+    if (!companyId) { router.replace('/selecionar-empresa'); return }
 
-    // Se não há empresa selecionada no localStorage, volta para seleção
-    if (!companyId) {
-      router.replace('/selecionar-empresa')
-      return
-    }
-
-    // 2. Verificação de subscription via API (autoritativa, inclui mudanças de webhook)
     if (!isStatusPage) {
       fetch(`${API}/api/v1/companies/current`, {
         headers: { Authorization: `Bearer ${token}` },
       })
-        .then((r) => {
-          if (r.status === 401 || r.status === 403) {
-            // Token inválido ou sem empresa → redireciona
-            router.replace('/selecionar-empresa')
-            return null
-          }
+        .then(r => {
+          if (r.status === 401 || r.status === 403) { router.replace('/selecionar-empresa'); return null }
           return r.ok ? r.json() : null
         })
-        .then((data) => {
+        .then(data => {
           if (!data?.company) return
-
           const { plan, subscriptionStatus, stripeSubscriptionId, logo, name } = data.company
-
-          // Atualiza cache local com dados frescos do servidor
           if (logo) localStorage.setItem('companyLogoUrl', logo)
           if (name) localStorage.setItem('companyName', name)
           updateSubStatus(subscriptionStatus as any)
 
-          // FREE sem stripe nem trial → planos
           if (plan === 'FREE' && !stripeSubscriptionId) return
-
-          // Pago mas sem subscription ativa → pendente
-          if (!stripeSubscriptionId && subscriptionStatus !== 'ACTIVE') {
-            router.replace('/app/assinatura-pendente')
-            return
-          }
-
-          if (subscriptionStatus === 'PAST_DUE' || subscriptionStatus === 'EXPIRED') {
-            router.replace('/app/assinatura-vencida')
-            return
-          }
-
-          if (subscriptionStatus === 'CANCELED') {
-            router.replace('/app/assinatura-vencida')
-            return
-          }
+          if (!stripeSubscriptionId && subscriptionStatus !== 'ACTIVE') { router.replace('/app/assinatura-pendente'); return }
+          if (subscriptionStatus === 'PAST_DUE' || subscriptionStatus === 'EXPIRED') { router.replace('/app/assinatura-vencida'); return }
+          if (subscriptionStatus === 'CANCELED') { router.replace('/app/assinatura-vencida'); return }
         })
-        .catch(() => {/* silencia erros de rede */})
+        .catch(() => {})
     }
   }, [pathname, isStatusPage, router])
 
-  // Páginas de estado rendem sem sidebar (têm seu próprio header)
-  if (isStatusPage) {
-    return <ReactQueryProvider>{children}</ReactQueryProvider>
-  }
+  if (isStatusPage) return <ReactQueryProvider>{children}</ReactQueryProvider>
 
   return (
     <ReactQueryProvider>
       <div className="flex h-screen bg-gray-50 dark:bg-gray-950 overflow-hidden">
-        <Sidebar />
-        <div className="flex flex-col flex-1 overflow-hidden">
-          <Header />
-          <main className="flex-1 overflow-y-auto p-6">{children}</main>
+        {/* ── Sidebar (desktop: no layout flex | mobile: drawer sobreposto) */}
+        <Sidebar
+          mobileOpen={sidebarOpen}
+          onMobileClose={() => setSidebarOpen(false)}
+        />
+
+        {/* ── Área principal ──────────────────────────────────────────── */}
+        <div className="flex flex-col flex-1 overflow-hidden min-w-0">
+          <Header onToggleSidebar={() => setSidebarOpen(v => !v)} />
+          <main className="flex-1 overflow-y-auto p-4 md:p-6">{children}</main>
         </div>
       </div>
     </ReactQueryProvider>

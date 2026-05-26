@@ -171,6 +171,39 @@ const createRecurringSchema = z.object({
   totalInstallments:z.number().int().positive().nullable().optional(),
 })
 
+// ─── recalcProjectAlerts ─────────────────────────────────────────────────────
+// Atualiza budgetAlert e delayAlert de uma obra com base nas transações financeiras
+
+async function recalcProjectAlerts(projectId: string, companyId: string): Promise<void> {
+  try {
+    const project = await (prisma as any).project.findFirst({
+      where: { id: projectId, companyId, isActive: true },
+      select: { globalBudget: true, expectedEndDate: true, status: true },
+    })
+    if (!project) return
+
+    // soma despesas pagas vinculadas diretamente ao projeto
+    const expSum = await (prisma as any).financialTransaction.aggregate({
+      where: { projectId, companyId, type: 'EXPENSE', isPaid: true, isActive: true },
+      _sum: { netAmount: true },
+    })
+    const totalRealized = Number(expSum._sum.netAmount ?? 0)
+    const totalBudget   = Number(project.globalBudget ?? 0)
+    const deviation     = totalBudget > 0 ? ((totalRealized - totalBudget) / totalBudget) * 100 : 0
+    const budgetAlert   = deviation > 5
+
+    const today = new Date(); today.setHours(0, 0, 0, 0)
+    const delayAlert = project.expectedEndDate
+      ? (new Date(project.expectedEndDate) < today && project.status !== 'COMPLETED')
+      : false
+
+    await (prisma as any).project.update({
+      where: { id: projectId },
+      data:  { budgetAlert, delayAlert },
+    })
+  } catch { /* silencioso — não bloqueia a transação principal */ }
+}
+
 // ─── Cálculo de data da próxima parcela ──────────────────────────────────────
 
 function addFrequency(date: Date, freq: string): Date {
@@ -570,6 +603,13 @@ export async function financialRoutes(app: FastifyInstance) {
       return transaction
     })
 
+    // recalcular alertas da obra vinculada
+    if (d.projectId) await recalcProjectAlerts(d.projectId, companyId)
+    // também recalcular obras de eventuais alocações de rateio
+    for (const alloc of d.costCenterAllocations) {
+      if (alloc.projectId !== d.projectId) await recalcProjectAlerts(alloc.projectId, companyId)
+    }
+
     return reply.status(201).send({ transaction: tx })
   })
 
@@ -726,6 +766,12 @@ export async function financialRoutes(app: FastifyInstance) {
       return transaction
     })
 
+    // recalcular alertas da obra vinculada (nova e anterior se mudou)
+    const newProjectId = d.projectId !== undefined ? (d.projectId ?? null) : (existing as any).projectId
+    const oldProjectId = (existing as any).projectId
+    if (newProjectId) await recalcProjectAlerts(newProjectId, companyId)
+    if (oldProjectId && oldProjectId !== newProjectId) await recalcProjectAlerts(oldProjectId, companyId)
+
     return reply.send({ transaction: updated })
   })
 
@@ -773,6 +819,10 @@ export async function financialRoutes(app: FastifyInstance) {
 
       return tx
     })
+
+    // recalcular alertas da obra ao pagar
+    const paidProjectId = (existing as any).projectId
+    if (paidProjectId) await recalcProjectAlerts(paidProjectId, companyId)
 
     return reply.send({ transaction: updated })
   })

@@ -407,9 +407,14 @@ export default function ContasPagarPage() {
           <table className="w-full">
             <thead className="bg-gray-50 border-b border-gray-100">
               <tr>
-                {['Vencimento', 'Descrição', 'Fornecedor', 'Categoria', 'Conta', 'Valor', 'Status', ''].map((h) => (
-                  <th key={h} className="px-5 py-3 text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wide whitespace-nowrap">{h}</th>
-                ))}
+                <th className="px-5 py-3 text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wide whitespace-nowrap">Vencimento</th>
+                <th className="px-5 py-3 text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wide whitespace-nowrap">Descrição</th>
+                <th className="px-5 py-3 text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wide whitespace-nowrap hidden lg:table-cell">Fornecedor</th>
+                <th className="px-5 py-3 text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wide whitespace-nowrap hidden lg:table-cell">Categoria</th>
+                <th className="px-5 py-3 text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wide whitespace-nowrap hidden xl:table-cell">Conta</th>
+                <th className="px-5 py-3 text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wide whitespace-nowrap">Valor</th>
+                <th className="px-5 py-3 text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wide whitespace-nowrap">Status</th>
+                <th className="px-5 py-3" />
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
@@ -442,10 +447,10 @@ export default function ContasPagarPage() {
                     <td className="px-5 py-3">
                       <span className="text-xs text-gray-700 line-clamp-1 max-w-[200px]">{tx.description}</span>
                     </td>
-                    <td className="px-5 py-3 text-xs text-gray-500 whitespace-nowrap">
+                    <td className="px-5 py-3 text-xs text-gray-500 whitespace-nowrap hidden lg:table-cell">
                       {tx.supplier?.name ?? '—'}
                     </td>
-                    <td className="px-5 py-3">
+                    <td className="px-5 py-3 hidden lg:table-cell">
                       {tx.category ? (
                         <span className="inline-flex items-center gap-1 text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">
                           <span className="w-2 h-2 rounded-full" style={{ background: tx.category.color }} />
@@ -453,7 +458,7 @@ export default function ContasPagarPage() {
                         </span>
                       ) : <span className="text-xs text-gray-400">—</span>}
                     </td>
-                    <td className="px-5 py-3 text-xs text-gray-500 whitespace-nowrap">
+                    <td className="px-5 py-3 text-xs text-gray-500 whitespace-nowrap hidden xl:table-cell">
                       {tx.bankAccount?.name ?? '—'}
                     </td>
                     <td className="px-5 py-3 text-sm font-bold tabular-nums text-red-600 whitespace-nowrap">

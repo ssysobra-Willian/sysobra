@@ -470,18 +470,28 @@ export default function ContasBancariasPage() {
           <table className="w-full">
             <thead className="bg-gray-50 border-b border-gray-100">
               <tr>
-                {['Conta', 'Banco', 'Tipo', 'Agência / Conta', 'Saldo', 'Integração', 'Sincronização', ''].map((h) => (
-                  <th key={h} className="px-5 py-3 text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wide whitespace-nowrap">{h}</th>
-                ))}
+                <th className="px-5 py-3 text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wide whitespace-nowrap">Conta</th>
+                <th className="px-5 py-3 text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wide whitespace-nowrap hidden md:table-cell">Banco</th>
+                <th className="px-5 py-3 text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wide whitespace-nowrap hidden md:table-cell">Tipo</th>
+                <th className="px-5 py-3 text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wide whitespace-nowrap hidden lg:table-cell">Agência / Conta</th>
+                <th className="px-5 py-3 text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wide whitespace-nowrap">Saldo</th>
+                <th className="px-5 py-3 text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wide whitespace-nowrap hidden lg:table-cell">Integração</th>
+                <th className="px-5 py-3 text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wide whitespace-nowrap hidden lg:table-cell">Última sinc</th>
+                <th className="px-5 py-3"></th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
               {loading ? (
                 Array.from({ length: 4 }).map((_, i) => (
                   <tr key={i} className="animate-pulse">
-                    {Array.from({ length: 8 }).map((_, j) => (
-                      <td key={j} className="px-5 py-4"><Pulse className="h-3 w-full" /></td>
-                    ))}
+                    <td className="px-5 py-4"><Pulse className="h-3 w-full" /></td>
+                    <td className="px-5 py-4 hidden md:table-cell"><Pulse className="h-3 w-full" /></td>
+                    <td className="px-5 py-4 hidden md:table-cell"><Pulse className="h-3 w-full" /></td>
+                    <td className="px-5 py-4 hidden lg:table-cell"><Pulse className="h-3 w-full" /></td>
+                    <td className="px-5 py-4"><Pulse className="h-3 w-full" /></td>
+                    <td className="px-5 py-4 hidden lg:table-cell"><Pulse className="h-3 w-full" /></td>
+                    <td className="px-5 py-4 hidden lg:table-cell"><Pulse className="h-3 w-full" /></td>
+                    <td className="px-5 py-4"><Pulse className="h-3 w-8" /></td>
                   </tr>
                 ))
               ) : displayed.length === 0 ? (
@@ -537,15 +547,15 @@ export default function ContasBancariasPage() {
                       </div>
                     </div>
                   </td>
-                  <td className="px-5 py-4 text-xs text-gray-600">
+                  <td className="px-5 py-4 text-xs text-gray-600 hidden md:table-cell">
                     {account.bank || account.bankId || '—'}
                   </td>
-                  <td className="px-5 py-4">
+                  <td className="px-5 py-4 hidden md:table-cell">
                     <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full whitespace-nowrap">
                       {ACCOUNT_TYPE_LABEL[account.accountType] ?? account.accountType}
                     </span>
                   </td>
-                  <td className="px-5 py-4 text-xs text-gray-500 font-mono">
+                  <td className="px-5 py-4 text-xs text-gray-500 font-mono hidden lg:table-cell">
                     {account.agency ? `Ag: ${account.agency}` : ''}
                     {account.agency && account.accountNumber ? ' · ' : ''}
                     {account.accountNumber ? `CC: ${account.accountNumber}` : ''}
@@ -557,7 +567,7 @@ export default function ContasBancariasPage() {
                   }`}>
                     {account.status === 'ACTIVE' ? fmt(account.computedBalance) : '—'}
                   </td>
-                  <td className="px-5 py-4">
+                  <td className="px-5 py-4 hidden lg:table-cell">
                     {account.integrationActive ? (
                       <span className="inline-flex items-center gap-1 text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">
                         <Link size={10} /> Conectado
@@ -568,7 +578,7 @@ export default function ContasBancariasPage() {
                       </span>
                     )}
                   </td>
-                  <td className="px-5 py-4 text-xs text-gray-400 whitespace-nowrap">
+                  <td className="px-5 py-4 text-xs text-gray-400 whitespace-nowrap hidden lg:table-cell">
                     {account.integrationActive ? fmtDate(account.lastSyncAt) : '—'}
                   </td>
                   <td className="px-5 py-4">

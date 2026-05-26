@@ -14,7 +14,7 @@ import {
   ChevronLeft, ChevronRight, X, RefreshCw, AlertCircle,
 } from 'lucide-react'
 
-import { useFilterState, useDashboardData, useBankAccounts, useProjects } from './hooks'
+import { useFilterState, useDashboardData, useBankAccounts, useProjects, useProjectAlerts } from './hooks'
 import { ChartModal, ChartDropdown, ZoomBtn, makeChartTooltip, useChartExport, exportCsv } from './chart-actions'
 import type { BillGroup, Transaction, ExpenseCategory, CashflowPoint, BalancePoint } from './data'
 import { formatCurrency, formatCurrencyCompact } from '@/lib/format'
@@ -244,26 +244,69 @@ function ActivitiesCard({ activities, loading }: { activities: Transaction[]; lo
 
 // ─── AlertsCard ───────────────────────────────────────────────────────────────
 
-const ALERTS_STATIC = [
-  { icon: AlertTriangle, title: '3 contas a pagar vencidas',      desc: 'Total de R$ 14.230 em atraso',    action: 'Ver detalhes →', scheme: { bg:'bg-red-50',    border:'border-red-200',    icon:'text-red-500',    text:'text-red-700'    } },
-  { icon: AlertTriangle, title: 'Frota: 2 veículos com revisão',  desc: 'Caminhão F-350 e Betoneira MB',   action: 'Agendar →',      scheme: { bg:'bg-amber-50',  border:'border-amber-200',  icon:'text-amber-500',  text:'text-amber-700'  } },
-  { icon: Info,          title: 'Orçamento aprovado — Galpão',    desc: 'Assinatura de contrato pendente', action: 'Ver contrato →', scheme: { bg:'bg-blue-50',   border:'border-blue-200',   icon:'text-blue-500',   text:'text-blue-700'   } },
-  { icon: Bell,          title: 'Diário: 4 registros pendentes',  desc: 'Aguardando aprovação de gestor',  action: 'Aprovar →',      scheme: { bg:'bg-indigo-50', border:'border-indigo-200', icon:'text-indigo-500', text:'text-indigo-700' } },
-  { icon: Bell,          title: 'Backup automático realizado',     desc: 'Exportado em 26/05 às 03h00',     action: '',               scheme: { bg:'bg-gray-50',   border:'border-gray-200',   icon:'text-gray-400',   text:'text-gray-600'   } },
-]
+function AlertsCard({
+  budgetAlertCount, delayAlertCount, overduePayable, overdueReceivable,
+}: {
+  budgetAlertCount: number
+  delayAlertCount:  number
+  overduePayable:   { count: number; amount: number }
+  overdueReceivable:{ count: number; amount: number }
+}) {
+  const items: { icon: React.ElementType; title: string; desc: string; action: string; href?: string; scheme: { bg:string; border:string; icon:string; text:string } }[] = []
 
-function AlertsCard() {
+  if (overduePayable.count > 0) items.push({
+    icon: AlertTriangle,
+    title: `${overduePayable.count} conta${overduePayable.count !== 1 ? 's' : ''} a pagar vencida${overduePayable.count !== 1 ? 's' : ''}`,
+    desc:  `Total de ${fmt(overduePayable.amount)} em atraso`,
+    action: 'Ver contas →', href: '/app/financeiro/contas-pagar',
+    scheme: { bg:'bg-red-50', border:'border-red-200', icon:'text-red-500', text:'text-red-700' },
+  })
+
+  if (overdueReceivable.count > 0) items.push({
+    icon: AlertTriangle,
+    title: `${overdueReceivable.count} recebimento${overdueReceivable.count !== 1 ? 's' : ''} em atraso`,
+    desc:  `Total de ${fmt(overdueReceivable.amount)} a receber`,
+    action: 'Ver contas →', href: '/app/financeiro/contas-receber',
+    scheme: { bg:'bg-amber-50', border:'border-amber-200', icon:'text-amber-500', text:'text-amber-700' },
+  })
+
+  if (budgetAlertCount > 0) items.push({
+    icon: AlertCircle,
+    title: `${budgetAlertCount} obra${budgetAlertCount !== 1 ? 's' : ''} com orçamento estourado`,
+    desc:  'Desvio superior a 5% do orçamento previsto',
+    action: 'Ver obras →', href: '/app/centro-de-custo',
+    scheme: { bg:'bg-orange-50', border:'border-orange-200', icon:'text-orange-500', text:'text-orange-700' },
+  })
+
+  if (delayAlertCount > 0) items.push({
+    icon: AlertTriangle,
+    title: `${delayAlertCount} obra${delayAlertCount !== 1 ? 's' : ''} com prazo vencido`,
+    desc:  'Data prevista de conclusão ultrapassada',
+    action: 'Ver obras →', href: '/app/centro-de-custo',
+    scheme: { bg:'bg-red-50', border:'border-red-200', icon:'text-red-500', text:'text-red-700' },
+  })
+
+  if (items.length === 0) items.push({
+    icon: Bell,
+    title: 'Tudo em dia!',
+    desc:  'Nenhum alerta crítico no momento.',
+    action: '',
+    scheme: { bg:'bg-green-50', border:'border-green-200', icon:'text-green-500', text:'text-green-700' },
+  })
+
   return (
     <Panel className="flex flex-col h-full">
       <PanelHeader title="Lembretes e alertas" />
       <div className="px-5 pb-5 flex-1 flex flex-col gap-2.5">
-        {ALERTS_STATIC.map((a, i) => (
+        {items.map((a, i) => (
           <div key={i} className={`flex items-start gap-3 p-3 rounded-xl border ${a.scheme.bg} ${a.scheme.border}`}>
             <a.icon size={15} className={`flex-shrink-0 mt-0.5 ${a.scheme.icon}`} />
             <div className="flex-1 min-w-0">
               <p className={`text-xs font-semibold ${a.scheme.text}`}>{a.title}</p>
               <p className="text-[11px] text-gray-500 mt-0.5">{a.desc}</p>
-              {a.action && <button className={`text-[11px] font-medium mt-1 hover:underline ${a.scheme.text}`}>{a.action}</button>}
+              {a.action && a.href && (
+                <a href={a.href} className={`text-[11px] font-medium mt-1 hover:underline ${a.scheme.text}`}>{a.action}</a>
+              )}
             </div>
           </div>
         ))}
@@ -330,8 +373,9 @@ function DonutCard({ categories, loading }: { categories: ExpenseCategory[]; loa
 export default function DashboardPage() {
   const { filters, setFilter, resetFilters, activeCount, isPeriodoAlterado } = useFilterState()
   const { data, loading, error, refetch } = useDashboardData(filters)
-  const bankAccounts = useBankAccounts()
-  const projects     = useProjects()
+  const bankAccounts  = useBankAccounts()
+  const projects      = useProjects()
+  const { alerts: projectAlerts } = useProjectAlerts()
 
   // Estados de modal
   const [zoomCashflow, setZoomCashflow]   = useState(false)
@@ -599,7 +643,14 @@ export default function DashboardPage() {
       {/* ── Linha 4: Atividades (60%) + Alertas (40%) ─────────────────── */}
       <div className="grid grid-cols-1 xl:grid-cols-5 gap-4">
         <div className="xl:col-span-3"><ActivitiesCard activities={activities} loading={loading} /></div>
-        <div className="xl:col-span-2"><AlertsCard /></div>
+        <div className="xl:col-span-2">
+          <AlertsCard
+            budgetAlertCount={projectAlerts.budgetAlertCount}
+            delayAlertCount={projectAlerts.delayAlertCount}
+            overduePayable={{ count: accountsPayable[0]?.count ?? 0, amount: accountsPayable[0]?.valor ?? 0 }}
+            overdueReceivable={{ count: accountsReceivable[0]?.count ?? 0, amount: accountsReceivable[0]?.valor ?? 0 }}
+          />
+        </div>
       </div>
 
       {/* ── Modais fullscreen ─────────────────────────────────────────── */}

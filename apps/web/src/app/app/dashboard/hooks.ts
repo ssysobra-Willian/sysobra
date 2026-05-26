@@ -238,3 +238,32 @@ export function useProjects() {
   })
   return data ?? []
 }
+
+// ─── useProjectAlerts ─────────────────────────────────────────────────────────
+// Conta obras com alertas de orçamento ou prazo em aberto.
+
+export interface ProjectAlerts {
+  budgetAlertCount: number
+  delayAlertCount:  number
+  total:            number
+}
+
+export function useProjectAlerts(): { alerts: ProjectAlerts; loading: boolean } {
+  const { data, isFetching } = useQuery<ProjectAlerts>({
+    queryKey: ['project-alerts'],
+    queryFn:  async () => {
+      const res = await fetch(`${API}/api/v1/projects?budgetAlert=true&delayAlert=true&limit=100`, { headers: authHeaders() })
+      if (!res.ok) return { budgetAlertCount: 0, delayAlertCount: 0, total: 0 }
+      const json = await res.json()
+      const projects: any[] = json.projects ?? []
+      return {
+        budgetAlertCount: projects.filter((p) => p.budgetAlert).length,
+        delayAlertCount:  projects.filter((p) => p.delayAlert).length,
+        total:            projects.length,
+      }
+    },
+    staleTime: 2 * 60_000,
+    enabled:   typeof window !== 'undefined' && !!getToken(),
+  })
+  return { alerts: data ?? { budgetAlertCount: 0, delayAlertCount: 0, total: 0 }, loading: isFetching }
+}

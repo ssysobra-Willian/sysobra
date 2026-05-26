@@ -38,6 +38,7 @@ interface TransactionForm {
   clientId:       string
   supplierId:     string
   notes:          string
+  projectId:      string   // vínculo direto com obra / centro de custo
   // parcelas
   installments:     string
   frequency:        string
@@ -92,7 +93,7 @@ const DEFAULT_FORM: TransactionForm = {
   grossAmount: 0, interestAmount: 0, retentionAmount: 0,
   dueDate: '', paidAt: '', categoryId: '', bankAccountId: '',
   paymentMethod: '', invoiceNumber: '', clientId: '', supplierId: '',
-  notes: '', installments: '1', frequency: 'MONTHLY',
+  notes: '', projectId: '', installments: '1', frequency: 'MONTHLY',
   showInstallments: false, allocations: [], showAllocations: false,
 }
 
@@ -176,6 +177,7 @@ export function TransactionModal({ open, onClose, onSaved, editId, token, defaul
           clientId:        tx.clientId   ?? '',
           supplierId:      tx.supplierId ?? '',
           notes:           tx.notes ?? '',
+          projectId:       tx.projectId  ?? '',
           allocations:     (tx.costCenterAllocations ?? []).map((a: any) => ({
             projectId:  a.projectId,
             stageId:    a.stageId ?? '',
@@ -267,6 +269,7 @@ export function TransactionModal({ open, onClose, onSaved, editId, token, defaul
         clientId:        form.clientId       || null,
         supplierId:      form.supplierId     || null,
         notes:           form.notes          || null,
+        projectId:       form.projectId      || null,
         costCenterAllocations: form.showAllocations
           ? form.allocations
               .filter((a) => a.projectId)
@@ -512,6 +515,20 @@ export function TransactionModal({ open, onClose, onSaved, editId, token, defaul
                   className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F5A623] bg-white">
                   <option value="">Selecionar...</option>
                   {suppliers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+                </select>
+              </div>
+            )}
+
+            {/* Obra / Centro de Custo */}
+            {projects.length > 0 && (
+              <div>
+                <label className="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wide">🏗️ Obra / Centro de custo</label>
+                <select value={form.projectId} onChange={(e) => setF('projectId', e.target.value)}
+                  className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F5A623] bg-white">
+                  <option value="">Nenhuma obra vinculada</option>
+                  {projects.map((p) => (
+                    <option key={p.id} value={p.id}>{p.name}</option>
+                  ))}
                 </select>
               </div>
             )}

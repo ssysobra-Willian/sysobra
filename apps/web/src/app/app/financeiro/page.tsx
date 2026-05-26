@@ -632,9 +632,14 @@ export default function FinanceiroPage() {
           <table className="w-full">
             <thead className="bg-gray-50 border-y border-gray-100">
               <tr>
-                {['Data', 'Descrição', 'Categoria', 'Conta', 'Criado por', 'Valor', 'Status', ''].map((h) => (
-                  <th key={h} className="px-5 py-3 text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wide whitespace-nowrap">{h}</th>
-                ))}
+                <th className="px-5 py-3 text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wide whitespace-nowrap hidden lg:table-cell">Data</th>
+                <th className="px-5 py-3 text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wide whitespace-nowrap">Descrição</th>
+                <th className="px-5 py-3 text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wide whitespace-nowrap hidden lg:table-cell">Categoria</th>
+                <th className="px-5 py-3 text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wide whitespace-nowrap hidden xl:table-cell">Conta</th>
+                <th className="px-5 py-3 text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wide whitespace-nowrap hidden xl:table-cell">Criado por</th>
+                <th className="px-5 py-3 text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wide whitespace-nowrap">Valor</th>
+                <th className="px-5 py-3 text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wide whitespace-nowrap">Status</th>
+                <th className="px-5 py-3" />
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
@@ -650,14 +655,18 @@ export default function FinanceiroPage() {
                 <tr><td colSpan={8} className="px-5 py-12 text-center text-sm text-gray-400">Nenhum lançamento encontrado.</td></tr>
               ) : transactions.map((tx) => (
                 <tr key={tx.id} className="hover:bg-gray-50 transition-colors">
-                  <td className="px-5 py-3 text-xs text-gray-500 font-mono whitespace-nowrap">{fmtDate(tx.referenceDate)}</td>
+                  <td className="px-5 py-3 text-xs text-gray-500 font-mono whitespace-nowrap hidden lg:table-cell">{fmtDate(tx.referenceDate)}</td>
                   <td className="px-5 py-3">
                     <div className="flex items-center gap-2">
                       <span className={`w-1.5 h-6 rounded-full flex-shrink-0 ${tx.type === 'INCOME' ? 'bg-green-400' : 'bg-red-400'}`} />
-                      <span className="text-xs text-gray-700 line-clamp-1 max-w-[220px]">{tx.description}</span>
+                      <div>
+                        <span className="text-xs text-gray-700 line-clamp-1 max-w-[200px]">{tx.description}</span>
+                        {/* Data visível só no mobile */}
+                        <p className="lg:hidden text-[10px] text-gray-400 font-mono">{fmtDate(tx.referenceDate)}</p>
+                      </div>
                     </div>
                   </td>
-                  <td className="px-5 py-3">
+                  <td className="px-5 py-3 hidden lg:table-cell">
                     {tx.category ? (
                       <span className="inline-flex items-center gap-1 text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">
                         <span className="w-2 h-2 rounded-full" style={{ background: tx.category.color }} />
@@ -665,10 +674,10 @@ export default function FinanceiroPage() {
                       </span>
                     ) : <span className="text-xs text-gray-400">—</span>}
                   </td>
-                  <td className="px-5 py-3 text-xs text-gray-500 whitespace-nowrap">
+                  <td className="px-5 py-3 text-xs text-gray-500 whitespace-nowrap hidden xl:table-cell">
                     {tx.bankAccount?.name ?? '—'}
                   </td>
-                  <td className="px-5 py-3">
+                  <td className="px-5 py-3 hidden xl:table-cell">
                     {tx.createdBy ? (
                       <div className="flex items-center gap-1.5" title={tx.createdBy.name}>
                         <UserAvatar name={tx.createdBy.name} avatarUrl={tx.createdBy.avatarUrl} size="sm" />
