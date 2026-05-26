@@ -326,6 +326,7 @@ model Company {
   financialTransactions FinancialTransaction[]
   financialCategories   FinancialCategory[]
   recurringTransactions RecurringTransaction[]
+  financialAuditLogs    FinancialAuditLog[]
 
   @@map("companies")
 }
@@ -780,17 +781,20 @@ model RecurringTransaction {
 /// Log de auditoria financeira por lançamento
 model FinancialAuditLog {
   id            String   @id @default(cuid())
-  transactionId String?  @map("transaction_id")   // nullable para manter logs mesmo se tx for deletada
-  userId        String?  @map("user_id")           // nullable caso usuário seja removido
+  companyId     String?  @map("company_id")        // para filtrar por empresa mesmo quando tx for deletada
+  transactionId String?  @map("transaction_id")    // nullable para manter logs mesmo se tx for deletada
+  userId        String?  @map("user_id")            // nullable caso usuário seja removido
   action        String   // CREATED | EDITED | PAID | CANCELLED | DELETED | RECONCILED
   previousData  Json?    @map("previous_data")
   newData       Json?    @map("new_data")
   ipAddress     String?  @map("ip_address")
   createdAt     DateTime @default(now()) @map("created_at")
 
+  company     Company?              @relation(fields: [companyId], references: [id])
   transaction FinancialTransaction? @relation(fields: [transactionId], references: [id], onDelete: SetNull)
-  user        User?                  @relation(fields: [userId], references: [id])
+  user        User?                 @relation(fields: [userId], references: [id])
 
+  @@index([companyId, createdAt])
   @@map("financial_audit_logs")
 }
 

@@ -13,6 +13,7 @@ import {
   Bell, AlertTriangle, Info,
   ChevronLeft, ChevronRight, X, RefreshCw, AlertCircle,
   SlidersHorizontal, HardHat, Layers,
+  Plus, Pencil, CheckCircle, XCircle, Trash2, RefreshCcw,
 } from 'lucide-react'
 
 import { useFilterState, useDashboardData, useBankAccounts, useProjects, useProjectAlerts, type ProjectOption } from './hooks'
@@ -144,6 +145,26 @@ function AccountsCard({ title, items, loading }: { title: string; items: BillGro
   )
 }
 
+// ─── ActionIcon — ícone colorido por tipo de ação ────────────────────────────
+
+function ActionIcon({ action, deleted }: { action: string; deleted: boolean }) {
+  const map: Record<string, { Icon: React.ElementType; bg: string; color: string }> = {
+    CREATED:    { Icon: Plus,        bg: 'bg-green-100',  color: 'text-green-600'  },
+    EDITED:     { Icon: Pencil,      bg: 'bg-blue-100',   color: 'text-blue-600'   },
+    PAID:       { Icon: CheckCircle, bg: 'bg-green-100',  color: 'text-green-600'  },
+    CANCELLED:  { Icon: XCircle,     bg: 'bg-red-100',    color: 'text-red-500'    },
+    DELETED:    { Icon: Trash2,      bg: 'bg-red-100',    color: 'text-red-500'    },
+    RECONCILED: { Icon: RefreshCcw,  bg: 'bg-violet-100', color: 'text-violet-600' },
+  }
+  const entry = map[action] ?? { Icon: Plus, bg: 'bg-gray-100', color: 'text-gray-500' }
+  const { Icon, bg, color } = entry
+  return (
+    <span className={`inline-flex items-center justify-center w-5 h-5 rounded-full flex-shrink-0 ${bg} ${deleted ? 'opacity-50' : ''}`}>
+      <Icon size={11} className={color} />
+    </span>
+  )
+}
+
 // ─── ActivitiesCard (paginado) ────────────────────────────────────────────────
 
 const ACT_PER_PAGE = 7
@@ -198,8 +219,10 @@ function ActivitiesCard({ activities, loading }: { activities: Transaction[]; lo
                     {/* Ícone + descrição */}
                     <td className="py-2.5 pr-3">
                       <div className="flex items-center gap-1.5">
-                        <span className="text-sm flex-shrink-0">{a.icon}</span>
-                        <span className="text-xs text-gray-700 line-clamp-1">{a.description}</span>
+                        <ActionIcon action={a.action} deleted={a.deleted} />
+                        <span className={`text-xs line-clamp-1 ${a.deleted ? 'text-gray-400 line-through' : 'text-gray-700'}`}>
+                          {a.description}
+                        </span>
                       </div>
                     </td>
                     {/* Módulo */}

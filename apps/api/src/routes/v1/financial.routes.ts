@@ -375,11 +375,14 @@ export async function financialRoutes(app: FastifyInstance) {
         },
         select: { amount: true, project: { select: { id: true, name: true } } },
       }),
-      // últimos 20 eventos do audit log financeiro
+      // últimos 20 eventos do audit log financeiro — inclui logs de tx excluídas
       (prisma as any).financialAuditLog.findMany({
         where: {
           OR: [
-            { transactionId: { not: null }, transaction: { companyId } },
+            // logs recentes com companyId (novos — incluem tx excluídas)
+            { companyId },
+            // logs antigos sem companyId mas com tx ainda existente
+            { companyId: null, transactionId: { not: null }, transaction: { companyId } },
           ],
         },
         orderBy: { createdAt: 'desc' },
@@ -627,7 +630,7 @@ export async function financialRoutes(app: FastifyInstance) {
 
       // audit log
       await (prismaT as any).financialAuditLog.create({
-        data: { transactionId: transaction.id, userId: payload.sub, action: 'CREATED', newData: d },
+        data: { companyId, transactionId: transaction.id, userId: payload.sub, action: 'CREATED', newData: d },
       })
 
       return transaction
@@ -782,6 +785,7 @@ export async function financialRoutes(app: FastifyInstance) {
 
       await (prismaT as any).financialAuditLog.create({
         data: {
+          companyId,
           transactionId: id,
           userId:        payload.sub,
           action:        'EDITED',
@@ -844,7 +848,7 @@ export async function financialRoutes(app: FastifyInstance) {
       })
 
       await (prismaT as any).financialAuditLog.create({
-        data: { transactionId: id, userId: payload.sub, action: 'PAID', newData: { paidAt } },
+        data: { companyId, transactionId: id, userId: payload.sub, action: 'PAID', newData: { paidAt } },
       })
 
       return tx
@@ -887,7 +891,17 @@ export async function financialRoutes(app: FastifyInstance) {
       })
 
       await (prismaT as any).financialAuditLog.create({
-        data: { transactionId: id, userId: payload.sub, action: existing.isPaid ? 'DELETED' : 'CANCELLED' },
+        data: {
+          companyId,
+          transactionId: id,
+          userId:        payload.sub,
+          action:        existing.isPaid ? 'DELETED' : 'CANCELLED',
+          previousData:  {
+            description: existing.description,
+            netAmount:   existing.netAmount,
+            type:        existing.type,
+          },
+        },
       })
     })
 

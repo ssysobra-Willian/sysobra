@@ -119,6 +119,8 @@ function transformDashboard(api: ApiDashboardResponse): DashboardData {
       category:    catName,
       description: fullDesc,
       icon:        ACTION_ICONS[log.action] ?? catIcon ?? '📋',
+      action:      log.action,
+      deleted,
       module:      'Financeiro',
       createdBy:   log.user ?? null,
     }

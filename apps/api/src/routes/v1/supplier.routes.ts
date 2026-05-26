@@ -270,7 +270,8 @@ export async function supplierRoutes(app: FastifyInstance) {
           orderBy: { createdAt: 'desc' },
           take: 10,
           select: {
-            id: true, code: true, status: true, totalAmount: true, createdAt: true,
+            id: true, status: true, totalAmount: true, createdAt: true,
+            purchaseMap: { select: { id: true } },
           },
         },
         _count: { select: { financialTransactions: true, purchaseOrders: true } },

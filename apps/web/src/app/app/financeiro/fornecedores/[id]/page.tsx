@@ -122,7 +122,7 @@ interface SupplierDetail {
     category: { name: string; color: string | null; icon: string | null } | null
   }[]
   purchaseOrders: {
-    id: string; code: string | null; status: string; totalAmount: number; createdAt: string
+    id: string; status: string; totalAmount: number; createdAt: string
   }[]
   _count: { financialTransactions: number; purchaseOrders: number }
 }
@@ -830,7 +830,7 @@ export default function FornecedorDetailPage() {
                           <tr key={po.id} className="hover:bg-gray-50 transition-colors">
                             <td className="px-5 py-3">
                               <span className="text-sm font-medium text-gray-800">
-                                {po.code ?? `#${po.id.slice(-6).toUpperCase()}`}
+                                {`#${po.id.slice(-6).toUpperCase()}`}
                               </span>
                             </td>
                             <td className="px-5 py-3 text-xs text-gray-500 hidden md:table-cell">

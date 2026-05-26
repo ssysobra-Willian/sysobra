@@ -41,7 +41,9 @@ export interface Transaction {
   category:    string
   description: string
   icon:        string
+  action:      string        // CREATED | EDITED | PAID | CANCELLED | DELETED | RECONCILED
   module:      string
+  deleted:     boolean       // true se a transação foi excluída (isActive=false)
   createdBy:   { id: string; name: string; avatarUrl: string | null } | null
 }
 
