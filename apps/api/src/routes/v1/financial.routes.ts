@@ -114,6 +114,7 @@ const createTxSchema = z.object({
   supplierId:     z.string().nullable().optional(),
   employeeId:     z.string().nullable().optional(),
   notes:          z.string().nullable().optional(),
+  projectId:      z.string().nullable().optional(),
   attachments:    z.array(z.string()).default([]),
   costCenterAllocations: z.array(z.object({
     projectId:  z.string(),
@@ -524,6 +525,7 @@ export async function financialRoutes(app: FastifyInstance) {
           employeeId:        d.employeeId    ?? null,
           notes:             d.notes         ?? null,
           attachments:       d.attachments,
+          projectId:         d.projectId         ?? null,
           recurringId:       d.recurringId       ?? null,
           installmentNumber: d.installmentNumber ?? null,
           totalInstallments: d.totalInstallments ?? null,
@@ -677,6 +679,7 @@ export async function financialRoutes(app: FastifyInstance) {
           supplierId:      d.supplierId     !== undefined ? (d.supplierId    ?? null) : existing.supplierId,
           notes:           d.notes          !== undefined ? (d.notes         ?? null) : existing.notes,
           attachments:     d.attachments    ?? existing.attachments,
+          projectId:       d.projectId      !== undefined ? (d.projectId     ?? null) : (existing as any).projectId,
         },
       })
 

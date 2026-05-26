@@ -55,7 +55,9 @@ enum InviteStatus {
 
 enum ProjectStatus {
   PLANNING
+  ACTIVE
   IN_PROGRESS
+  PAUSED
   ON_HOLD
   COMPLETED
   CANCELLED
@@ -256,6 +258,7 @@ model User {
   problemComments ProblemComment[]
   financialTransactions FinancialTransaction[] @relation("FinancialCreatedBy")
   financialAuditLogs    FinancialAuditLog[]
+  projectsResponsible   Project[]              @relation("ProjectResponsible")
 
   @@map("users")
 }
@@ -405,51 +408,79 @@ model CompanyAddon {
 // ─────────────────────────────────────────
 
 model Project {
-  id           String        @id @default(cuid())
-  companyId    String        @map("company_id")
-  clientId     String?       @map("client_id")
-  name         String
-  description  String?
-  address      String?
-  city         String?
-  state        String?
-  status       ProjectStatus @default(PLANNING)
-  startDate    DateTime?     @map("start_date")
-  endDate      DateTime?     @map("end_date")
-  budget       Decimal?      @db.Decimal(15, 2)
-  contractValue Decimal?     @db.Decimal(15, 2) @map("contract_value")
-  coverImage   String?       @map("cover_image")
-  createdAt    DateTime      @default(now()) @map("created_at")
-  updatedAt    DateTime      @updatedAt @map("updated_at")
+  id                String        @id @default(cuid())
+  companyId         String        @map("company_id")
+  clientId          String?       @map("client_id")
+  responsibleId     String?       @map("responsible_id")
+  code              String?       @map("code")
+  name              String
+  description       String?
+  address           String?
+  city              String?
+  state             String?
+  zipCode           String?       @map("zip_code")
+  status            ProjectStatus @default(ACTIVE)
+  globalBudget      Decimal?      @db.Decimal(15, 2) @map("global_budget")
+  budget            Decimal?      @db.Decimal(15, 2)
+  contractValue     Decimal?      @db.Decimal(15, 2) @map("contract_value")
+  startDate         DateTime?     @map("start_date")
+  endDate           DateTime?     @map("end_date")
+  expectedEndDate   DateTime?     @map("expected_end_date")
+  actualEndDate     DateTime?     @map("actual_end_date")
+  warrantyMonths    Int           @default(60)  @map("warranty_months")
+  progressPercent   Decimal       @default(0) @db.Decimal(5, 2) @map("progress_percent")
+  budgetAlert       Boolean       @default(false) @map("budget_alert")
+  delayAlert        Boolean       @default(false) @map("delay_alert")
+  cno               String?       @map("cno")
+  artExecution      String?       @map("art_execution")
+  artExecutionFile  String?       @map("art_execution_file")
+  artProjects       String?       @map("art_projects")
+  artProjectsFile   String?       @map("art_projects_file")
+  technicalName     String?       @map("technical_name")
+  technicalTitle    String?       @map("technical_title")
+  technicalCrea     String?       @map("technical_crea")
+  technicalPhoto    String?       @map("technical_photo")
+  coverImage        String?       @map("cover_image")
+  isActive          Boolean       @default(true) @map("is_active")
+  createdAt         DateTime      @default(now()) @map("created_at")
+  updatedAt         DateTime      @updatedAt @map("updated_at")
 
-  company        Company               @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  client         Client?               @relation(fields: [clientId], references: [id])
-  stages         ProjectStage[]
-  transactions   Transaction[]
-  stockMovements StockMovement[]
-  toolMovements  ToolMovement[]
-  problems       Problem[]
-  diaryEntries   DiaryEntry[]
-  documents      Document[]
-  purchaseMaps   PurchaseMap[]
-  memberAccesses MemberProjectAccess[]
+  company               Company               @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  client                Client?               @relation(fields: [clientId], references: [id])
+  responsible           User?                 @relation("ProjectResponsible", fields: [responsibleId], references: [id])
+  stages                ProjectStage[]
+  transactions          Transaction[]
+  stockMovements        StockMovement[]
+  toolMovements         ToolMovement[]
+  problems              Problem[]
+  diaryEntries          DiaryEntry[]
+  documents             Document[]
+  purchaseMaps          PurchaseMap[]
+  memberAccesses        MemberProjectAccess[]
   costCenterAllocations CostCenterAllocation[]
+  financialTransactions FinancialTransaction[]
 
   @@map("projects")
 }
 
 model ProjectStage {
-  id          String            @id @default(cuid())
-  projectId   String            @map("project_id")
-  name        String
-  description String?
-  order       Int               @default(0)
-  status      ProjectStageStatus @default(PENDING)
-  startDate   DateTime?         @map("start_date")
-  endDate     DateTime?         @map("end_date")
-  progress    Int               @default(0)
-  createdAt   DateTime          @default(now()) @map("created_at")
-  updatedAt   DateTime          @updatedAt @map("updated_at")
+  id              String             @id @default(cuid())
+  projectId       String             @map("project_id")
+  code            String?            @map("code")
+  name            String
+  description     String?
+  order           Int                @default(0)
+  status          ProjectStageStatus @default(PENDING)
+  startDate       DateTime?          @map("start_date")
+  endDate         DateTime?          @map("end_date")
+  progress        Int                @default(0)
+  budgetMaterial  Decimal            @default(0) @db.Decimal(14, 2) @map("budget_material")
+  budgetLabor     Decimal            @default(0) @db.Decimal(14, 2) @map("budget_labor")
+  budgetTotal     Decimal            @default(0) @db.Decimal(14, 2) @map("budget_total")
+  realizedValue   Decimal            @default(0) @db.Decimal(14, 2) @map("realized_value")
+  progressPercent Decimal            @default(0) @db.Decimal(5, 2) @map("progress_percent")
+  createdAt       DateTime           @default(now()) @map("created_at")
+  updatedAt       DateTime           @updatedAt @map("updated_at")
 
   project               Project                @relation(fields: [projectId], references: [id], onDelete: Cascade)
   costCenterAllocations CostCenterAllocation[]
@@ -612,6 +643,7 @@ model FinancialTransaction {
   recurringId       String?            @map("recurring_id")
   installmentNumber Int?               @map("installment_number")
   totalInstallments Int?               @map("total_installments")
+  projectId         String?            @map("project_id")
   transactionNumber String?            @map("transaction_number")
   transactionHash   String?            @unique @map("transaction_hash")
   isActive          Boolean            @default(true) @map("is_active")
@@ -626,6 +658,7 @@ model FinancialTransaction {
   bankAccount            BankAccount?         @relation(fields: [bankAccountId], references: [id])
   client                 Client?              @relation(fields: [clientId], references: [id])
   supplier               Supplier?            @relation(fields: [supplierId], references: [id])
+  project                Project?             @relation(fields: [projectId], references: [id])
   recurringTransaction   RecurringTransaction? @relation(fields: [recurringId], references: [id])
   costCenterAllocations  CostCenterAllocation[]
   auditLogs              FinancialAuditLog[]

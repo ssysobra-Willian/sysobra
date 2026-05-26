@@ -31,7 +31,7 @@ const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
 const NAV_ITEMS = [
   { label: 'Dashboard',     module: 'dashboard',    icon: LayoutDashboard, href: '/app/dashboard'      },
   { label: 'Financeiro',    module: 'financeiro',   icon: DollarSign,      href: '/app/financeiro'     },
-  { label: 'Obras',         module: 'obras',         icon: HardHat,         href: '/app/obras'          },
+  { label: 'Centro de Custo', module: 'obras',       icon: HardHat,         href: '/app/centro-de-custo' },
   { label: 'Compras',       module: 'compras',       icon: ShoppingCart,    href: '/app/compras'        },
   { label: 'Depósito',      module: 'deposito',      icon: Warehouse,       href: '/app/deposito'       },
   { label: 'Frota',         module: 'frota',         icon: Truck,           href: '/app/frota'          },
