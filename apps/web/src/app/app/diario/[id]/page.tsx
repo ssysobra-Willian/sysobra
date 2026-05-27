@@ -11,6 +11,8 @@ import { PageHeader }                        from '@/components/ui/PageHeader'
 import { SemAcesso }                         from '@/components/SemAcesso'
 import { usePermissions }                    from '@/hooks/usePermissions'
 import type { BadgeVariant }                 from '@/components/ui/Badge'
+import { resolveUploadUrl }                  from '@/lib/upload'
+import { PhotoCarousel }                     from '../components/PhotoCarousel'
 
 // RainChart carregado dinamicamente (usa recharts)
 const RainChart = dynamic(() => import('@/components/diary/RainChart'), { ssr: false })
@@ -154,7 +156,9 @@ export default function DiarioProjectPage() {
   const [rainRecords,  setRainRecords]  = useState<RainDay[]>([])
   const [rainSummary,  setRainSummary]  = useState<RainSummary | null>(null)
   const [rainLoading,  setRainLoading]  = useState(false)
-  const [viewMode,     setViewMode]     = useState<ViewMode>('lista')
+  const [viewMode,      setViewMode]      = useState<ViewMode>('lista')
+  const [carouselOpen,  setCarouselOpen]  = useState(false)
+  const [carouselIndex, setCarouselIndex] = useState(0)
 
   const LIMIT    = 20
   const canCreate = can('diario_obra', 'create')
@@ -586,15 +590,32 @@ export default function DiarioProjectPage() {
               <p className="text-sm">Nenhuma foto registrada ainda.</p>
             </div>
           ) : (
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
-              {allPhotos.map((url, i) => (
-                <a key={i} href={url} target="_blank" rel="noreferrer">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={url} alt={`Foto ${i + 1}`}
-                    className="w-full h-32 object-cover rounded-xl border border-gray-200 hover:opacity-90 transition-opacity" />
-                </a>
-              ))}
-            </div>
+            <>
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
+                {allPhotos.map((url, i) => (
+                  <button
+                    key={i}
+                    type="button"
+                    onClick={() => { setCarouselIndex(i); setCarouselOpen(true) }}
+                    className="block rounded-xl overflow-hidden border border-gray-200 hover:border-[#F5A623] hover:opacity-90 transition-all focus:outline-none focus:ring-2 focus:ring-[#F5A623]"
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={resolveUploadUrl(url)}
+                      alt={`Foto ${i + 1}`}
+                      className="w-full h-32 object-cover"
+                    />
+                  </button>
+                ))}
+              </div>
+              <p className="text-xs text-gray-400 mt-3">Clique em uma foto para ampliar</p>
+              <PhotoCarousel
+                photos={allPhotos.map(url => ({ url }))}
+                initialIndex={carouselIndex}
+                isOpen={carouselOpen}
+                onClose={() => setCarouselOpen(false)}
+              />
+            </>
           )}
         </div>
       )}

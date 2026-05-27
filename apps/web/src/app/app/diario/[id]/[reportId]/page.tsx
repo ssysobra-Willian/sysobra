@@ -152,10 +152,10 @@ export default function RdoDetailPage() {
   const params    = useParams()
   const projectId = params.id as string
   const reportId  = params.reportId as string
-  const userId    = typeof window !== 'undefined' ? localStorage.getItem('userId') : null
 
   const { canAccessModule, can, isExternal, isClient } = usePermissions()
 
+  const [userId,        setUserId]        = useState<string | null>(null)
   const [entry,         setEntry]         = useState<DiaryEntry | null>(null)
   const [loading,       setLoading]       = useState(true)
   const [error,         setError]         = useState('')
@@ -202,6 +202,9 @@ export default function RdoDetailPage() {
   }, [reportId, router])
 
   useEffect(() => { loadEntry() }, [loadEntry])
+
+  // Lê userId do localStorage somente no cliente (evita hydration mismatch)
+  useEffect(() => { setUserId(localStorage.getItem('userId')) }, [])
 
   // ── Return condicional DEPOIS de todos os hooks ───────────────────────────
   if (!canAccessModule('diario_obra')) return <SemAcesso modulo="Diário de Obra" />
@@ -679,7 +682,7 @@ export default function RdoDetailPage() {
                         {c.isInternal && <Badge variant="yellow" size="sm">Interno</Badge>}
                         {c.authorType === 'CLIENT' && <Badge variant="green" size="sm">Cliente</Badge>}
                       </div>
-                      {c.author.id === userId && (
+                      {c.author?.id === userId && userId && (
                         <button onClick={() => handleDeleteComment(c.id)} className="text-[10px] text-gray-400 hover:text-red-500">✕</button>
                       )}
                     </div>

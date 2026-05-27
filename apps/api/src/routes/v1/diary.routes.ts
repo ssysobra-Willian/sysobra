@@ -522,6 +522,7 @@ export async function diaryRoutes(app: FastifyInstance) {
         rainRecord:  true,
         comments: {
           where:   isInternal ? {} : { isInternal: false },
+          include: { author: { select: { id: true, name: true } } },
           orderBy: { createdAt: 'asc' },
         },
       },
