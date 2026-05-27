@@ -9,6 +9,7 @@ import {
 } from 'lucide-react'
 import { TransactionModal } from '@/components/financial/TransactionModal'
 import { TransactionReceiptModal } from '@/components/financial/TransactionReceiptModal'
+import { PaymentModal, PAYMENT_METHOD_ICONS, type BankAccountBasic, type PaymentData } from '@/components/financial/PaymentModal'
 import { TableActionMenu } from '@/components/ui/TableActionMenu'
 import { Breadcrumb } from '@/components/ui/Breadcrumb'
 import { useQueryClient } from '@tanstack/react-query'
@@ -19,19 +20,21 @@ const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface Transaction {
-  id:          string
-  description: string
-  type:        'INCOME' | 'EXPENSE'
-  isPaid:      boolean
-  grossAmount: number
-  netAmount:   number
-  dueDate:     string | null
-  paidAt:      string | null
+  id:            string
+  description:   string
+  type:          'INCOME' | 'EXPENSE'
+  isPaid:        boolean
+  grossAmount:   number
+  netAmount:     number
+  dueDate:       string | null
+  paidAt:        string | null
   referenceDate: string
-  category:    { id: string; name: string; color: string; icon: string } | null
-  bankAccount: { id: string; name: string; bank: string | null } | null
-  supplier:    { id: string; name: string } | null
-  client:      { id: string; name: string } | null
+  paymentMethod: string | null
+  bankAccountId: string | null
+  category:      { id: string; name: string; color: string; icon: string } | null
+  bankAccount:   { id: string; name: string; bank: string | null } | null
+  supplier:      { id: string; name: string } | null
+  client:        { id: string; name: string } | null
 }
 
 interface TxPage {
@@ -102,7 +105,16 @@ function SummaryCard({
 // ─── Status / Due date badge ──────────────────────────────────────────────────
 
 function DueBadge({ tx }: { tx: Transaction }) {
-  if (tx.isPaid) return <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-medium">Recebido</span>
+  if (tx.isPaid) return (
+    <div className="flex items-center gap-1">
+      <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-medium">Recebido</span>
+      {tx.paymentMethod && (
+        <span title={tx.paymentMethod} className="text-sm leading-none">
+          {PAYMENT_METHOD_ICONS[tx.paymentMethod] ?? '💰'}
+        </span>
+      )}
+    </div>
+  )
   const diff = daysDiff(tx.dueDate)
   if (diff === null) return <span className="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">Sem vencimento</span>
   if (diff < 0) return <span className="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded-full font-medium">Vencido há {Math.abs(diff)}d</span>
@@ -147,13 +159,15 @@ export default function ContasReceberPage() {
   const [dateTo,     setDateTo]     = useState('')
 
   const [categories,   setCategories]   = useState<{ id: string; name: string; color: string }[]>([])
-  const [bankAccounts, setBankAccounts] = useState<{ id: string; name: string }[]>([])
+  const [bankAccounts, setBankAccounts] = useState<BankAccountBasic[]>([])
   const [filterBank,   setFilterBank]   = useState('')
 
-  const [showModal,  setShowModal]   = useState(false)
-  const [editingTx,  setEditingTx]   = useState<Transaction | null>(null)
-  const [viewingTxId,setViewingTxId] = useState<string | null>(null)
-  const [actionError, setActionError] = useState('')
+  const [showModal,        setShowModal]        = useState(false)
+  const [editingTx,        setEditingTx]        = useState<Transaction | null>(null)
+  const [viewingTxId,      setViewingTxId]      = useState<string | null>(null)
+  const [actionError,      setActionError]      = useState('')
+  const [paymentModalOpen, setPaymentModalOpen] = useState(false)
+  const [payingTx,         setPayingTx]         = useState<Transaction | null>(null)
 
   const queryClient = useQueryClient()
   const invalidateDashboard = () => queryClient.invalidateQueries({ queryKey: ['dashboard'] })
@@ -228,7 +242,16 @@ export default function ContasReceberPage() {
           fetch(`${API}/api/financial/bank-accounts`,          { headers: headers() }),
         ])
         if (catRes.ok)  setCategories((await catRes.json()).categories ?? [])
-        if (bankRes.ok) setBankAccounts((await bankRes.json()).accounts ?? [])
+        if (bankRes.ok) {
+          const raw = (await bankRes.json()).accounts ?? []
+          setBankAccounts(raw.map((a: any) => ({
+            id:      a.id,
+            name:    a.name,
+            bank:    a.bank   ?? null,
+            balance: typeof a.balance === 'number' ? a.balance : parseFloat(a.balance ?? '0'),
+            status:  a.status ?? 'ACTIVE',
+          })))
+        }
       } catch { /* silent */ }
     }
     loadMeta()
@@ -238,24 +261,30 @@ export default function ContasReceberPage() {
 
   // ── Actions ──────────────────────────────────────────────────────────────
 
-  async function handleReceive(tx: Transaction) {
-    const today = new Date().toISOString().split('T')[0]
+  function handleReceive(tx: Transaction) {
+    setPayingTx(tx)
+    setPaymentModalOpen(true)
+  }
+
+  async function handlePaymentConfirm(data: PaymentData) {
+    if (!payingTx) return
     setActionError('')
-    try {
-      const res = await fetch(`${API}/api/financial/transactions/${tx.id}/pay`, {
-        method: 'PATCH',                              // era 'POST' — rota exige PATCH
-        headers: headers(),
-        body: JSON.stringify({ paidAt: today }),
-      })
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}))
-        setActionError((err as any).error || `Erro ao registrar recebimento (HTTP ${res.status})`)
-        return
-      }
-      load(); invalidateDashboard()
-    } catch {
-      setActionError('Falha na conexão. Verifique sua rede e tente novamente.')
+    const res = await fetch(`${API}/api/financial/transactions/${payingTx.id}/pay`, {
+      method:  'PATCH',
+      headers: { ...headers(), 'Content-Type': 'application/json' },
+      body:    JSON.stringify({
+        bankAccountId: data.bankAccountId,
+        paymentMethod: data.paymentMethod,
+        paidAt:        data.paymentDate,
+      }),
+    })
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}))
+      throw new Error((err as any).message || (err as any).error || `Erro ao registrar recebimento (HTTP ${res.status})`)
     }
+    setPaymentModalOpen(false)
+    setPayingTx(null)
+    load(); invalidateDashboard()
   }
 
   async function handleCancel(tx: Transaction) {
@@ -539,6 +568,23 @@ export default function ContasReceberPage() {
         txId={viewingTxId}
         token={localStorage.getItem('token') ?? ''}
         onClose={() => setViewingTxId(null)}
+      />
+
+      {/* ── Modal de pagamento ───────────────────────────────────────── */}
+      <PaymentModal
+        isOpen={paymentModalOpen}
+        onClose={() => { setPaymentModalOpen(false); setPayingTx(null) }}
+        onConfirm={handlePaymentConfirm}
+        transaction={payingTx ? {
+          id:             payingTx.id,
+          description:    payingTx.description,
+          netAmount:      payingTx.netAmount,
+          type:           payingTx.type,
+          dueDate:        payingTx.dueDate,
+          bankAccountId:  payingTx.bankAccountId,
+          paymentMethod:  payingTx.paymentMethod,
+        } : null}
+        accounts={bankAccounts}
       />
     </div>
   )

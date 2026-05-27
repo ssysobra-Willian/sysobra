@@ -134,9 +134,9 @@ const createTxSchema = z.object({
 const updateTxSchema = createTxSchema.partial()
 
 const payTxSchema = z.object({
-  paidAt:       z.string().optional(),
-  bankAccountId:z.string().nullable().optional(),
-  paymentMethod:z.string().nullable().optional(),
+  paidAt:        z.string().optional(),
+  bankAccountId: z.string({ required_error: 'Conta bancária obrigatória' }),
+  paymentMethod: z.string({ required_error: 'Forma de pagamento obrigatória' }),
 })
 
 const createBankAccountSchema = z.object({
@@ -949,8 +949,28 @@ export async function financialRoutes(app: FastifyInstance) {
     const { id } = request.params as { id: string }
 
     const body = payTxSchema.safeParse(request.body)
-    if (!body.success) return reply.status(400).send({ error: 'Dados inválidos' })
+    if (!body.success) {
+      const firstError = body.error.errors[0]
+      return reply.status(400).send({
+        error:   firstError?.code === 'invalid_type' && firstError.message === 'Required'
+                   ? (firstError.path[0] === 'bankAccountId' ? 'MISSING_BANK_ACCOUNT' : 'MISSING_PAYMENT_METHOD')
+                   : 'VALIDATION_ERROR',
+        message: firstError?.message ?? 'Dados inválidos',
+        field:   firstError?.path[0],
+      })
+    }
     const d = body.data
+
+    // Validar que a conta bancária pertence à empresa
+    const bankAccount = await prisma.bankAccount.findFirst({
+      where: { id: d.bankAccountId, companyId, isActive: true },
+    })
+    if (!bankAccount) {
+      return reply.status(400).send({
+        error:   'INVALID_BANK_ACCOUNT',
+        message: 'Conta bancária não encontrada ou inativa',
+      })
+    }
 
     const existing = await prisma.financialTransaction.findFirst({
       where: { id, companyId, isActive: true },
@@ -958,8 +978,8 @@ export async function financialRoutes(app: FastifyInstance) {
     if (!existing)       return reply.status(404).send({ error: 'Lançamento não encontrado' })
     if (existing.isPaid) return reply.status(409).send({ error: 'Lançamento já está pago' })
 
-    const paidAt      = d.paidAt ? new Date(d.paidAt) : new Date()
-    const bankAccId   = d.bankAccountId !== undefined ? (d.bankAccountId ?? existing.bankAccountId) : existing.bankAccountId
+    const paidAt    = d.paidAt ? new Date(d.paidAt) : new Date()
+    const bankAccId = d.bankAccountId
     const netAmount   = toNum(existing.netAmount)
 
     const updated = await prisma.$transaction(async (prismaT) => {
@@ -973,7 +993,7 @@ export async function financialRoutes(app: FastifyInstance) {
           paidAt,
           referenceDate:  paidAt,
           bankAccountId:  bankAccId,
-          paymentMethod:  d.paymentMethod ?? existing.paymentMethod,
+          paymentMethod:  d.paymentMethod,
         },
       })
 

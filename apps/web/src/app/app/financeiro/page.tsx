@@ -17,6 +17,7 @@ import {
 import { TransactionModal } from '@/components/financial/TransactionModal'
 import { TransactionReceiptModal } from '@/components/financial/TransactionReceiptModal'
 import { TransferModal, BankAccountOption } from '@/components/financial/TransferModal'
+import { PaymentModal, PAYMENT_METHOD_ICONS, type PaymentData } from '@/components/financial/PaymentModal'
 import { TableActionMenu } from '@/components/ui/TableActionMenu'
 import { UserAvatar } from '@/components/ui/UserAvatar'
 import { useQueryClient } from '@tanstack/react-query'
@@ -73,6 +74,8 @@ interface Transaction {
   referenceDate:  string
   isTransfer:     boolean
   transferPairId: string | null
+  paymentMethod:  string | null
+  bankAccountId:  string | null
   category:       { id: string; name: string; color: string; icon: string } | null
   bankAccount:    { id: string; name: string; bank: string | null } | null
   client:         { id: string; name: string } | null
@@ -281,11 +284,13 @@ export default function FinanceiroPage() {
   const [filterStage,   setFilterStage]   = useState(() => searchParams?.get('stageId')   ?? '')
   const [filtersOpen,   setFiltersOpen]   = useState(false)
 
-  const [showModal,       setShowModal]       = useState(false)
-  const [editingTx,       setEditingTx]       = useState<Transaction | null>(null)
-  const [viewingTxId,     setViewingTxId]     = useState<string | null>(null)
-  const [actionError,     setActionError]     = useState('')
-  const [showTransfer,    setShowTransfer]    = useState(false)
+  const [showModal,        setShowModal]        = useState(false)
+  const [editingTx,        setEditingTx]        = useState<Transaction | null>(null)
+  const [viewingTxId,      setViewingTxId]      = useState<string | null>(null)
+  const [actionError,      setActionError]      = useState('')
+  const [showTransfer,     setShowTransfer]     = useState(false)
+  const [paymentModalOpen, setPaymentModalOpen] = useState(false)
+  const [payingTx,         setPayingTx]         = useState<Transaction | null>(null)
 
   const queryClient = useQueryClient()
 
@@ -366,24 +371,30 @@ export default function FinanceiroPage() {
 
   // ── Actions ──────────────────────────────────────────────────────────────
 
-  async function handlePay(tx: Transaction) {
-    const today = new Date().toISOString().split('T')[0]
+  function handlePay(tx: Transaction) {
+    setPayingTx(tx)
+    setPaymentModalOpen(true)
+  }
+
+  async function handlePaymentConfirm(data: PaymentData) {
+    if (!payingTx) return
     setActionError('')
-    try {
-      const res = await fetch(`${API}/api/financial/transactions/${tx.id}/pay`, {
-        method: 'PATCH',                              // era 'POST' — rota exige PATCH
-        headers: headers(),
-        body: JSON.stringify({ paidAt: today }),
-      })
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}))
-        setActionError((err as any).error || `Erro ao registrar pagamento (HTTP ${res.status})`)
-        return
-      }
-      loadDash(); loadTx(); invalidateDashboard()
-    } catch {
-      setActionError('Falha na conexão. Verifique sua rede e tente novamente.')
+    const res = await fetch(`${API}/api/financial/transactions/${payingTx.id}/pay`, {
+      method:  'PATCH',
+      headers: { ...headers(), 'Content-Type': 'application/json' },
+      body:    JSON.stringify({
+        bankAccountId: data.bankAccountId,
+        paymentMethod: data.paymentMethod,
+        paidAt:        data.paymentDate,
+      }),
+    })
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}))
+      throw new Error((err as any).message || (err as any).error || `Erro ao registrar pagamento (HTTP ${res.status})`)
     }
+    setPaymentModalOpen(false)
+    setPayingTx(null)
+    loadDash(); loadTx(); invalidateDashboard()
   }
 
   async function handleCancel(tx: Transaction) {
@@ -456,7 +467,18 @@ export default function FinanceiroPage() {
   function StatusBadge({ tx }: { tx: Transaction }) {
     const today = new Date()
     today.setHours(0,0,0,0)
-    if (tx.isPaid) return <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-medium">Pago</span>
+    if (tx.isPaid) return (
+      <div className="flex items-center gap-1">
+        <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-medium">
+          {tx.type === 'INCOME' ? 'Recebido' : 'Pago'}
+        </span>
+        {tx.paymentMethod && (
+          <span title={tx.paymentMethod} className="text-sm leading-none">
+            {PAYMENT_METHOD_ICONS[tx.paymentMethod] ?? '💰'}
+          </span>
+        )}
+      </div>
+    )
     if (tx.dueDate) {
       const due = new Date(tx.dueDate)
       if (due < today) return <span className="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded-full font-medium">Vencido</span>
@@ -933,6 +955,29 @@ export default function FinanceiroPage() {
           loadDash()
           invalidateDashboard()
         }}
+      />
+
+      {/* ── Modal de pagamento/recebimento ──────────────────────────── */}
+      <PaymentModal
+        isOpen={paymentModalOpen}
+        onClose={() => { setPaymentModalOpen(false); setPayingTx(null) }}
+        onConfirm={handlePaymentConfirm}
+        transaction={payingTx ? {
+          id:            payingTx.id,
+          description:   payingTx.description,
+          netAmount:     payingTx.netAmount,
+          type:          payingTx.type,
+          dueDate:       payingTx.dueDate,
+          bankAccountId: payingTx.bankAccountId,
+          paymentMethod: payingTx.paymentMethod,
+        } : null}
+        accounts={bankAccounts.filter(a => a.status === 'ACTIVE').map(a => ({
+          id:      a.id,
+          name:    a.name,
+          bank:    a.bank   ?? null,
+          balance: a.balance,
+          status:  a.status,
+        }))}
       />
     </div>
   )

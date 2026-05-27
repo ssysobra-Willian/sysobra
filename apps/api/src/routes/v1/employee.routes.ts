@@ -1799,26 +1799,43 @@ export async function employeeRoutes(app: FastifyInstance) {
     const mesLabel = MONTH_LABELS[body.month] ?? String(body.month)
 
     // ── Categoria "Mão de obra" — buscar ou criar ──────────────────────────────
-    let maoCat = await p.financialCategory.findFirst({
+    // Primeiro: corrigir categoria com nome errado (ex: "users Mão de obra")
+    const wrongCat = await (p as any).financialCategory.findFirst({
+      where: { companyId, name: { contains: 'users', mode: 'insensitive' } },
+    })
+    if (wrongCat) {
+      await (p as any).financialCategory.update({
+        where: { id: wrongCat.id },
+        data:  { name: 'Mão de obra', icon: null },
+      })
+    }
+
+    let maoCat = await (p as any).financialCategory.findFirst({
       where: {
         companyId,
         type: { in: ['EXPENSE', 'BOTH'] },
         OR: [
-          { name: { equals: 'Mão de obra',    mode: 'insensitive' } },
-          { name: { equals: 'Mao de obra',     mode: 'insensitive' } },
-          { name: { contains: 'mão de obra',   mode: 'insensitive' } },
+          { name: { equals: 'Mão de obra',  mode: 'insensitive' } },
+          { name: { equals: 'Mao de obra',  mode: 'insensitive' } },
+          { name: { contains: 'mão de obra', mode: 'insensitive' } },
         ],
       },
     })
     if (!maoCat) {
-      maoCat = await p.financialCategory.create({
+      maoCat = await (p as any).financialCategory.create({
         data: {
           companyId,
           name:  'Mão de obra',
           type:  'EXPENSE',
           color: '#F5A623',
-          icon:  'users',
+          icon:  null,     // sem ícone — evita renderização como texto no frontend
         },
+      })
+    } else if (maoCat.icon === 'users') {
+      // Corrigir ícone antigo que aparecia como texto
+      await (p as any).financialCategory.update({
+        where: { id: maoCat.id },
+        data:  { icon: null },
       })
     }
 
