@@ -8,7 +8,8 @@ import {
   DollarSign, AlertTriangle, Calendar, MapPin, User, CheckCircle2,
   Circle, Clock, Banknote, ShoppingCart, FileText, BarChart3,
   ExternalLink, RefreshCw, ClipboardList, ChevronDown, ChevronRight,
-  Layers, Plus, Users, ArrowRightLeft, History,
+  Layers, Plus, Users, ArrowRightLeft, History, Upload, FolderOpen,
+  Download, Eye, Trash2, Box,
 } from 'lucide-react'
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
@@ -21,6 +22,7 @@ import { Breadcrumb } from '@/components/ui/Breadcrumb'
 import { StageFormModal, type ProjectStage as StagePayload } from '../components/StageFormModal'
 import { toImageUrl }  from '@/lib/imageUrl'
 import { ActivityFeed } from '@/components/ui/ActivityFeed'
+import { PastaDeProjetosTab } from '@/components/project/PastaDeProjetosTab'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
 
@@ -627,7 +629,7 @@ function progressBarColor(pct: number, status: string) {
 
 // ─── Abas ─────────────────────────────────────────────────────────────────────
 
-const TABS = ['Resumo', 'Apropriações', 'Pluviometria', 'Compras', 'Medições', 'Equipe', 'Documentos', 'Histórico'] as const
+const TABS = ['Resumo', 'Apropriações', 'Pluviometria', 'Compras', 'Medições', 'Equipe', 'Documentos', 'Pasta de Projetos', 'Histórico'] as const
 type Tab = typeof TABS[number]
 
 // ─── Componente principal ─────────────────────────────────────────────────────
@@ -653,6 +655,13 @@ export default function ObraDetailPage() {
   // ── Gerenciamento de etapas ───────────────────────────────────────────────
   const [stageModal, setStageModal]      = useState(false)
   const [editingStage, setEditingStage]  = useState<StagePayload | null>(null)
+
+  // ── Pasta de Projetos ────────────────────────────────────────────────────
+  const [projectFiles,     setProjectFiles]     = useState<any>({ pdfs: [], dwgs: [], ifcs: [], others: [] })
+  const [filesLoading,     setFilesLoading]     = useState(false)
+  const [ifcViewerUrl,     setIfcViewerUrl]     = useState<string | null>(null)
+  const [pdfViewerUrl,     setPdfViewerUrl]     = useState<string | null>(null)
+  const [uploadingFile,    setUploadingFile]    = useState(false)
 
   // ── Aba Apropriações ──────────────────────────────────────────────────────
   const [allocTxs,      setAllocTxs]      = useState<AllocTx[]>([])
@@ -737,6 +746,22 @@ export default function ObraDetailPage() {
       .catch(() => { setAllocTxs([]); setAllocTotal(0) })
       .finally(() => setAllocLoading(false))
   }, [tab, id, allocPage, allocTypeFilter, allocStatusFilter, allocSearch, allocPeriod, allocSummary])
+
+  // Carrega pasta de projetos quando a aba for aberta
+  useEffect(() => {
+    if (tab !== 'Pasta de Projetos') return
+    const token     = localStorage.getItem('token') || ''
+    const companyId = localStorage.getItem('companyId') || ''
+    if (!token || !id) return
+    setFilesLoading(true)
+    fetch(`${API}/api/v1/projects/${id}/files`, {
+      headers: { Authorization: `Bearer ${token}`, 'x-company-id': companyId },
+    })
+      .then(r => r.json())
+      .then(d => setProjectFiles(d))
+      .catch(() => {})
+      .finally(() => setFilesLoading(false))
+  }, [tab, id])
 
   // Carrega dados pluviométricos quando a aba for aberta
   useEffect(() => {
@@ -1382,6 +1407,27 @@ export default function ObraDetailPage() {
                 <div className="py-8 text-center">
                   <p className="text-sm text-gray-400">Em desenvolvimento</p>
                 </div>
+              )}
+
+              {/* ── Aba Pasta de Projetos ───────────────────────────────────── */}
+              {tab === 'Pasta de Projetos' && (
+                <PastaDeProjetosTab
+                  projectId={id}
+                  files={projectFiles}
+                  loading={filesLoading}
+                  onReload={() => {
+                    const token     = localStorage.getItem('token') || ''
+                    const companyId = localStorage.getItem('companyId') || ''
+                    setFilesLoading(true)
+                    fetch(`${API}/api/v1/projects/${id}/files`, {
+                      headers: { Authorization: `Bearer ${token}`, 'x-company-id': companyId },
+                    })
+                      .then(r => r.json())
+                      .then(d => setProjectFiles(d))
+                      .catch(() => {})
+                      .finally(() => setFilesLoading(false))
+                  }}
+                />
               )}
 
               {/* ── Aba Equipe ─────────────────────────────────────────────── */}

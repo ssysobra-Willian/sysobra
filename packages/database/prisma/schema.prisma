@@ -96,6 +96,8 @@ enum StockMovementType {
   OUT
   ADJUSTMENT
   TRANSFER
+  TRANSFER_OUT    // saída do local origem em uma transferência
+  TRANSFER_IN     // entrada no local destino em uma transferência
   RETURN
   LOSS
   EPI_DELIVERY
@@ -316,6 +318,11 @@ model User {
   toolCustodiesResponsible  ToolCustody[]   @relation("ToolCustodyResponsible")
   stockEpiDeliveriesResponsible StockEpiDelivery[] @relation("StockEpiResponsible")
   stockBasketsResponsible   StockBasket[]   @relation("BasketResponsible")
+  // Multi-local
+  stockLocationsManaged     StockLocation[]           @relation("LocationManager")
+  stockLocationPermissions  StockLocationPermission[]
+  stockTransfersRequested   StockTransfer[]           @relation("TransferRequester")
+  stockTransfersResponded   StockTransfer[]           @relation("TransferResponder")
   diaryApprovals  DiaryEntry[]    @relation("DiaryApprover")
   diaryRejections DiaryEntry[]    @relation("DiaryRejector")
   diaryComments   DiaryComment[]
@@ -353,6 +360,7 @@ model Company {
   name        String
   cnpj        String?     @unique
   logo        String?
+  slogan      String?                          // slogan da empresa (exibido na placa de obra)
   address     String?
   city        String?
   state       String?
@@ -399,6 +407,10 @@ model Company {
   stockEpiDeliveries    StockEpiDelivery[]
   supplierLots          SupplierLot[]
   stockBaskets          StockBasket[]
+  toolMaintenanceRecords ToolMaintenanceRecord[]
+  stockLocations        StockLocation[]
+  stockTransfers        StockTransfer[]
+  stockBalances         StockBalance[]
 
   @@map("companies")
 }
@@ -516,6 +528,11 @@ model Project {
   technicalCrea     String?       @map("technical_crea")
   technicalPhoto    String?       @map("technical_photo")
   coverImage        String?       @map("cover_image")
+  // Dados técnicos adicionais da obra
+  totalArea         Decimal?      @db.Decimal(10, 2) @map("total_area")   // área total construída (m²)
+  floors            Int?          @map("floors")                           // número de pavimentos
+  buildingPermit    String?       @map("building_permit")                 // alvará de construção
+  slogan            String?       @map("slogan")                          // slogan da obra (placa)
   isActive          Boolean       @default(true) @map("is_active")
   createdAt         DateTime      @default(now()) @map("created_at")
   updatedAt         DateTime      @updatedAt @map("updated_at")
@@ -542,8 +559,60 @@ model Project {
   projectCostEntries    ProjectCostEntry[]
   stockEpiDeliveries    StockEpiDelivery[]
   stockBaskets          StockBasket[]
+  projectFiles          ProjectFile[]
+  stockLocations        StockLocation[]
 
   @@map("projects")
+}
+
+// ─────────────────────────────────────────
+// DEPÓSITO — Registro de Manutenção de Ferramenta
+// ─────────────────────────────────────────
+
+/// Histórico de manutenções de ferramentas/equipamentos
+model ToolMaintenanceRecord {
+  id          String    @id @default(cuid())
+  companyId   String    @map("company_id")
+  stockItemId String    @map("stock_item_id")
+  type        String    @default("PREVENTIVE") // PREVENTIVE | CORRECTIVE | INSPECTION
+  date        DateTime
+  performedBy String?   @map("performed_by")   // empresa/pessoa que realizou
+  description String
+  cost        Decimal?  @db.Decimal(10, 2)
+  nextDate    DateTime? @map("next_date")
+  result      String?                          // OK | NEEDS_PARTS | WAITING_QUOTE
+  fileUrl     String?   @map("file_url")        // comprovante (PDF/foto)
+  notes       String?
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  company   Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  stockItem StockItem @relation(fields: [stockItemId], references: [id], onDelete: Cascade)
+
+  @@index([stockItemId])
+  @@map("tool_maintenance_records")
+}
+
+/// Pasta de Projetos — arquivos técnicos vinculados à obra (PDF, DWG, IFC, etc.)
+model ProjectFile {
+  id           String    @id @default(cuid())
+  companyId    String    @map("company_id")
+  projectId    String    @map("project_id")
+  name         String                        // nome amigável exibido na UI
+  originalName String    @map("original_name")  // nome original do arquivo
+  type         String                        // mime type (application/pdf, etc.)
+  size         Int                           // tamanho em bytes
+  url          String                        // caminho relativo em disco
+  category     String    @default("other")   // pdf | dwg | ifc | other
+  description  String?
+  version      String?                       // ex: "Rev. 2", "v3"
+  uploadedBy   String?   @map("uploaded_by")
+  isActive     Boolean   @default(true) @map("is_active")
+  createdAt    DateTime  @default(now()) @map("created_at")
+
+  project  Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, category])
+  @@map("project_files")
 }
 
 model ProjectStage {
@@ -1154,6 +1223,9 @@ model StockItem {
   epiDeliveries    StockEpiDelivery[]
   purchaseMapItems PurchaseMapItem[]
   supplierLots     SupplierLot[]
+  maintenanceRecords ToolMaintenanceRecord[]
+  stockBalances    StockBalance[]
+  transferItems    StockTransferItem[]
 
   @@map("stock_items")
 }
@@ -1175,14 +1247,22 @@ model StockMovement {
   signatureUrl    String?           @map("signature_url")
   reason          String?
   notes           String?
+  // Multi-local
+  locationId      String?           @map("location_id")
+  transferId      String?           @map("transfer_id")
+  supplierName    String?           @map("supplier_name")
+  brand           String?
+  lot             String?
   createdAt       DateTime          @default(now()) @map("created_at")
 
-  company     Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  stockItem   StockItem    @relation(fields: [stockItemId], references: [id], onDelete: Cascade)
-  project     Project?     @relation(fields: [projectId], references: [id])
-  employee    Employee?    @relation("StockMovementEmployee", fields: [employeeId], references: [id])
-  responsible User?        @relation("StockMovementResponsible", fields: [responsibleId], references: [id])
-  basket      StockBasket? @relation(fields: [basketId], references: [id])
+  company     Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  stockItem   StockItem      @relation(fields: [stockItemId], references: [id], onDelete: Cascade)
+  project     Project?       @relation(fields: [projectId], references: [id])
+  employee    Employee?      @relation("StockMovementEmployee", fields: [employeeId], references: [id])
+  responsible User?          @relation("StockMovementResponsible", fields: [responsibleId], references: [id])
+  basket      StockBasket?   @relation(fields: [basketId], references: [id])
+  location    StockLocation? @relation(fields: [locationId], references: [id])
+  transfer    StockTransfer? @relation(fields: [transferId], references: [id])
   costEntries ProjectCostEntry[]
 
   @@map("stock_movements")
@@ -1324,15 +1404,147 @@ model StockEpiDelivery {
   notes           String?
   signatureUrl    String?   @map("signature_url")
   caNumber        String?   @map("ca_number")   // CA do equipamento EPI
+  // Selfie e localização (multi-local)
+  selfieUrl       String?   @map("selfie_url")
+  selfieDate      DateTime? @map("selfie_date")
+  locationId      String?   @map("location_id")
+  size            String?                        // tamanho (P/M/G/GG)
+  expiresAt       DateTime? @map("expires_at")  // validade do EPI entregue
   createdAt       DateTime  @default(now()) @map("created_at")
 
-  company     Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  stockItem   StockItem @relation(fields: [stockItemId], references: [id], onDelete: Cascade)
-  employee    Employee  @relation(fields: [employeeId], references: [id])
-  project     Project?  @relation(fields: [projectId], references: [id])
-  responsible User?     @relation("StockEpiResponsible", fields: [responsibleId], references: [id])
+  company     Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  stockItem   StockItem      @relation(fields: [stockItemId], references: [id], onDelete: Cascade)
+  employee    Employee       @relation(fields: [employeeId], references: [id])
+  project     Project?       @relation(fields: [projectId], references: [id])
+  responsible User?          @relation("StockEpiResponsible", fields: [responsibleId], references: [id])
+  location    StockLocation? @relation(fields: [locationId], references: [id])
 
   @@map("stock_epi_deliveries")
+}
+
+// ─────────────────────────────────────────
+// DEPÓSITO — Multi-local (Almoxarifados)
+// ─────────────────────────────────────────
+
+/// Local de estoque: Depósito Central ou Almoxarifado de Obra
+model StockLocation {
+  id          String   @id @default(cuid())
+  companyId   String   @map("company_id")
+  name        String
+  type        String   // CENTRAL | WAREHOUSE
+  projectId   String?  @map("project_id")
+  address     String?
+  description String?
+  managerId   String   @map("manager_id")   // userId do responsável
+  managerName String   @map("manager_name") // nome para exibição rápida
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  company       Company    @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  project       Project?   @relation(fields: [projectId], references: [id])
+  manager       User       @relation("LocationManager", fields: [managerId], references: [id])
+  stockBalances StockBalance[]
+  movements     StockMovement[]
+  transfersFrom StockTransfer[] @relation("TransferFrom")
+  transfersTo   StockTransfer[] @relation("TransferTo")
+  permissions   StockLocationPermission[]
+  epiDeliveries StockEpiDelivery[]
+
+  @@unique([companyId, name])
+  @@index([companyId])
+  @@index([companyId, projectId])
+  @@map("stock_locations")
+}
+
+/// Saldo de cada item em cada local de estoque
+model StockBalance {
+  id          String   @id @default(cuid())
+  companyId   String   @map("company_id")
+  itemId      String   @map("item_id")
+  locationId  String   @map("location_id")
+  quantity    Decimal  @default(0) @db.Decimal(10, 3)
+  reservedQty Decimal  @default(0) @db.Decimal(10, 3) @map("reserved_qty")
+  averageCost Decimal  @default(0) @db.Decimal(10, 2) @map("average_cost")
+  totalValue  Decimal  @default(0) @db.Decimal(15, 2) @map("total_value")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  company  Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  item     StockItem     @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  location StockLocation @relation(fields: [locationId], references: [id], onDelete: Cascade)
+
+  @@unique([itemId, locationId])
+  @@index([companyId, locationId])
+  @@index([companyId, itemId])
+  @@map("stock_balances")
+}
+
+/// Transferência de estoque entre locais (com fluxo de aceite)
+model StockTransfer {
+  id               String    @id @default(cuid())
+  companyId        String    @map("company_id")
+  docNumber        String    @map("doc_number")   // TRF-YYYY-NNNN
+  fromLocationId   String    @map("from_location_id")
+  toLocationId     String    @map("to_location_id")
+  status           String    @default("PENDING")
+  // PENDING | ACCEPTED | PARTIAL | REJECTED | CANCELLED
+  requestedBy      String    @map("requested_by")
+  requestedAt      DateTime  @default(now()) @map("requested_at")
+  respondedBy      String?   @map("responded_by")
+  respondedAt      DateTime? @map("responded_at")
+  rejectionReason  String?   @map("rejection_reason")
+  notes            String?
+  senderSignature  String?   @map("sender_signature")
+  receiverSignature String?  @map("receiver_signature")
+  signedAt         DateTime? @map("signed_at")
+  isActive         Boolean   @default(true) @map("is_active")
+  createdAt        DateTime  @default(now()) @map("created_at")
+
+  company      Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  fromLocation StockLocation @relation("TransferFrom", fields: [fromLocationId], references: [id])
+  toLocation   StockLocation @relation("TransferTo", fields: [toLocationId], references: [id])
+  requester    User          @relation("TransferRequester", fields: [requestedBy], references: [id])
+  responder    User?         @relation("TransferResponder", fields: [respondedBy], references: [id])
+  items        StockTransferItem[]
+  movements    StockMovement[]
+
+  @@index([companyId, status])
+  @@index([companyId, fromLocationId])
+  @@index([companyId, toLocationId])
+  @@map("stock_transfers")
+}
+
+/// Item de uma transferência entre locais
+model StockTransferItem {
+  id           String   @id @default(cuid())
+  transferId   String   @map("transfer_id")
+  itemId       String   @map("item_id")
+  requestedQty Decimal  @db.Decimal(10, 3) @map("requested_qty")
+  acceptedQty  Decimal? @db.Decimal(10, 3) @map("accepted_qty")
+  unitCost     Decimal  @default(0) @db.Decimal(10, 2) @map("unit_cost")
+  notes        String?
+
+  transfer StockTransfer @relation(fields: [transferId], references: [id], onDelete: Cascade)
+  item     StockItem     @relation(fields: [itemId], references: [id])
+
+  @@map("stock_transfer_items")
+}
+
+/// Permissão de usuário em um local de estoque
+model StockLocationPermission {
+  id         String   @id @default(cuid())
+  companyId  String   @map("company_id")
+  userId     String   @map("user_id")
+  locationId String   @map("location_id")
+  role       String   // MANAGER | OPERATOR
+  isActive   Boolean  @default(true) @map("is_active")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  user     User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  location StockLocation @relation(fields: [locationId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, locationId])
+  @@map("stock_location_permissions")
 }
 
 // ─────────────────────────────────────────

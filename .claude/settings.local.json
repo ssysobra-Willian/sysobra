@@ -92,7 +92,16 @@
       "Bash(DATABASE_URL=postgresql://sysobra:sysobra123@127.0.0.1:5432/sysobra npx prisma validate --schema=../../packages/database/prisma/schema.prisma)",
       "Bash(DATABASE_URL=postgresql://sysobra:sysobra123@127.0.0.1:5432/sysobra npx prisma migrate dev --schema=../../packages/database/prisma/schema.prisma --name \"deposito_module\")",
       "Bash(DATABASE_URL=postgresql://sysobra:sysobra123@127.0.0.1:5432/sysobra npx prisma db push --schema=../../packages/database/prisma/schema.prisma)",
-      "PowerShell($env:DATABASE_URL = \"postgresql://sysobra:sysobra123@127.0.0.1:5432/sysobra\"; cd C:\\\\projetos\\\\sysobra; npx prisma db push --schema=packages/database/prisma/schema.prisma 2>&1)"
+      "PowerShell($env:DATABASE_URL = \"postgresql://sysobra:sysobra123@127.0.0.1:5432/sysobra\"; cd C:\\\\projetos\\\\sysobra; npx prisma db push --schema=packages/database/prisma/schema.prisma 2>&1)",
+      "PowerShell($env:DATABASE_URL = \"postgresql://sysobra:sysobra123@127.0.0.1:5432/sysobra\"; npx prisma db push --schema=\"C:\\\\projetos\\\\sysobra\\\\packages\\\\database\\\\prisma\\\\schema.prisma\" 2>&1)",
+      "PowerShell($env:DATABASE_URL = \"postgresql://sysobra:sysobra123@127.0.0.1:5432/sysobra\"; npx prisma db push --schema=\"C:\\\\projetos\\\\sysobra\\\\packages\\\\database\\\\prisma\\\\schema.prisma\" --skip-generate 2>&1)",
+      "PowerShell($env:DATABASE_URL = \"postgresql://sysobra:sysobra123@127.0.0.1:5432/sysobra\"; cd C:\\\\projetos\\\\sysobra\\\\apps\\\\api; npx tsx -e \"import { PrismaClient } from '@prisma/client'; const p = new PrismaClient\\(\\); p.company.findMany\\({select:{id:true,name:true}}\\).then\\(r=>console.log\\(JSON.stringify\\(r,null,2\\)\\)\\).finally\\(\\(\\)=>p.`$disconnect`\\(\\)\\)\" 2>&1 | Write-Output)",
+      "PowerShell($env:DATABASE_URL = \"postgresql://sysobra:sysobra123@127.0.0.1:5432/sysobra\"; cd C:\\\\projetos\\\\sysobra\\\\apps\\\\api; npx tsx prisma/seed-deposit.ts 2>&1 | Write-Output)",
+      "PowerShell($env:DATABASE_URL = \"postgresql://sysobra:sysobra123@127.0.0.1:5432/sysobra\"; cd C:\\\\projetos\\\\sysobra\\\\apps\\\\api; node prisma/check-seed.js 2>&1 | Write-Output)",
+      "PowerShell($env:DATABASE_URL = \"postgresql://sysobra:sysobra123@127.0.0.1:5432/sysobra\"; cd C:\\\\projetos\\\\sysobra\\\\apps\\\\api; node prisma/fix-company.js 2>&1 | Write-Output)",
+      "PowerShell($env:DATABASE_URL = \"postgresql://sysobra:sysobra123@127.0.0.1:5432/sysobra\"; cd C:\\\\projetos\\\\sysobra\\\\packages\\\\database; npx prisma validate 2>&1 | Write-Output)",
+      "PowerShell($env:DATABASE_URL = \"postgresql://sysobra:sysobra123@127.0.0.1:5432/sysobra\"; cd C:\\\\projetos\\\\sysobra\\\\packages\\\\database; npx prisma migrate dev --name add_stock_locations_multilocal 2>&1 | Write-Output)",
+      "PowerShell($env:DATABASE_URL = \"postgresql://sysobra:sysobra123@127.0.0.1:5432/sysobra\"; cd C:\\\\projetos\\\\sysobra\\\\packages\\\\database; npx prisma db push 2>&1 | Write-Output)"
     ]
   }
 }

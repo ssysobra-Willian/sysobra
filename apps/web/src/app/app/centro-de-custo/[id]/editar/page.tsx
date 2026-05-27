@@ -67,6 +67,11 @@ export default function EditarObraPage() {
   const [technicalName,  setTechnicalName] = useState('')
   const [technicalTitle, setTechTitle]     = useState('')
   const [technicalCrea,  setTechCrea]      = useState('')
+  // ── Dados adicionais da obra
+  const [totalArea,      setTotalArea]     = useState('')
+  const [floors,         setFloors]        = useState('')
+  const [buildingPermit, setBuildingPermit]= useState('')
+  const [slogan,         setSlogan]        = useState('')
 
   // ── Busca endereço pelo CEP via ViaCEP ────────────────────────────────────────
   const handleZipBlur = async () => {
@@ -127,6 +132,10 @@ export default function EditarObraPage() {
       setTechTitle(proj.technicalTitle                                  ?? '')
       setTechCrea(proj.technicalCrea                                    ?? '')
       setCoverImage(proj.coverImage                                      ?? '')
+      setTotalArea(proj.totalArea      ? String(proj.totalArea)         : '')
+      setFloors(proj.floors            ? String(proj.floors)            : '')
+      setBuildingPermit(proj.buildingPermit                             ?? '')
+      setSlogan(proj.slogan                                             ?? '')
 
       // Preenche cliente e responsável selecionados
       const allClients: Client[] = clientsData.clients ?? []
@@ -191,6 +200,10 @@ export default function EditarObraPage() {
         technicalTitle:  technicalTitle  || null,
         technicalCrea:   technicalCrea   || null,
         coverImage:      coverImage      || null,
+        totalArea:       totalArea       ? parseFloat(totalArea)   : null,
+        floors:          floors          ? parseInt(floors)        : null,
+        buildingPermit:  buildingPermit  || null,
+        slogan:          slogan          || null,
       }
 
       const res = await fetch(`${API}/api/v1/projects/${id}`, {
@@ -552,7 +565,15 @@ export default function EditarObraPage() {
                 className={InputClass}
               />
             </div>
-            <div />
+            <div>
+              <label className={LabelClass}>Alvará de Construção</label>
+              <input
+                value={buildingPermit}
+                onChange={e => setBuildingPermit(e.target.value)}
+                placeholder="N° do alvará"
+                className={InputClass}
+              />
+            </div>
 
             <div>
               <label className={LabelClass}>ART de Execução (número)</label>
@@ -569,6 +590,34 @@ export default function EditarObraPage() {
                 value={artProjects}
                 onChange={e => setArtProjects(e.target.value)}
                 placeholder="000000"
+                className={InputClass}
+              />
+            </div>
+
+            <div>
+              <label className={LabelClass}>Área total construída (m²)</label>
+              <div className="relative">
+                <input
+                  type="number"
+                  min={0}
+                  step={0.01}
+                  value={totalArea}
+                  onChange={e => setTotalArea(e.target.value)}
+                  placeholder="0,00"
+                  className={InputClass + ' pr-10'}
+                />
+                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-400 pointer-events-none">m²</span>
+              </div>
+            </div>
+            <div>
+              <label className={LabelClass}>Número de pavimentos</label>
+              <input
+                type="number"
+                min={1}
+                step={1}
+                value={floors}
+                onChange={e => setFloors(e.target.value)}
+                placeholder="Ex: 3"
                 className={InputClass}
               />
             </div>
@@ -608,6 +657,24 @@ export default function EditarObraPage() {
                 className={InputClass}
               />
             </div>
+          </div>
+
+          <hr className="border-gray-100" />
+          <h3 className="text-sm font-semibold text-gray-700">Slogan da obra (exibido na placa)</h3>
+
+          <div>
+            <label className={LabelClass}>
+              Slogan
+              <span className="ml-2 text-gray-400">({slogan.length}/80)</span>
+            </label>
+            <input
+              value={slogan}
+              onChange={e => setSlogan(e.target.value.slice(0, 80))}
+              placeholder="Ex: Construindo sonhos com qualidade e confiança"
+              className={InputClass}
+              maxLength={80}
+            />
+            <p className="text-xs text-gray-400 mt-1">Exibido na faixa azul da placa de obra quando preenchido.</p>
           </div>
         </div>
       )}

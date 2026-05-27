@@ -77,7 +77,7 @@ async function bootstrap() {
 
   // ── Multipart (upload de arquivos) ───────────────────────────────────────
   await app.register(multipart, {
-    limits: { fileSize: 10 * 1024 * 1024 }, // 10 MB (fotos diário até 10MB, capa até 5MB validado na rota)
+    limits: { fileSize: 100 * 1024 * 1024 }, // 100 MB (pasta de projetos: PDFs, DWGs, IFCs)
   })
 
   // ── Arquivos estáticos (uploads) ─────────────────────────────────────────

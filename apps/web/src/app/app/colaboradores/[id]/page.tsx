@@ -9,6 +9,7 @@ import {
   CalendarDays, HardHat, Clock, Plus, Trash2, Download,
   CheckCircle, AlertTriangle, X, Save, ArrowRightLeft,
   Eye, ExternalLink, FileImage, MapPin, History, DollarSign,
+  ShieldCheck, ZoomIn, PenTool, FileOutput,
 } from 'lucide-react'
 import { Breadcrumb }             from '@/components/ui/Breadcrumb'
 import { EmployeeFormModal }      from '../components/EmployeeFormModal'
@@ -107,13 +108,20 @@ interface EmployeeVacation {
 }
 
 interface EpiDelivery {
-  id:          string
-  epiName:     string
-  epiCode?:    string | null
-  quantity:    number
-  deliveredAt: string
-  returnedAt?: string | null
-  condition?:  string | null
+  id:                string
+  epiName:           string
+  epiCode?:          string | null
+  quantity:          number
+  size?:             string | null
+  deliveredAt:       string
+  returnedAt?:       string | null
+  condition?:        string | null
+  notes?:            string | null
+  expiresAt?:        string | null
+  selfieUrl?:        string | null
+  selfieDate?:       string | null
+  employeeSignature?: string | null
+  deliveredByName?:  string | null
 }
 
 interface ProjectHistory {
@@ -594,28 +602,10 @@ export default function ColaboradorPerfilPage() {
 
         {/* EPIs */}
         {tab === 'EPIs' && (
-          <div className="p-5">
-            {employee.epiDeliveries.length === 0 ? (
-              <div className="text-center py-10 space-y-2">
-                <Shield size={28} className="text-gray-200 mx-auto" />
-                <p className="text-sm text-gray-500">Nenhum EPI registrado para este colaborador</p>
-                <p className="text-xs text-gray-400">Gestão de EPIs disponível no módulo Depósito</p>
-              </div>
-            ) : (
-              <div className="space-y-2">
-                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">EPIs entregues</p>
-                {employee.epiDeliveries.map(e => (
-                  <div key={e.id} className="flex items-center justify-between py-2.5 border-b border-gray-50 last:border-0">
-                    <div>
-                      <p className="text-sm font-medium text-gray-700">{e.epiName} {e.epiCode ? `(${e.epiCode})` : ''}</p>
-                      <p className="text-xs text-gray-400">Qtd: {e.quantity} · Entregue em: {fmtDate(e.deliveredAt)}</p>
-                    </div>
-                    {e.returnedAt && <span className="text-xs text-green-600 font-medium">Devolvido</span>}
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
+          <EpiDeliveriesPanel
+            deliveries={employee.epiDeliveries}
+            employeeName={employee.name}
+          />
         )}
 
         {/* Histórico de obras */}
@@ -1284,6 +1274,142 @@ function VacationsPanel({ employee, onReload }: { employee: Employee; onReload: 
               </button>
             </div>
           ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── Subcomp: EPIs ────────────────────────────────────────────────────────────
+
+function EpiDeliveriesPanel({
+  deliveries,
+  employeeName,
+}: {
+  deliveries:   EpiDelivery[]
+  employeeName: string
+}) {
+  const [lightbox,  setLightbox]  = useState<string | null>(null)
+  const [cautela,   setCautela]   = useState<string | null>(null)
+
+  const openCautela = (deliveryId: string) => {
+    const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
+    const tok = localStorage.getItem('token') ?? ''
+    const cid = localStorage.getItem('companyId') ?? ''
+    const url = `${API}/api/v1/deposit/epi-deliveries/${deliveryId}/cautela?token=${encodeURIComponent(tok)}&companyId=${encodeURIComponent(cid)}`
+    window.open(url, '_blank')
+  }
+
+  if (deliveries.length === 0) {
+    return (
+      <div className="p-5">
+        <div className="text-center py-12 space-y-2">
+          <ShieldCheck size={32} className="text-gray-200 mx-auto" />
+          <p className="text-sm text-gray-500">Nenhum EPI entregue a este colaborador</p>
+          <p className="text-xs text-gray-400">Acesse o módulo Depósito → EPIs para registrar entregas</p>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="p-5">
+      <div className="flex items-center justify-between mb-4">
+        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+          EPIs entregues — {deliveries.length} registro{deliveries.length !== 1 ? 's' : ''}
+        </p>
+      </div>
+
+      <div className="space-y-3">
+        {deliveries.map(d => (
+          <div key={d.id} className="bg-white border border-gray-100 rounded-2xl overflow-hidden shadow-sm">
+            <div className="flex items-start gap-3 p-4">
+              {/* Selfie thumbnail */}
+              {d.selfieUrl ? (
+                <button
+                  onClick={() => setLightbox(d.selfieUrl!)}
+                  className="relative w-14 h-14 rounded-xl overflow-hidden flex-shrink-0 border border-gray-100 hover:ring-2 hover:ring-[#F5A623]/40 transition group"
+                >
+                  <img
+                    src={d.selfieUrl.startsWith('http') ? d.selfieUrl : `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/${d.selfieUrl}`}
+                    alt="Selfie"
+                    className="w-full h-full object-cover"
+                  />
+                  <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 flex items-center justify-center transition">
+                    <ZoomIn size={14} className="text-white opacity-0 group-hover:opacity-100 transition" />
+                  </div>
+                </button>
+              ) : (
+                <div className="w-14 h-14 rounded-xl bg-green-50 border border-green-100 flex items-center justify-center flex-shrink-0">
+                  <ShieldCheck size={20} className="text-green-400" />
+                </div>
+              )}
+
+              {/* Info */}
+              <div className="flex-1 min-w-0">
+                <div className="flex items-start gap-2 flex-wrap">
+                  <p className="text-sm font-semibold text-gray-800">{d.epiName}</p>
+                  {d.epiCode && <span className="text-[10px] bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded-md font-mono">{d.epiCode}</span>}
+                  {d.returnedAt
+                    ? <span className="text-[10px] bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full font-medium">Devolvido</span>
+                    : <span className="text-[10px] bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded-full font-medium">Em uso</span>
+                  }
+                </div>
+
+                <div className="flex flex-wrap gap-x-4 gap-y-0.5 mt-1.5 text-xs text-gray-400">
+                  <span>Qtd: <strong className="text-gray-600">{d.quantity}</strong></span>
+                  {d.size && <span>Tamanho: <strong className="text-gray-600">{d.size}</strong></span>}
+                  <span>Entregue: <strong className="text-gray-600">{fmtDate(d.deliveredAt)}</strong></span>
+                  {d.expiresAt && <span className={`${new Date(d.expiresAt) < new Date() ? 'text-red-500' : ''}`}>Validade: <strong>{fmtDate(d.expiresAt)}</strong></span>}
+                  {d.returnedAt && <span>Devolvido: <strong className="text-gray-600">{fmtDate(d.returnedAt)}</strong></span>}
+                </div>
+
+                {d.notes && <p className="mt-1.5 text-xs text-gray-500 italic">{d.notes}</p>}
+              </div>
+
+              {/* Actions */}
+              <div className="flex flex-col gap-1.5 flex-shrink-0">
+                {d.employeeSignature && (
+                  <button
+                    onClick={() => setLightbox(d.employeeSignature!)}
+                    className="text-[10px] text-gray-400 hover:text-[#F5A623] flex items-center gap-1 transition"
+                    title="Ver assinatura"
+                  >
+                    <PenTool size={11} /> Assinatura
+                  </button>
+                )}
+                <button
+                  onClick={() => openCautela(d.id)}
+                  className="text-[10px] text-blue-500 hover:text-blue-700 flex items-center gap-1 transition"
+                  title="Ver cautela"
+                >
+                  <FileOutput size={11} /> Cautela
+                </button>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Lightbox */}
+      {lightbox && (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center p-4"
+          style={{ background: 'rgba(0,0,0,0.9)' }}
+          onClick={() => setLightbox(null)}
+        >
+          <button
+            className="absolute top-4 right-4 text-white/70 hover:text-white transition"
+            onClick={() => setLightbox(null)}
+          >
+            <X size={24} />
+          </button>
+          <img
+            src={lightbox.startsWith('http') ? lightbox : `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/${lightbox}`}
+            alt="Imagem em tamanho completo"
+            className="max-w-full max-h-[90dvh] rounded-xl object-contain"
+            onClick={e => e.stopPropagation()}
+          />
         </div>
       )}
     </div>

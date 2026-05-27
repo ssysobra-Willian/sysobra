@@ -7,7 +7,9 @@ import {
   Filter, ChevronDown, ChevronUp, MoreHorizontal, Eye, Edit2, Trash2,
   ArrowDownToLine, ArrowUpFromLine, RotateCcw, XCircle, Loader2,
   CheckCircle2, Calendar, MapPin, Tag, Users, SlidersHorizontal, X,
+  ArrowLeftRight, Zap, Warehouse,
 } from 'lucide-react'
+import { useRouter } from 'next/navigation'
 import { cn } from '@/lib/utils'
 import { formatCurrency } from '@/lib/format'
 
@@ -19,6 +21,8 @@ import { MaintenanceModal} from './components/MaintenanceModal'
 import { ReceiptViewer   } from './components/ReceiptViewer'
 import { ItemFormModal   } from './components/ItemFormModal'
 import { ToolFormModal   } from './components/ToolFormModal'
+import { QuickEntryModal } from './components/QuickEntryModal'
+import { EpiDeliveryModal} from './components/EpiDeliveryModal'
 import { BasketModal, type BasketPayload } from '@/components/deposit/BasketModal'
 
 // ─── API ─────────────────────────────────────────────────────────────────────
@@ -113,6 +117,16 @@ interface StockBasket {
 
 interface Employee { id: string; name: string; position?: string | null }
 interface Project  { id: string; name: string }
+
+interface StockLocation {
+  id:          string
+  name:        string
+  type:        string
+  isActive:    boolean
+  totalItems?: number
+  totalValue?: number
+  project?:    { id: string; name: string } | null
+}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -819,6 +833,8 @@ const TABS: { id: TabId; label: string; icon: React.ComponentType<any> }[] = [
 ]
 
 export default function DepositoPage() {
+  const router = useRouter()
+
   // ── State ─────────────────────────────────────────────────────────────────
   const [tab,       setTab]       = useState<TabId>('materials')
   const [items,     setItems]     = useState<StockItem[]>([])
@@ -826,6 +842,11 @@ export default function DepositoPage() {
   const [employees, setEmployees] = useState<Employee[]>([])
   const [projects,  setProjects]  = useState<Project[]>([])
   const [loading,   setLoading]   = useState(true)
+
+  // Locations
+  const [locations,        setLocations]        = useState<StockLocation[]>([])
+  const [selectedLocation, setSelectedLocation] = useState<string>('all')
+  const [locationsLoading, setLocationsLoading] = useState(false)
 
   // Drawers & Modals
   const [selectedItem,      setSelectedItem]      = useState<StockItem | null>(null)
@@ -844,20 +865,27 @@ export default function DepositoPage() {
   const [editingMaterial,   setEditingMaterial]   = useState<StockItem | null>(null)
   const [editingTool,       setEditingTool]       = useState<StockItem | null>(null)
 
+  // New multi-location modals
+  const [quickEntryOpen,    setQuickEntryOpen]    = useState(false)
+  const [epiDeliveryOpen,   setEpiDeliveryOpen]   = useState(false)
+  const [epiDeliveryItemId, setEpiDeliveryItemId] = useState<string | undefined>(undefined)
+
   // ── Data loading ──────────────────────────────────────────────────────────
   const loadAll = useCallback(async () => {
     setLoading(true)
     try {
-      const [itemsRes, summaryRes, empRes, projRes] = await Promise.all([
+      const [itemsRes, summaryRes, empRes, projRes, locRes] = await Promise.all([
         apiFetch('/api/v1/deposit/items?limit=500&active=true'),
         apiFetch('/api/v1/deposit/summary/full'),
         apiFetch('/api/v1/employees?limit=200'),
         apiFetch('/api/v1/projects?limit=200'),
+        apiFetch('/api/v1/deposit/locations'),
       ])
       if (itemsRes.ok)    { const d = await itemsRes.json();    setItems(d.items ?? [])       }
       if (summaryRes.ok)  { const d = await summaryRes.json();  setSummary(d)                 }
       if (empRes.ok)      { const d = await empRes.json();      setEmployees(d.employees ?? d.data ?? []) }
       if (projRes.ok)     { const d = await projRes.json();     setProjects(d.projects ?? d.data ?? [])  }
+      if (locRes.ok)      { const d = await locRes.json();      setLocations(d.locations ?? d.data ?? []) }
     } catch { /* silencioso */ }
     finally { setLoading(false) }
   }, [])
@@ -882,6 +910,9 @@ export default function DepositoPage() {
     }
   }
   const addBtn = getAddButton()
+
+  // Active location label
+  const activeLocation = locations.find(l => l.id === selectedLocation)
 
   // ── Handlers ─────────────────────────────────────────────────────────────
   const handleViewItem = (item: StockItem) => {
@@ -931,6 +962,44 @@ export default function DepositoPage() {
               <p className="text-xs text-gray-400 mt-0.5">Controle de materiais, ferramentas e EPIs</p>
             </div>
             <div className="flex items-center gap-2">
+
+              {/* Location selector */}
+              {locations.length > 0 && (
+                <div className="hidden sm:flex items-center gap-1.5 border border-gray-200 rounded-xl px-3 py-2 bg-white">
+                  <Warehouse size={13} className="text-gray-400" />
+                  <select
+                    value={selectedLocation}
+                    onChange={e => setSelectedLocation(e.target.value)}
+                    className="text-xs text-gray-700 bg-transparent focus:outline-none cursor-pointer font-medium max-w-[140px]"
+                  >
+                    <option value="all">Todos os almoxarifados</option>
+                    {locations.filter(l => l.isActive).map(l => (
+                      <option key={l.id} value={l.id}>{l.name}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {/* Transferências */}
+              <button
+                onClick={() => router.push('/app/deposito/transferencias')}
+                className="hidden sm:flex items-center gap-1.5 border border-gray-200 text-gray-600 text-sm px-3 py-2 rounded-xl hover:bg-gray-50 transition"
+                title="Transferências entre almoxarifados"
+              >
+                <ArrowLeftRight size={14} />
+                <span className="hidden md:inline text-xs font-medium">Transferências</span>
+              </button>
+
+              {/* Entrada Rápida */}
+              <button
+                onClick={() => setQuickEntryOpen(true)}
+                className="hidden sm:flex items-center gap-1.5 border border-[#F5A623] text-[#F5A623] text-sm px-3 py-2 rounded-xl hover:bg-orange-50 transition"
+                title="Entrada rápida de estoque"
+              >
+                <Zap size={14} />
+                <span className="hidden md:inline text-xs font-medium">Entrada Rápida</span>
+              </button>
+
               <button
                 onClick={loadAll}
                 className="p-2 rounded-xl border border-gray-200 hover:bg-gray-50 transition"
@@ -1017,6 +1086,36 @@ export default function DepositoPage() {
           </div>
         )}
 
+        {/* ── Location breakdown cards ───────────────────────────────────── */}
+        {locations.length > 0 && (
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+            {locations.filter(l => l.isActive).map(l => (
+              <button
+                key={l.id}
+                onClick={() => setSelectedLocation(prev => prev === l.id ? 'all' : l.id)}
+                className={cn(
+                  'bg-white rounded-xl border p-3 text-left flex items-start gap-2.5 shadow-sm hover:border-orange-200 transition',
+                  selectedLocation === l.id ? 'border-[#F5A623] ring-1 ring-[#F5A623]/30' : 'border-gray-100',
+                )}
+              >
+                <div className={cn(
+                  'w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5',
+                  l.type === 'CENTRAL' ? 'bg-blue-50' : 'bg-purple-50',
+                )}>
+                  <Warehouse size={14} className={l.type === 'CENTRAL' ? 'text-blue-600' : 'text-purple-600'} />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs font-semibold text-gray-800 truncate leading-tight">{l.name}</p>
+                  <p className="text-[10px] text-gray-400 mt-0.5">{l.type === 'CENTRAL' ? 'Central' : 'Almox. Obra'}</p>
+                  {l.totalItems !== undefined && (
+                    <p className="text-[10px] text-gray-400">{l.totalItems} itens</p>
+                  )}
+                </div>
+              </button>
+            ))}
+          </div>
+        )}
+
         {/* ── Tabs ───────────────────────────────────────────────────────── */}
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
           {/* Tab bar */}
@@ -1080,13 +1179,24 @@ export default function DepositoPage() {
                   />
                 )}
                 {tab === 'epis' && (
-                  <MaterialsTable
-                    items={epis}
-                    onView={handleViewItem}
-                    onEdit={item => { setEditingMaterial(item); setEpiFormOpen(true) }}
-                    onCustody={item => setCustodyItem(item)}
-                    onBasket={() => setBasketOpen(true)}
-                  />
+                  <div>
+                    <div className="flex justify-end mb-3">
+                      <button
+                        onClick={() => { setEpiDeliveryItemId(undefined); setEpiDeliveryOpen(true) }}
+                        className="flex items-center gap-1.5 bg-green-600 text-white text-sm font-medium px-4 py-2 rounded-xl hover:bg-green-700 transition"
+                      >
+                        <ShieldCheck size={14} />
+                        Entregar EPI
+                      </button>
+                    </div>
+                    <MaterialsTable
+                      items={epis}
+                      onView={handleViewItem}
+                      onEdit={item => { setEditingMaterial(item); setEpiFormOpen(true) }}
+                      onCustody={item => setCustodyItem(item)}
+                      onBasket={() => setBasketOpen(true)}
+                    />
+                  </div>
                 )}
                 {tab === 'uniforms' && (
                   <MaterialsTable
@@ -1207,6 +1317,32 @@ export default function DepositoPage() {
         onClose={() => { setToolFormOpen(false); setEditingTool(null) }}
         onSuccess={() => { setToolFormOpen(false); setEditingTool(null); loadAll() }}
         tool={editingTool as any}
+      />
+
+      {/* ── Quick Entry ──────────────────────────────────────────────── */}
+      <QuickEntryModal
+        isOpen={quickEntryOpen}
+        locations={locations}
+        defaultLocationId={selectedLocation !== 'all' ? selectedLocation : undefined}
+        onClose={() => setQuickEntryOpen(false)}
+        onSuccess={() => { setQuickEntryOpen(false); loadAll() }}
+      />
+
+      {/* ── EPI Delivery ─────────────────────────────────────────────── */}
+      <EpiDeliveryModal
+        isOpen={epiDeliveryOpen}
+        items={epis.map(i => ({
+          id:       i.id,
+          name:     i.name,
+          code:     i.code,
+          unit:     i.unit,
+          quantity: i.quantity,
+          brand:    i.brand,
+        }))}
+        employees={employees}
+        preselectedItemId={epiDeliveryItemId}
+        onClose={() => { setEpiDeliveryOpen(false); setEpiDeliveryItemId(undefined) }}
+        onSaved={() => { setEpiDeliveryOpen(false); setEpiDeliveryItemId(undefined); loadAll() }}
       />
     </div>
   )

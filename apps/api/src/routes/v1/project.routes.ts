@@ -2,6 +2,8 @@ import { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import puppeteer from 'puppeteer'
 import { prisma } from '@sysobra/database'
+import path from 'path'
+import fs from 'fs'
 import {
   authenticate,
   requireCompany,
@@ -145,6 +147,11 @@ const createProjectSchema = z.object({
   technicalCrea:    z.string().optional().nullable(),
   technicalPhoto:   z.string().optional().nullable(),
   coverImage:       z.string().optional().nullable(),
+  // Dados técnicos adicionais
+  totalArea:        z.number().optional().nullable(),
+  floors:           z.number().int().optional().nullable(),
+  buildingPermit:   z.string().optional().nullable(),
+  slogan:           z.string().max(80).optional().nullable(),
   stages: z.array(z.object({
     code:           z.string().optional().nullable(),
     name:           z.string().min(1),
@@ -304,6 +311,10 @@ export async function projectRoutes(app: FastifyInstance) {
         technicalCrea:   body.technicalCrea   ?? null,
         technicalPhoto:  body.technicalPhoto  ?? null,
         coverImage:      body.coverImage      ?? null,
+        totalArea:       body.totalArea       ?? null,
+        floors:          body.floors          ?? null,
+        buildingPermit:  body.buildingPermit  ?? null,
+        slogan:          body.slogan          ?? null,
         stages: { create: stagesToCreate },
       },
       include: {
@@ -522,6 +533,10 @@ export async function projectRoutes(app: FastifyInstance) {
     if (body.technicalCrea   !== undefined) data.technicalCrea   = body.technicalCrea
     if (body.technicalPhoto  !== undefined) data.technicalPhoto  = body.technicalPhoto
     if (body.coverImage      !== undefined) data.coverImage      = body.coverImage
+    if (body.totalArea       !== undefined) data.totalArea       = body.totalArea
+    if (body.floors          !== undefined) data.floors          = body.floors
+    if (body.buildingPermit  !== undefined) data.buildingPermit  = body.buildingPermit
+    if (body.slogan          !== undefined) data.slogan          = body.slogan
 
     const project = await p.project.update({
       where: { id },
@@ -998,9 +1013,9 @@ export async function projectRoutes(app: FastifyInstance) {
         where: { id, companyId, isActive: true },
         include: { client: { select: { id: true, name: true } } },
       }),
-      prisma.company.findUnique({
+      p.company.findUnique({
         where: { id: companyId },
-        select: { name: true, logo: true, cnpj: true, phone: true, email: true, address: true, city: true, state: true },
+        select: { name: true, logo: true, slogan: true, cnpj: true, phone: true, email: true, address: true, city: true, state: true },
       }),
     ])
     if (!project) return null
@@ -1011,17 +1026,25 @@ export async function projectRoutes(app: FastifyInstance) {
     return { project, company, syslobraLogoBase64, centralImageBase64 }
   }
 
+  // Faz parse do parâmetro visibleFields (JSON array na query string)
+  function parseVisibleFields(raw?: string): string[] | undefined {
+    if (!raw) return undefined
+    try { return JSON.parse(raw) } catch { return undefined }
+  }
+
   // ── GET /:id/plate/preview — retorna HTML sem Puppeteer (prévia fiel) ─────
   app.get('/:id/plate/preview', { preHandler: [requireCompany] }, async (request, reply) => {
     const req        = request as RequestWithMember
     const companyId  = req.companyId!
     const { id }     = request.params as { id: string }
-    const { imageType = 'logo' } = request.query as { imageType?: string }
+    const q          = request.query as { imageType?: string; visibleFields?: string }
+    const imageType  = (q.imageType ?? 'logo') as 'logo' | 'photo'
+    const visibleFields = parseVisibleFields(q.visibleFields)
 
-    const data = await loadPlacaData(id, companyId, imageType as 'logo' | 'photo')
+    const data = await loadPlacaData(id, companyId, imageType)
     if (!data) return reply.status(404).send({ error: 'Obra não encontrada' })
 
-    const html = gerarHtmlPlaca({ ...data, imageType: imageType as 'logo' | 'photo' })
+    const html = gerarHtmlPlaca({ ...data, imageType, visibleFields })
 
     return reply
       .header('Content-Type', 'text/html; charset=utf-8')
@@ -1034,12 +1057,14 @@ export async function projectRoutes(app: FastifyInstance) {
     const req       = request as RequestWithMember
     const companyId = req.companyId!
     const { id }    = request.params as { id: string }
-    const { imageType = 'logo' } = request.query as { imageType?: string }
+    const q         = request.query as { imageType?: string; visibleFields?: string }
+    const imageType = (q.imageType ?? 'logo') as 'logo' | 'photo'
+    const visibleFields = parseVisibleFields(q.visibleFields)
 
-    const data = await loadPlacaData(id, companyId, imageType as 'logo' | 'photo')
+    const data = await loadPlacaData(id, companyId, imageType)
     if (!data) return reply.status(404).send({ error: 'Obra não encontrada' })
 
-    const html    = gerarHtmlPlaca({ ...data, imageType: imageType as 'logo' | 'photo' })
+    const html    = gerarHtmlPlaca({ ...data, imageType, visibleFields })
     const browser = await puppeteer.launch({ headless: true, args: ['--no-sandbox', '--disable-setuid-sandbox'] })
     try {
       const page = await browser.newPage()
@@ -1069,12 +1094,14 @@ export async function projectRoutes(app: FastifyInstance) {
     const req       = request as RequestWithMember
     const companyId = req.companyId!
     const { id }    = request.params as { id: string }
-    const { imageType = 'logo' } = request.query as { imageType?: string }
+    const q         = request.query as { imageType?: string; visibleFields?: string }
+    const imageType = (q.imageType ?? 'logo') as 'logo' | 'photo'
+    const visibleFields = parseVisibleFields(q.visibleFields)
 
-    const data = await loadPlacaData(id, companyId, imageType as 'logo' | 'photo')
+    const data = await loadPlacaData(id, companyId, imageType)
     if (!data) return reply.status(404).send({ error: 'Obra não encontrada' })
 
-    const html    = gerarHtmlPlaca({ ...data, imageType: imageType as 'logo' | 'photo' })
+    const html    = gerarHtmlPlaca({ ...data, imageType, visibleFields })
     const browser = await puppeteer.launch({ headless: true, args: ['--no-sandbox', '--disable-setuid-sandbox'] })
     try {
       const page = await browser.newPage()
@@ -1095,6 +1122,115 @@ export async function projectRoutes(app: FastifyInstance) {
     } finally {
       await browser.close()
     }
+  })
+
+  // ── POST /:id/files — upload de arquivo de projeto ────────────────────────
+  app.post('/:id/files', { preHandler: [requireCompany] }, async (request, reply) => {
+    const req       = request as RequestWithMember
+    const companyId = req.companyId!
+    const payload   = request.user as JwtPayload
+    const { id }    = request.params as { id: string }
+
+    const project = await p.project.findFirst({ where: { id, companyId, isActive: true } })
+    if (!project) return reply.status(404).send({ error: 'Obra não encontrada' })
+
+    const data = await request.file()
+    if (!data) return reply.status(400).send({ error: 'Nenhum arquivo enviado' })
+
+    // Verificar tamanho (100 MB)
+    const MAX_SIZE = 100 * 1024 * 1024
+    const chunks: Buffer[] = []
+    let size = 0
+    for await (const chunk of data.file) {
+      size += chunk.length
+      if (size > MAX_SIZE) return reply.status(413).send({ error: 'Arquivo excede 100 MB' })
+      chunks.push(chunk)
+    }
+    const fileBuffer = Buffer.concat(chunks)
+
+    const dir = path.join(process.cwd(), 'uploads', 'projects', companyId, id)
+    fs.mkdirSync(dir, { recursive: true })
+
+    const timestamp    = Date.now()
+    const safeName     = data.filename.replace(/[^a-zA-Z0-9._-]/g, '_')
+    const savedName    = `${timestamp}-${safeName}`
+    const filePath     = path.join(dir, savedName)
+    fs.writeFileSync(filePath, fileBuffer)
+
+    const ext = path.extname(data.filename).toLowerCase()
+    const category = ext === '.pdf' ? 'pdf'
+      : ext === '.dwg' || ext === '.dxf' ? 'dwg'
+      : ext === '.ifc' ? 'ifc'
+      : 'other'
+
+    const fields = data.fields as any
+    const name        = (fields?.name?.value ?? data.filename).slice(0, 200)
+    const description = fields?.description?.value ?? null
+    const version     = fields?.version?.value ?? null
+
+    const projectFile = await p.projectFile.create({
+      data: {
+        companyId,
+        projectId: id,
+        name,
+        originalName: data.filename,
+        type:         data.mimetype,
+        size,
+        url:          `uploads/projects/${companyId}/${id}/${savedName}`,
+        category,
+        description,
+        version,
+        uploadedBy:   payload.sub,
+      },
+    })
+
+    return reply.status(201).send({ file: projectFile })
+  })
+
+  // ── GET /:id/files — listar arquivos agrupados por categoria ─────────────
+  app.get('/:id/files', { preHandler: [requireCompany] }, async (request, reply) => {
+    const req       = request as RequestWithMember
+    const companyId = req.companyId!
+    const { id }    = request.params as { id: string }
+
+    const project = await p.project.findFirst({ where: { id, companyId, isActive: true } })
+    if (!project) return reply.status(404).send({ error: 'Obra não encontrada' })
+
+    const files = await p.projectFile.findMany({
+      where:   { projectId: id, companyId, isActive: true },
+      orderBy: { createdAt: 'desc' },
+    })
+
+    const grouped = {
+      pdfs:   files.filter((f: any) => f.category === 'pdf'),
+      dwgs:   files.filter((f: any) => f.category === 'dwg'),
+      ifcs:   files.filter((f: any) => f.category === 'ifc'),
+      others: files.filter((f: any) => f.category === 'other'),
+    }
+
+    return reply.send(grouped)
+  })
+
+  // ── DELETE /:id/files/:fileId — remover arquivo ───────────────────────────
+  app.delete('/:id/files/:fileId', { preHandler: [requireCompany] }, async (request, reply) => {
+    const req       = request as RequestWithMember
+    const companyId = req.companyId!
+    const { id, fileId } = request.params as { id: string; fileId: string }
+
+    const file = await p.projectFile.findFirst({
+      where: { id: fileId, projectId: id, companyId, isActive: true },
+    })
+    if (!file) return reply.status(404).send({ error: 'Arquivo não encontrado' })
+
+    // Soft delete + remoção em disco
+    await p.projectFile.update({ where: { id: fileId }, data: { isActive: false } })
+
+    try {
+      const fullPath = path.join(process.cwd(), file.url)
+      if (fs.existsSync(fullPath)) fs.unlinkSync(fullPath)
+    } catch { /* não bloquear se arquivo já não existir */ }
+
+    return reply.send({ success: true })
   })
 }
 

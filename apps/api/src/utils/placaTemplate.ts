@@ -26,26 +26,21 @@ function fileToBase64(filePath: string): string | null {
   }
 }
 
-/** Resolve um caminho relativo de upload `/uploads/...` para absoluto no servidor */
+/** Resolve um caminho relativo de upload `uploads/...` para absoluto no servidor */
 function resolveUploadPath(relativePath: string | null | undefined): string | null {
   if (!relativePath) return null
-  if (relativePath.startsWith('http://') || relativePath.startsWith('https://')) {
-    // URL externa — não é possível carregar via fs; retornar null
-    return null
-  }
-  const clean = relativePath.replace(/^\/uploads\//, '')
-  // A API roda a partir de apps/api/  →  uploads/ está 2 níveis acima do src/
+  if (relativePath.startsWith('http://') || relativePath.startsWith('https://')) return null
+  const clean = relativePath.replace(/^\/uploads\//, '').replace(/^uploads\//, '')
   const uploadsRoot = path.join(__dirname, '../../uploads')
   return path.join(uploadsRoot, clean)
 }
 
 // ─── Logo SYSOBRA ─────────────────────────────────────────────────────────────
 
-/** Retorna o logo SYSOBRA como base64 data-URI (busca em src/ e na raiz do package) */
 export function getSyslobraLogoBase64(): string {
   const candidates = [
-    path.join(__dirname, '../logo.png'),           // apps/api/src/logo.png
-    path.join(__dirname, '../../src/logo.png'),    // fallback
+    path.join(__dirname, '../logo.png'),
+    path.join(__dirname, '../../src/logo.png'),
     path.join(__dirname, '../logo-dark.png'),
     path.join(__dirname, '../logo-icon.png'),
   ]
@@ -56,7 +51,7 @@ export function getSyslobraLogoBase64(): string {
   return ''
 }
 
-// ─── Imagem central (logo da empresa ou foto da obra) ─────────────────────────
+// ─── Imagem central ───────────────────────────────────────────────────────────
 
 export function getCentralImageBase64(
   project:   any,
@@ -64,20 +59,18 @@ export function getCentralImageBase64(
   imageType: 'logo' | 'photo',
 ): string | null {
   let relativePath: string | null = null
-
   if (imageType === 'photo' && project.coverImage) {
     relativePath = project.coverImage
   } else if (company?.logo) {
     relativePath = company.logo
   }
-
   if (!relativePath) return null
   const absPath = resolveUploadPath(relativePath)
   if (!absPath) return null
   return fileToBase64(absPath)
 }
 
-// ─── Parâmetros da função ─────────────────────────────────────────────────────
+// ─── Parâmetros ───────────────────────────────────────────────────────────────
 
 export interface PlacaParams {
   project:            any
@@ -85,17 +78,45 @@ export interface PlacaParams {
   centralImageBase64: string | null
   syslobraLogoBase64: string
   imageType:          'logo' | 'photo'
+  /** Se informado, apenas esses campos aparecem na grade de dados */
+  visibleFields?:     string[]
 }
+
+// ─── Campos disponíveis na grade ──────────────────────────────────────────────
+
+export const ALL_FIELDS = [
+  'technicalManager',  // Responsável Técnico (nome + cargo)
+  'crea',              // CREA / CAU
+  'startDate',         // Início previsto
+  'expectedEndDate',   // Término previsto
+  'area',              // Área construída
+  'floors',            // Pavimentos
+  'cno',               // CNO
+  'buildingPermit',    // Alvará
+  'address',           // Endereço
+  'art',               // ART / RRT
+]
 
 // ─── Template HTML ────────────────────────────────────────────────────────────
 
 export function gerarHtmlPlaca(params: PlacaParams): string {
-  const { project, company, centralImageBase64, syslobraLogoBase64, imageType } = params
+  const {
+    project, company, centralImageBase64, syslobraLogoBase64,
+    imageType, visibleFields,
+  } = params
+
+  const visible = new Set(visibleFields ?? ALL_FIELDS)
+  const show = (field: string) => visible.has(field)
 
   const fullAddress = [project.address, project.city, project.state].filter(Boolean).join(', ') || null
   const artDisplay  = [project.artExecution, project.artProjects].filter(Boolean).join(' / ') || null
   const now         = new Date()
   const geradoEm    = `${formatDateBR(now)} às ${now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`
+
+  const companySlogan: string | null = company?.slogan ?? project.slogan ?? null
+  const totalArea: number | null     = project.totalArea ? Number(project.totalArea) : null
+  const floors: number | null        = project.floors ?? null
+  const buildingPermit: string | null = project.buildingPermit ?? null
 
   return `<!DOCTYPE html>
 <html>
@@ -120,71 +141,93 @@ export function gerarHtmlPlaca(params: PlacaParams): string {
     border: 8px solid #111827;
   }
 
-  /* ── TOPO: Logo SYSOBRA centralizada ── */
-  .topo {
+  /* ── FAIXA LARANJA: nome da empresa ── */
+  .faixa-empresa {
     background: #F5A623;
-    height: 130px;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    padding: 12px 32px;
-    border-bottom: 5px solid #111827;
-    flex-shrink: 0;
-  }
-  .sysobra-logo {
-    height: 54px;
-    width: auto;
-    object-fit: contain;
-  }
-  .sysobra-logo-text {
-    font-size: 42px;
-    font-weight: 900;
-    color: #111827;
-    letter-spacing: 4px;
-  }
-
-  /* ── NOME DA EMPRESA ── */
-  .empresa-nome {
-    background: #111827;
-    height: 68px;
+    height: 80px;
     display: flex;
     align-items: center;
     justify-content: center;
     padding: 0 32px;
-    border-bottom: 3px solid #F5A623;
+    border-bottom: 4px solid #111827;
     flex-shrink: 0;
   }
-  .empresa-nome span {
-    font-size: 30px;
+  .faixa-empresa span {
+    font-size: 42px;
     font-weight: 900;
-    color: #FFFFFF;
+    color: #111827;
     text-transform: uppercase;
-    letter-spacing: 3px;
+    letter-spacing: 2px;
     text-align: center;
     font-family: 'Arial Black', Arial, sans-serif;
+    line-height: 1;
   }
 
-  /* ── ÁREA DE IMAGEM CENTRAL ── */
-  .imagem-central {
-    height: 260px;
+  /* ── FAIXA AZUL: slogan (opcional) ── */
+  .faixa-slogan {
+    background: #1E3A5F;
+    height: 44px;
     display: flex;
     align-items: center;
     justify-content: center;
-    padding: 20px 40px;
+    padding: 0 32px;
+    border-bottom: 3px solid #111827;
+    flex-shrink: 0;
+  }
+  .faixa-slogan span {
+    font-size: 18px;
+    font-weight: 400;
+    font-style: italic;
+    color: #FFFFFF;
+    text-align: center;
+    font-family: Arial, sans-serif;
+    opacity: 0.95;
+  }
+
+  /* ── LOGO SYSOBRA centralizado no branco ── */
+  .faixa-logo {
+    background: #FFFFFF;
+    height: 90px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 10px 32px;
+    border-bottom: 3px solid #E5E7EB;
+    flex-shrink: 0;
+  }
+  .sysobra-logo {
+    height: 58px;
+    width: auto;
+    object-fit: contain;
+  }
+  .sysobra-logo-text {
+    font-size: 38px;
+    font-weight: 900;
+    color: #F5A623;
+    letter-spacing: 5px;
+    font-family: 'Arial Black', Arial, sans-serif;
+  }
+
+  /* ── IMAGEM CENTRAL (240px) ── */
+  .imagem-central {
+    height: 240px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 16px 40px;
     background: #F9FAFB;
     border-bottom: 3px solid #E5E7EB;
     flex-shrink: 0;
   }
   .imagem-central img {
-    max-width: 500px;
-    max-height: 220px;
+    max-width: 460px;
+    max-height: 208px;
     object-fit: contain;
     border-radius: 8px;
   }
   .imagem-placeholder {
-    width: 220px;
-    height: 220px;
+    width: 200px;
+    height: 200px;
     background: #E5E7EB;
     border-radius: 12px;
     display: flex;
@@ -194,34 +237,26 @@ export function gerarHtmlPlaca(params: PlacaParams): string {
     gap: 10px;
     font-family: Arial, sans-serif;
   }
-  .placeholder-icon {
-    font-size: 56px;
-    opacity: 0.35;
-  }
-  .placeholder-text {
-    font-size: 13px;
-    color: #9CA3AF;
-    text-align: center;
-    line-height: 1.4;
-  }
+  .placeholder-icon  { font-size: 54px; opacity: 0.35; }
+  .placeholder-text  { font-size: 13px; color: #9CA3AF; text-align: center; line-height: 1.4; }
 
   /* ── NOME DA OBRA ── */
   .obra-nome {
     background: #FFFFFF;
-    padding: 18px 40px;
+    padding: 16px 40px;
     display: flex;
     align-items: center;
     justify-content: center;
-    border-bottom: 4px solid #111827;
+    border-bottom: 5px solid #111827;
     flex-shrink: 0;
   }
   .obra-nome span {
-    font-size: 48px;
+    font-size: 54px;
     font-weight: 900;
     color: #111827;
     text-transform: uppercase;
     text-align: center;
-    line-height: 1.1;
+    line-height: 1.05;
     letter-spacing: 1px;
     font-family: 'Arial Black', Arial, sans-serif;
   }
@@ -235,7 +270,7 @@ export function gerarHtmlPlaca(params: PlacaParams): string {
     min-height: 0;
   }
   .dado-item {
-    padding: 11px 22px;
+    padding: 10px 20px;
     border-right: 1px solid #E5E7EB;
     border-bottom: 1px solid #E5E7EB;
   }
@@ -250,61 +285,32 @@ export function gerarHtmlPlaca(params: PlacaParams): string {
     font-family: Arial, sans-serif;
   }
   .dado-valor {
-    font-size: 18px;
+    font-size: 22px;
     font-weight: 700;
     color: #111827;
     font-family: Arial, sans-serif;
     line-height: 1.2;
   }
-  .dado-valor.sm { font-size: 14px; }
+  .dado-valor.small { font-size: 17px; }
+  .dado-responsavel .dado-valor {
+    font-size: 24px;
+    font-weight: 900;
+  }
   .dado-full {
     grid-column: 1 / -1;
-    padding: 10px 22px;
+    padding: 9px 20px;
     border-bottom: 1px solid #E5E7EB;
     display: flex;
-    align-items: center;
-    gap: 16px;
+    align-items: flex-start;
+    gap: 14px;
   }
-  .dado-full .dado-label { margin-bottom: 0; min-width: 150px; flex-shrink: 0; }
-  .dado-full .dado-valor { font-size: 15px; }
-
-  /* ── LICENÇAS ── */
-  .licencas {
-    background: #F9FAFB;
-    padding: 10px 22px;
-    border-bottom: 3px solid #111827;
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 8px;
-    flex-shrink: 0;
-  }
-  .licenca-item {
-    text-align: center;
-    padding: 8px;
-    background: #FFFFFF;
-    border: 1px solid #E5E7EB;
-    border-radius: 6px;
-  }
-  .licenca-label {
-    font-size: 10px;
-    font-weight: 700;
-    color: #6B7280;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    margin-bottom: 2px;
-    font-family: Arial, sans-serif;
-  }
-  .licenca-valor {
-    font-size: 14px;
-    font-weight: 700;
-    color: #111827;
-    font-family: Arial, sans-serif;
-  }
+  .dado-full .dado-label  { margin-bottom: 0; min-width: 130px; flex-shrink: 0; margin-top: 2px; }
+  .dado-full .dado-valor  { font-size: 17px; }
 
   /* ── RODAPÉ ── */
   .rodape {
     background: #111827;
-    height: 72px;
+    height: 64px;
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -321,18 +327,14 @@ export function gerarHtmlPlaca(params: PlacaParams): string {
   .rodape-logo-box {
     background: #F5A623;
     border-radius: 6px;
-    padding: 6px 14px;
+    padding: 5px 12px;
     display: flex;
     align-items: center;
     gap: 8px;
   }
-  .rodape-logo-img {
-    height: 30px;
-    width: auto;
-    object-fit: contain;
-  }
+  .rodape-logo-img  { height: 28px; width: auto; object-fit: contain; }
   .rodape-logo-text {
-    font-size: 18px;
+    font-size: 16px;
     font-weight: 900;
     color: #111827;
     letter-spacing: 2px;
@@ -343,16 +345,22 @@ export function gerarHtmlPlaca(params: PlacaParams): string {
 <body>
 <div class="placa">
 
-  <!-- TOPO: Logo SYSOBRA centralizada -->
-  <div class="topo">
+  <!-- FAIXA LARANJA: nome da empresa -->
+  <div class="faixa-empresa">
+    <span>${company?.name ?? '—'}</span>
+  </div>
+
+  ${companySlogan ? `
+  <!-- FAIXA AZUL: slogan -->
+  <div class="faixa-slogan">
+    <span>${companySlogan}</span>
+  </div>` : ''}
+
+  <!-- LOGO SYSOBRA centralizado -->
+  <div class="faixa-logo">
     ${syslobraLogoBase64
       ? `<img src="${syslobraLogoBase64}" class="sysobra-logo" alt="SYSOBRA" />`
       : `<div class="sysobra-logo-text">SYSOBRA</div>`}
-  </div>
-
-  <!-- NOME DA EMPRESA -->
-  <div class="empresa-nome">
-    <span>${company?.name ?? '—'}</span>
   </div>
 
   <!-- IMAGEM CENTRAL -->
@@ -372,61 +380,67 @@ export function gerarHtmlPlaca(params: PlacaParams): string {
 
   <!-- DADOS TÉCNICOS -->
   <div class="dados-grid">
-    <div class="dado-item">
+
+    ${show('technicalManager') ? `
+    <div class="dado-item dado-responsavel" style="grid-column:1/-1;border-right:none;">
       <div class="dado-label">Responsável Técnico</div>
-      <div class="dado-valor sm">${project.technicalName ?? '—'}</div>
-    </div>
+      <div class="dado-valor">${project.technicalName ?? '—'}${project.technicalTitle ? ` <span style="font-size:16px;font-weight:400;color:#6B7280">— ${project.technicalTitle}</span>` : ''}</div>
+    </div>` : ''}
+
+    ${show('crea') ? `
     <div class="dado-item">
       <div class="dado-label">CREA / CAU</div>
-      <div class="dado-valor sm">${project.technicalCrea ?? '—'}</div>
-    </div>
+      <div class="dado-valor small">${project.technicalCrea ?? '—'}</div>
+    </div>` : ''}
+
+    ${show('startDate') ? `
     <div class="dado-item">
       <div class="dado-label">Início previsto</div>
       <div class="dado-valor">${formatDateBR(project.startDate)}</div>
-    </div>
+    </div>` : ''}
+
+    ${show('expectedEndDate') ? `
     <div class="dado-item">
       <div class="dado-label">Término previsto</div>
       <div class="dado-valor">${formatDateBR(project.expectedEndDate ?? project.endDate)}</div>
-    </div>
+    </div>` : ''}
+
+    ${show('area') && totalArea ? `
+    <div class="dado-item">
+      <div class="dado-label">Área construída</div>
+      <div class="dado-valor">${totalArea.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} m²</div>
+    </div>` : ''}
+
+    ${show('floors') && floors ? `
+    <div class="dado-item">
+      <div class="dado-label">Pavimentos</div>
+      <div class="dado-valor">${floors}</div>
+    </div>` : ''}
+
+    ${show('cno') ? `
     <div class="dado-item">
       <div class="dado-label">CNO</div>
-      <div class="dado-valor">${project.cno ?? '—'}</div>
-    </div>
+      <div class="dado-valor small">${project.cno ?? '—'}</div>
+    </div>` : ''}
+
+    ${show('buildingPermit') && buildingPermit ? `
     <div class="dado-item">
-      <div class="dado-label">Código da obra</div>
-      <div class="dado-valor">${project.code ?? '—'}</div>
-    </div>
-    ${fullAddress ? `
+      <div class="dado-label">Alvará de Construção</div>
+      <div class="dado-valor small">${buildingPermit}</div>
+    </div>` : ''}
+
+    ${show('address') && fullAddress ? `
     <div class="dado-full">
       <div class="dado-label">Endereço</div>
-      <div class="dado-valor sm">${fullAddress}</div>
+      <div class="dado-valor">${fullAddress}</div>
     </div>` : ''}
-    ${artDisplay ? `
+
+    ${show('art') && artDisplay ? `
     <div class="dado-full">
       <div class="dado-label">ART / RRT</div>
-      <div class="dado-valor sm">${artDisplay}</div>
+      <div class="dado-valor">${artDisplay}</div>
     </div>` : ''}
-    ${project.client?.name ? `
-    <div class="dado-full">
-      <div class="dado-label">Cliente / Proprietário</div>
-      <div class="dado-valor sm">${project.client.name}</div>
-    </div>` : ''}
-  </div>
 
-  <!-- LICENÇAS -->
-  <div class="licencas">
-    <div class="licenca-item">
-      <div class="licenca-label">Alvará de Construção</div>
-      <div class="licenca-valor">${(project as any).buildingPermit ?? project.artExecution ?? '—'}</div>
-    </div>
-    <div class="licenca-item">
-      <div class="licenca-label">Área construída</div>
-      <div class="licenca-valor">${(project as any).totalArea ? `${(project as any).totalArea} m²` : (project.globalBudget ? `R$ ${Number(project.globalBudget).toLocaleString('pt-BR', { maximumFractionDigits: 0 })}` : '—')}</div>
-    </div>
-    <div class="licenca-item">
-      <div class="licenca-label">Pavimentos / Tipo</div>
-      <div class="licenca-valor">${(project as any).floors ?? project.technicalTitle ?? '—'}</div>
-    </div>
   </div>
 
   <!-- RODAPÉ -->

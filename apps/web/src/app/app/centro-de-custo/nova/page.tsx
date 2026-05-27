@@ -95,6 +95,11 @@ export default function NovaObraPage() {
   const [technicalName,  setTechnicalName] = useState('')
   const [technicalTitle, setTechTitle]     = useState('')
   const [technicalCrea,  setTechCrea]      = useState('')
+  // ── Dados adicionais da obra
+  const [totalArea,      setTotalArea]     = useState('')
+  const [floors,         setFloors]        = useState('')
+  const [buildingPermit, setBuildingPermit]= useState('')
+  const [slogan,         setSlogan]        = useState('')
 
   // ── Etapas
   const [stages,      setStages]      = useState<StageRow[]>([newStage()])
@@ -180,6 +185,10 @@ export default function NovaObraPage() {
         technicalTitle:  technicalTitle || null,
         technicalCrea:   technicalCrea || null,
         coverImage:      coverImage || null,
+        totalArea:       totalArea ? parseFloat(totalArea) : null,
+        floors:          floors    ? parseInt(floors)      : null,
+        buildingPermit:  buildingPermit || null,
+        slogan:          slogan         || null,
         stages: validStages.map((s, i) => ({
           code:           s.code || null,
           name:           s.name,
@@ -429,7 +438,10 @@ export default function NovaObraPage() {
               <label className={LabelClass}>CNO — Cadastro Nacional de Obras</label>
               <input value={cno} onChange={e => setCno(e.target.value)} placeholder="000.000.000/00" className={InputClass} />
             </div>
-            <div />
+            <div>
+              <label className={LabelClass}>Alvará de Construção</label>
+              <input value={buildingPermit} onChange={e => setBuildingPermit(e.target.value)} placeholder="N° do alvará" className={InputClass} />
+            </div>
 
             <div>
               <label className={LabelClass}>ART de Execução (número)</label>
@@ -438,6 +450,22 @@ export default function NovaObraPage() {
             <div>
               <label className={LabelClass}>ART de Projetos (número)</label>
               <input value={artProjects} onChange={e => setArtProjects(e.target.value)} placeholder="000000" className={InputClass} />
+            </div>
+
+            <div>
+              <label className={LabelClass}>Área total construída (m²)</label>
+              <div className="relative">
+                <input
+                  type="number" min={0} step={0.01}
+                  value={totalArea} onChange={e => setTotalArea(e.target.value)}
+                  placeholder="0,00" className={InputClass + ' pr-10'}
+                />
+                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-400 pointer-events-none">m²</span>
+              </div>
+            </div>
+            <div>
+              <label className={LabelClass}>Número de pavimentos</label>
+              <input type="number" min={1} step={1} value={floors} onChange={e => setFloors(e.target.value)} placeholder="Ex: 3" className={InputClass} />
             </div>
           </div>
 
@@ -465,6 +493,24 @@ export default function NovaObraPage() {
               <label className={LabelClass}>CREA / CAU</label>
               <input value={technicalCrea} onChange={e => setTechCrea(e.target.value)} placeholder="CREA-SP 000000-D" className={InputClass} />
             </div>
+          </div>
+
+          <hr className="border-gray-100" />
+          <h3 className="text-sm font-semibold text-gray-700">Slogan da obra (exibido na placa)</h3>
+
+          <div>
+            <label className={LabelClass}>
+              Slogan
+              <span className="ml-2 text-gray-400">({slogan.length}/80)</span>
+            </label>
+            <input
+              value={slogan}
+              onChange={e => setSlogan(e.target.value.slice(0, 80))}
+              placeholder="Ex: Construindo sonhos com qualidade e confiança"
+              className={InputClass}
+              maxLength={80}
+            />
+            <p className="text-xs text-gray-400 mt-1">Exibido na faixa azul da placa de obra quando preenchido.</p>
           </div>
         </div>
       )}
