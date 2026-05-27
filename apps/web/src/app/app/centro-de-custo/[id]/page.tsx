@@ -12,7 +12,7 @@ import {
 } from 'lucide-react'
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
-  PieChart, Pie, Cell,
+  PieChart, Pie, Cell, ComposedChart, Bar, Line,
 } from 'recharts'
 import { formatCurrency } from '@/lib/format'
 import { UserAvatar } from '@/components/ui/UserAvatar'
@@ -108,6 +108,17 @@ interface FinancialSummary {
   monthly: { month: string; previsto: number; realizado: number }[]
   stages: { id: string; name: string; budgetTotal: number; realizedValue: number }[]
   lastTransactions: FinTx[]
+}
+
+interface RainRecord {
+  id:               string
+  date:             string
+  morningMm:        number
+  afternoonMm:      number
+  nightMm:          number
+  totalMm:          number
+  isUnworkable:     boolean
+  unworkableReason: string | null
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -440,7 +451,7 @@ function progressBarColor(pct: number, status: string) {
 
 // ─── Abas ─────────────────────────────────────────────────────────────────────
 
-const TABS = ['Resumo', 'Apropriações', 'Compras', 'Medições', 'Documentos'] as const
+const TABS = ['Resumo', 'Apropriações', 'Pluviometria', 'Compras', 'Medições', 'Documentos'] as const
 type Tab = typeof TABS[number]
 
 // ─── Componente principal ─────────────────────────────────────────────────────
@@ -465,6 +476,9 @@ export default function ObraDetailPage() {
     unworkableDays: number
     totalRainMm: number
   } | null>(null)
+  const [rainRecords, setRainRecords] = useState<RainRecord[]>([])
+  const [rainPeriod,  setRainPeriod]  = useState<30 | 60 | 90>(60)
+  const [rainLoading, setRainLoading] = useState(false)
 
   const loadProject = useCallback(async () => {
     setLoading(true)
@@ -519,6 +533,26 @@ export default function ObraDetailPage() {
       })
       .catch(() => {/* silencioso */})
   }, [id])
+
+  // Carrega dados pluviométricos quando a aba for aberta
+  useEffect(() => {
+    if (tab !== 'Pluviometria') return
+    const token     = localStorage.getItem('token') || ''
+    const companyId = localStorage.getItem('companyId') || ''
+    if (!token || !id) return
+    setRainLoading(true)
+    const end   = new Date()
+    const start = new Date()
+    start.setDate(start.getDate() - rainPeriod)
+    const fmt = (d: Date) => d.toISOString().slice(0, 10)
+    fetch(`${API}/api/v1/diary/projects/${id}/rain?startDate=${fmt(start)}&endDate=${fmt(end)}&limit=${rainPeriod}`, {
+      headers: { Authorization: `Bearer ${token}`, 'x-company-id': companyId },
+    })
+      .then((r) => r.json())
+      .then((d) => setRainRecords(d.records ?? []))
+      .catch(() => setRainRecords([]))
+      .finally(() => setRainLoading(false))
+  }, [tab, id, rainPeriod])
 
   const handleProgressSave = async () => {
     if (!progressStage) return
@@ -809,6 +843,181 @@ export default function ObraDetailPage() {
                   <Link href={`/app/financeiro?projectId=${id}`} className="text-sm text-[#F5A623] hover:text-[#e09610] flex items-center gap-1 justify-center">
                     Ver no módulo Financeiro <ExternalLink size={12} />
                   </Link>
+                </div>
+              )}
+
+              {tab === 'Pluviometria' && (
+                <div className="space-y-5">
+                  {/* Filtro de período */}
+                  <div className="flex items-center justify-between flex-wrap gap-3">
+                    <h3 className="text-sm font-semibold text-gray-700 flex items-center gap-2">
+                      🌧 Pluviometria
+                    </h3>
+                    <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-1">
+                      {([30, 60, 90] as const).map((p) => (
+                        <button
+                          key={p}
+                          onClick={() => setRainPeriod(p)}
+                          className={`px-3 py-1 text-xs font-semibold rounded-md transition-colors ${
+                            rainPeriod === p ? 'bg-white shadow text-[#F5A623]' : 'text-gray-500 hover:text-gray-700'
+                          }`}
+                        >
+                          {p} dias
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {rainLoading ? (
+                    <div className="flex items-center justify-center py-12">
+                      <div className="h-8 w-8 rounded-full border-2 border-[#F5A623] border-t-transparent animate-spin" />
+                    </div>
+                  ) : rainRecords.length === 0 ? (
+                    <div className="text-center py-12">
+                      <p className="text-3xl mb-3">🌤</p>
+                      <p className="text-sm text-gray-400">Nenhum registro pluviométrico nos últimos {rainPeriod} dias</p>
+                      <p className="text-xs text-gray-300 mt-1">Os dados são gerados automaticamente a partir dos RDOs</p>
+                    </div>
+                  ) : (() => {
+                    // Computa totais
+                    const totalMm      = rainRecords.reduce((s, r) => s + r.totalMm, 0)
+                    const rainyDays    = rainRecords.filter((r) => r.totalMm > 0).length
+                    const unworkable   = rainRecords.filter((r) => r.isUnworkable).length
+                    const maxDay       = rainRecords.reduce((m, r) => r.totalMm > m ? r.totalMm : m, 0)
+
+                    // Prepara dados do gráfico (últimos N dias agrupados)
+                    const chartData = [...rainRecords]
+                      .sort((a, b) => a.date.localeCompare(b.date))
+                      .map((r) => ({
+                        label:       new Date(r.date).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }),
+                        total:       r.totalMm,
+                        manha:       r.morningMm,
+                        tarde:       r.afternoonMm,
+                        noite:       r.nightMm,
+                        impraticavel: r.isUnworkable ? r.totalMm || 1 : null,
+                      }))
+
+                    return (
+                      <>
+                        {/* Cards de resumo */}
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                          <div className="bg-blue-50 border border-blue-100 rounded-xl p-3 text-center">
+                            <p className="text-[10px] font-semibold text-blue-500 uppercase tracking-wide mb-1">Total acumulado</p>
+                            <p className="text-2xl font-bold text-blue-700">{totalMm.toFixed(0)}</p>
+                            <p className="text-[10px] text-blue-400 font-medium">mm</p>
+                          </div>
+                          <div className="bg-sky-50 border border-sky-100 rounded-xl p-3 text-center">
+                            <p className="text-[10px] font-semibold text-sky-500 uppercase tracking-wide mb-1">Dias com chuva</p>
+                            <p className="text-2xl font-bold text-sky-700">{rainyDays}</p>
+                            <p className="text-[10px] text-sky-400 font-medium">de {rainRecords.length} dias</p>
+                          </div>
+                          <div className="bg-red-50 border border-red-100 rounded-xl p-3 text-center">
+                            <p className="text-[10px] font-semibold text-red-500 uppercase tracking-wide mb-1">Impraticáveis</p>
+                            <p className="text-2xl font-bold text-red-700">{unworkable}</p>
+                            <p className="text-[10px] text-red-400 font-medium">dias ⛔</p>
+                          </div>
+                          <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-3 text-center">
+                            <p className="text-[10px] font-semibold text-indigo-500 uppercase tracking-wide mb-1">Maior registro</p>
+                            <p className="text-2xl font-bold text-indigo-700">{maxDay.toFixed(0)}</p>
+                            <p className="text-[10px] text-indigo-400 font-medium">mm/dia</p>
+                          </div>
+                        </div>
+
+                        {/* Gráfico */}
+                        <div className="bg-gray-50 rounded-xl border border-gray-100 p-3">
+                          <p className="text-xs font-semibold text-gray-500 mb-3">Precipitação diária (mm)</p>
+                          <ResponsiveContainer width="100%" height={220}>
+                            <ComposedChart data={chartData} margin={{ top: 5, right: 10, left: -15, bottom: 5 }}>
+                              <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                              <XAxis
+                                dataKey="label"
+                                tick={{ fontSize: 10, fill: '#9ca3af' }}
+                                tickLine={false}
+                                interval={Math.floor(chartData.length / 8)}
+                              />
+                              <YAxis
+                                tick={{ fontSize: 10, fill: '#9ca3af' }}
+                                tickLine={false}
+                                axisLine={false}
+                                unit=" mm"
+                              />
+                              <Tooltip
+                                contentStyle={{ fontSize: 11, borderRadius: 8, border: '1px solid #e5e7eb' }}
+                                formatter={(value: number, name: string) => [
+                                  `${Number(value).toFixed(1)} mm`,
+                                  name === 'total' ? 'Total' :
+                                  name === 'manha' ? 'Manhã' :
+                                  name === 'tarde' ? 'Tarde' :
+                                  name === 'noite' ? 'Noite' : name,
+                                ]}
+                              />
+                              <Bar dataKey="manha"  stackId="a" fill="#93c5fd" name="manha"  maxBarSize={20} />
+                              <Bar dataKey="tarde"  stackId="a" fill="#3b82f6" name="tarde"  maxBarSize={20} />
+                              <Bar dataKey="noite"  stackId="a" fill="#1e40af" name="noite"  maxBarSize={20} radius={[2, 2, 0, 0]} />
+                              <Line
+                                type="monotone"
+                                dataKey="impraticavel"
+                                stroke="#ef4444"
+                                strokeWidth={0}
+                                dot={(props: any) => {
+                                  if (!props.payload.impraticavel) return <g key={props.key} />
+                                  return (
+                                    <g key={props.key}>
+                                      <circle cx={props.cx} cy={props.cy} r={5} fill="#ef4444" opacity={0.9} />
+                                      <text x={props.cx} y={props.cy - 8} textAnchor="middle" fontSize={9} fill="#ef4444">⛔</text>
+                                    </g>
+                                  )
+                                }}
+                                name="Impraticável"
+                              />
+                            </ComposedChart>
+                          </ResponsiveContainer>
+                          {/* Legenda manual */}
+                          <div className="flex items-center gap-4 justify-center mt-2">
+                            <div className="flex items-center gap-1.5">
+                              <div className="flex gap-0.5">
+                                <div className="w-2.5 h-2.5 rounded-sm bg-[#93c5fd]" />
+                                <div className="w-2.5 h-2.5 rounded-sm bg-[#3b82f6]" />
+                                <div className="w-2.5 h-2.5 rounded-sm bg-[#1e40af]" />
+                              </div>
+                              <span className="text-[10px] text-gray-500">Manhã / Tarde / Noite</span>
+                            </div>
+                            <div className="flex items-center gap-1.5">
+                              <div className="w-3 h-3 rounded-full bg-red-500" />
+                              <span className="text-[10px] text-gray-500">Impraticável</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Lista de dias impraticáveis */}
+                        {unworkable > 0 && (
+                          <div>
+                            <p className="text-xs font-semibold text-red-600 mb-2">⛔ Dias impraticáveis no período</p>
+                            <div className="space-y-1.5">
+                              {rainRecords
+                                .filter((r) => r.isUnworkable)
+                                .sort((a, b) => b.date.localeCompare(a.date))
+                                .map((r) => (
+                                  <div key={r.id} className="flex items-center justify-between bg-red-50 border border-red-100 rounded-lg px-3 py-2">
+                                    <div>
+                                      <p className="text-xs font-semibold text-red-700">
+                                        {new Date(r.date).toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: '2-digit', year: '2-digit' })}
+                                      </p>
+                                      {r.unworkableReason && (
+                                        <p className="text-[10px] text-red-400 mt-0.5">{r.unworkableReason}</p>
+                                      )}
+                                    </div>
+                                    <span className="text-xs font-bold text-red-600 bg-red-100 px-2 py-0.5 rounded-full">
+                                      {r.totalMm.toFixed(0)} mm
+                                    </span>
+                                  </div>
+                                ))}
+                            </div>
+                          </div>
+                        )}
+                      </>
+                    )
+                  })()}
                 </div>
               )}
 

@@ -7,6 +7,7 @@ import { Input, Textarea }                   from '@/components/ui/Input'
 import { PageHeader }                        from '@/components/ui/PageHeader'
 import { SemAcesso }                         from '@/components/SemAcesso'
 import { usePermissions }                    from '@/hooks/usePermissions'
+import DDSThemeSelector, { getSuggestedDdsTheme, type DdsStaticTheme } from '../components/DDSThemeSelector'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
 
@@ -39,15 +40,6 @@ interface Occurrence {
   notifyManager:  boolean
 }
 
-interface DdsTheme {
-  id:       string
-  title:    string
-  content:  string
-  category: string
-  tags:     string[]
-  duration: number
-}
-
 const WEATHER_OPTIONS = [
   { value: '',         label: 'Não informado' },
   { value: 'SUNNY',    label: '☀️ Ensolarado' },
@@ -73,21 +65,6 @@ const SEV_OPTIONS = [
   { value: 'HIGH',     label: 'Alta' },
   { value: 'CRITICAL', label: 'Crítica' },
 ]
-
-const DDS_CAT_LABELS: Record<string, string> = {
-  HEIGHT_WORK:    '🏗 Altura',
-  PPE:            '🦺 EPI',
-  TOOLS:          '🔧 Ferramentas',
-  ELECTRICAL:     '⚡ Elétrica',
-  EXCAVATION:     '⛏ Escavação',
-  FIRST_AID:      '🚑 Primeiros Socorros',
-  GENERAL_SAFETY: '⚠️ Seg. Geral',
-  FIRE:           '🔥 Incêndio',
-  CHEMICAL:       '☣️ Químicos',
-  LIFTING:        '🏋 Içamento',
-  CONFINED_SPACE: '🕳 Espaço Confinado',
-  OTHER:          '📋 Outro',
-}
 
 function newOccurrence(): Occurrence {
   return { type: 'OTHER', severity: 'LOW', description: '', action: '', responsible: '', visitorName: '', visitorCompany: '', notifyManager: false }
@@ -140,13 +117,13 @@ export default function NovoRdoPage() {
   const [occurrences, setOccurrences] = useState<Occurrence[]>([])
 
   // ── Seção 6: DDS ──────────────────────────────────────────────────────────
-  const [ddsDone,     setDdsDone]     = useState(false)
-  const [ddsThemeId,  setDdsThemeId]  = useState('')
-  const [ddsTheme,    setDdsTheme]    = useState('')
-  const [ddsTime,     setDdsTime]     = useState('')
-  const [ddsThemes,   setDdsThemes]   = useState<DdsTheme[]>([])
-  const [ddsSearch,   setDdsSearch]   = useState('')
-  const [showDdsPicker, setShowDdsPicker] = useState(false)
+  const [ddsDone,           setDdsDone]           = useState(false)
+  const [ddsThemeId,        setDdsThemeId]        = useState('')
+  const [ddsTheme,          setDdsTheme]          = useState('')
+  const [ddsThemeCategory,  setDdsThemeCategory]  = useState('')
+  const [ddsTime,           setDdsTime]           = useState('')
+  const [showDdsModal,      setShowDdsModal]      = useState(true)
+  const [selectedStaticDds, setSelectedStaticDds] = useState<DdsStaticTheme | null>(null)
 
   // ── Seção 7: Observações gerais ───────────────────────────────────────────
   const [generalNotes, setGeneralNotes] = useState('')
@@ -183,15 +160,6 @@ export default function NovoRdoPage() {
       })
       .catch(() => {})
 
-    fetch(`${API}/api/v1/diary/dds`, {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        ...(companyId ? { 'x-company-id': companyId } : {}),
-      },
-    })
-      .then((r) => r.json())
-      .then((d) => setDdsThemes(d.themes ?? []))
-      .catch(() => {})
   }, [projectId, router])
 
   // ── Verifica duplicata de data ao mudar a data ────────────────────────────
@@ -255,13 +223,6 @@ export default function NovoRdoPage() {
     })
   }
 
-  function selectDds(theme: DdsTheme) {
-    setDdsThemeId(theme.id)
-    setDdsTheme(theme.title)
-    setShowDdsPicker(false)
-    setDdsDone(true)
-  }
-
   // ── Enviar ────────────────────────────────────────────────────────────────
 
   async function handleSubmit(submitForApproval: boolean) {
@@ -296,9 +257,10 @@ export default function NovoRdoPage() {
         notesPublic,
         imageUrls,
         ddsDone,
-        ddsTheme:  ddsTheme  || null,
-        ddsThemeId: ddsThemeId || null,
-        ddsTime:   ddsTime   ? `${date}T${ddsTime}:00` : null,
+        ddsTheme:         ddsTheme         || null,
+        ddsThemeId:       ddsThemeId       || null,
+        ddsThemeCategory: ddsThemeCategory || null,
+        ddsTime:          ddsTime          ? `${date}T${ddsTime}:00` : null,
         stageEntries: stageEntries
           .filter((se) => se.activities.trim() || se.currentProgress !== se.previousProgress)
           .map((se) => ({
@@ -335,11 +297,6 @@ export default function NovoRdoPage() {
   const totalRain = (parseFloat(rainMorning) || 0) + (parseFloat(rainAfternoon) || 0) + (parseFloat(rainNight) || 0)
   const suggestUnworkable = totalRain >= 10
 
-  const filteredDds = ddsThemes.filter((t) =>
-    !ddsSearch || t.title.toLowerCase().includes(ddsSearch.toLowerCase()) ||
-    (DDS_CAT_LABELS[t.category] ?? '').toLowerCase().includes(ddsSearch.toLowerCase())
-  )
-
   // ─── Step 3 — Confirmação após salvar ────────────────────────────────────
   if (step === 3 && saved) {
     return (
@@ -371,6 +328,9 @@ export default function NovoRdoPage() {
               setDdsDone(false)
               setDdsTheme('')
               setDdsThemeId('')
+              setDdsThemeCategory('')
+              setSelectedStaticDds(null)
+              setShowDdsModal(true)
             }}
             className="w-full py-3 px-4 border border-gray-200 text-gray-700 font-medium rounded-xl hover:bg-gray-50 transition-colors"
           >
@@ -653,7 +613,7 @@ export default function NovoRdoPage() {
 
         {/* ── Seção 6: DDS ──────────────────────────────────────────────── */}
         <Section number={stages.length > 0 ? 6 : 5} title="DDS — Diálogo Diário de Segurança">
-          <div className="flex flex-wrap items-center gap-4 mb-3">
+          <div className="flex flex-wrap items-center gap-4 mb-4">
             <label className="flex items-center gap-3 cursor-pointer">
               <input
                 type="checkbox"
@@ -669,79 +629,36 @@ export default function NovoRdoPage() {
                 value={ddsTime}
                 onChange={(e) => setDdsTime(e.target.value)}
                 className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-300 bg-white max-w-[140px]"
-                placeholder="Horário"
               />
             )}
           </div>
 
-          {ddsDone && (
-            <div className="space-y-3">
-              {/* Campo de tema + botão picker */}
-              <div className="flex gap-2">
-                <div className="flex-1">
-                  <Input
-                    label="Tema do DDS"
-                    placeholder="Digite ou selecione um tema..."
-                    value={ddsTheme}
-                    onChange={(e) => { setDdsTheme(e.target.value); setDdsThemeId('') }}
-                  />
-                </div>
-                {ddsThemes.length > 0 && (
-                  <div className="flex items-end pb-0">
-                    <button
-                      type="button"
-                      onClick={() => setShowDdsPicker(!showDdsPicker)}
-                      className="py-2 px-3 border border-[#F5A623] text-[#F5A623] text-xs font-semibold rounded-lg hover:bg-orange-50 transition-colors whitespace-nowrap"
-                    >
-                      📋 Escolher tema
-                    </button>
-                  </div>
-                )}
+          {/* Tema selecionado (travado) ou botão para selecionar */}
+          {selectedStaticDds ? (
+            <div className="flex items-start gap-3 p-4 bg-orange-50 border border-orange-200 rounded-xl">
+              <span className="text-2xl flex-shrink-0">{selectedStaticDds.icon}</span>
+              <div className="flex-1 min-w-0">
+                <p className="text-[10px] font-semibold text-orange-500 uppercase tracking-wider">{selectedStaticDds.categoryLabel}</p>
+                <p className="text-sm font-bold text-gray-800 mt-0.5">{selectedStaticDds.title}</p>
+                <p className="text-xs text-gray-500 mt-1 line-clamp-2">{selectedStaticDds.summary}</p>
               </div>
-
-              {/* Picker de temas DDS */}
-              {showDdsPicker && (
-                <div className="border border-gray-200 rounded-xl bg-white shadow-sm overflow-hidden">
-                  <div className="p-3 border-b border-gray-100">
-                    <input
-                      type="text"
-                      placeholder="Buscar tema..."
-                      value={ddsSearch}
-                      onChange={(e) => setDdsSearch(e.target.value)}
-                      className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-300"
-                      autoFocus
-                    />
-                  </div>
-                  <div className="max-h-64 overflow-y-auto divide-y divide-gray-100">
-                    {filteredDds.length === 0 ? (
-                      <p className="p-4 text-sm text-gray-400 text-center">Nenhum tema encontrado</p>
-                    ) : (
-                      filteredDds.map((t) => (
-                        <button
-                          key={t.id}
-                          type="button"
-                          onClick={() => selectDds(t)}
-                          className={`w-full text-left px-4 py-3 hover:bg-orange-50 transition-colors ${ddsThemeId === t.id ? 'bg-orange-50 border-l-2 border-[#F5A623]' : ''}`}
-                        >
-                          <p className="text-sm font-medium text-gray-800">{t.title}</p>
-                          <div className="flex items-center gap-2 mt-0.5">
-                            <span className="text-[10px] text-gray-400">{DDS_CAT_LABELS[t.category] ?? t.category}</span>
-                            <span className="text-[10px] text-gray-400">{t.duration} min</span>
-                          </div>
-                        </button>
-                      ))
-                    )}
-                  </div>
-                </div>
-              )}
-
-              {/* Preview do tema selecionado */}
-              {ddsThemeId && (
-                <div className="p-3 bg-blue-50 border border-blue-100 rounded-xl text-xs text-blue-700">
-                  ✓ Tema selecionado da biblioteca DDS
-                </div>
-              )}
+              <button
+                type="button"
+                onClick={() => setShowDdsModal(true)}
+                className="text-xs font-semibold px-3 py-1.5 border border-orange-300 text-orange-600 rounded-lg hover:bg-orange-100 transition-colors flex-shrink-0"
+              >
+                Trocar tema
+              </button>
             </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setShowDdsModal(true)}
+              className="w-full py-3 px-4 border-2 border-dashed border-orange-200 text-orange-500 rounded-xl hover:bg-orange-50 transition-colors text-sm font-medium flex items-center justify-center gap-2"
+            >
+              <span>📋</span>
+              <span>Selecionar tema do DDS</span>
+            </button>
           )}
         </Section>
 
@@ -804,6 +721,22 @@ export default function NovoRdoPage() {
           </Button>
         </div>
       </form>
+
+      {/* ── Modal seletor de tema DDS ──────────────────────────────────── */}
+      {showDdsModal && (
+        <DDSThemeSelector
+          suggestedId={getSuggestedDdsTheme().id}
+          onSelect={(theme) => {
+            setSelectedStaticDds(theme)
+            setDdsTheme(theme.title)
+            setDdsThemeId(theme.id)
+            setDdsThemeCategory(theme.category)
+            setDdsDone(true)
+            setShowDdsModal(false)
+          }}
+          onClose={() => setShowDdsModal(false)}
+        />
+      )}
     </div>
   )
 }

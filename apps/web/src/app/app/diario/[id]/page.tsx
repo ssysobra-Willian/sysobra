@@ -248,7 +248,7 @@ export default function DiarioProjectPage() {
         <div className="mb-6">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-3">
             <MetricCard icon="📋" label="Relatórios" value={String(total)} />
-            <MetricCard icon="📈" label="Progresso"  value={`${project.progressPercent.toFixed(0)}%`} bar={project.progressPercent} />
+            <MetricCard icon="📈" label="Progresso"  value={`${Number(project.progressPercent).toFixed(0)}%`} bar={Number(project.progressPercent)} />
             <MetricCard icon="🌧" label="Chuva total" value={rainSummary ? `${rainSummary.totalMm.toFixed(0)} mm` : '—'} />
             <MetricCard icon="⛔" label="Dias imp."   value={rainSummary ? String(rainSummary.unworkableDays) : '—'} />
           </div>
@@ -417,13 +417,13 @@ export default function DiarioProjectPage() {
               <div key={stage.id} className="px-5 py-4">
                 <div className="flex items-center justify-between mb-2">
                   <p className="text-sm font-medium text-gray-800">{stage.name}</p>
-                  <span className="text-sm font-bold text-gray-700">{stage.progressPercent.toFixed(0)}%</span>
+                  <span className="text-sm font-bold text-gray-700">{Number(stage.progressPercent).toFixed(0)}%</span>
                 </div>
                 <div className="w-full h-2.5 bg-gray-100 rounded-full overflow-hidden">
                   <div className="h-full rounded-full transition-all"
                     style={{
-                      width: `${Math.min(100, stage.progressPercent)}%`,
-                      background: stage.progressPercent >= 100 ? '#16a34a' : '#F5A623',
+                      width: `${Math.min(100, Number(stage.progressPercent))}%`,
+                      background: Number(stage.progressPercent) >= 100 ? '#16a34a' : '#F5A623',
                     }} />
                 </div>
               </div>
