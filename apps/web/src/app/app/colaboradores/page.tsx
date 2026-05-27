@@ -174,9 +174,13 @@ export default function ColaboradoresPage() {
   // ── Carregar obras para filtro ────────────────────────────────────────────
   const loadProjects = useCallback(async () => {
     try {
-      const res  = await fetch(`${API}/api/v1/projects?status=ACTIVE&limit=100`, { headers: getHeaders() })
+      const res  = await fetch(`${API}/api/v1/projects?limit=200&status=ALL`, { headers: getHeaders() })
       const data = await res.json()
-      setProjects((data.projects ?? []).map((p: any) => ({ id: p.id, name: p.name, code: p.code })))
+      const all  = (data.projects ?? []) as any[]
+      setProjects(all
+        .filter((p: any) => !['COMPLETED','CANCELLED'].includes(p.status))
+        .map((p: any) => ({ id: p.id, name: p.name, code: p.code }))
+      )
     } catch { /* silent */ }
   }, [])
 
@@ -815,14 +819,508 @@ function TrainingsTab({ projects }: { projects: Project[] }) {
 
 // ─── Subcomponente: aba Férias ────────────────────────────────────────────────
 
+type VacTab = 'emFerias' | 'agendadas' | 'vencendo30' | 'vencendo60' | 'vencendo90' | 'vencidas' | 'todas'
+
+interface VacOverview {
+  emFerias:  any[]
+  agendadas: any[]
+  vencendo30: any[]
+  vencendo60: any[]
+  vencendo90: any[]
+  vencidas:   any[]
+  todas:      any[]
+  totais: {
+    emFerias: number; agendadas: number
+    vencendo30: number; vencendo60: number; vencendo90: number; vencidas: number
+  }
+}
+
 function VacationsTab({ projects }: { projects: Project[] }) {
-  return (
-    <div className="p-4">
-      <div className="text-center py-10 space-y-2">
-        <CalendarDays size={28} className="text-gray-200 mx-auto" />
-        <p className="text-sm text-gray-500">Visualize as férias de cada colaborador no perfil individual</p>
-        <p className="text-xs text-gray-400">Acesse um colaborador e vá para a aba "Férias"</p>
+  const [data,    setData]    = useState<VacOverview | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [vacTab,  setVacTab]  = useState<VacTab>('emFerias')
+  const [search,  setSearch]  = useState('')
+  const [filterStatus, setFilterStatus] = useState('ALL')
+  const [showScheduleModal, setShowScheduleModal] = useState(false)
+  const [schedEmpId,   setSchedEmpId]   = useState('')
+  const [schedEmpName, setSchedEmpName] = useState('')
+  const [schedStart,   setSchedStart]   = useState('')
+  const [schedEnd,     setSchedEnd]     = useState('')
+  const [schedDays,    setSchedDays]    = useState('')
+  const [schedObs,     setSchedObs]     = useState('')
+  const [schedLoading, setSchedLoading] = useState(false)
+  const [schedError,   setSchedError]   = useState('')
+  const [allEmployees, setAllEmployees] = useState<{id: string; name: string}[]>([])
+
+  const loadData = useCallback(async () => {
+    setLoading(true)
+    try {
+      const res  = await fetch(`${API}/api/v1/employees/vacations-overview`, { headers: getHeaders() })
+      const json = await res.json()
+      if (res.ok) setData(json)
+    } catch { /* silent */ } finally { setLoading(false) }
+  }, [])
+
+  useEffect(() => { loadData() }, [loadData])
+
+  // Carregar colaboradores para o modal de agendamento
+  useEffect(() => {
+    fetch(`${API}/api/v1/employees?status=ACTIVE&limit=200`, { headers: getHeaders() })
+      .then(r => r.json())
+      .then(d => setAllEmployees((d.employees ?? []).map((e: any) => ({ id: e.id, name: e.name }))))
+      .catch(() => {})
+  }, [])
+
+  const fmt = (d: string | null | undefined) => d ? new Date(d).toLocaleDateString('pt-BR') : '—'
+  const daysLeft = (d: string) => {
+    const ms = new Date(d).getTime() - Date.now()
+    return Math.ceil(ms / 86_400_000)
+  }
+
+  // Calcula daysCount a partir de start/end
+  const calcDays = (s: string, e: string) => {
+    if (!s || !e) return 0
+    return Math.max(1, Math.round((new Date(e).getTime() - new Date(s).getTime()) / 86_400_000) + 1)
+  }
+
+  async function handleSchedule() {
+    if (!schedEmpId || !schedStart || !schedEnd) {
+      setSchedError('Preencha colaborador, data de início e data de fim')
+      return
+    }
+    const days = parseInt(schedDays) || calcDays(schedStart, schedEnd)
+    setSchedLoading(true); setSchedError('')
+    try {
+      const res = await fetch(`${API}/api/v1/employees/${schedEmpId}/vacations`, {
+        method: 'POST',
+        headers: { ...getHeaders(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ startDate: schedStart, endDate: schedEnd, days, observations: schedObs || undefined }),
+      })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error || 'Erro ao agendar')
+      setShowScheduleModal(false)
+      setSchedEmpId(''); setSchedEmpName(''); setSchedStart(''); setSchedEnd(''); setSchedDays(''); setSchedObs('')
+      loadData()
+    } catch (e: any) {
+      setSchedError(e.message)
+    } finally {
+      setSchedLoading(false)
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-16">
+        <Loader2 size={24} className="animate-spin text-[#F5A623]" />
       </div>
+    )
+  }
+
+  if (!data) return <div className="p-6 text-sm text-gray-400">Erro ao carregar dados de férias.</div>
+
+  const { totais } = data
+
+  // Tabs configuração
+  const vacTabs: { id: VacTab; label: string; count: number; color?: string }[] = [
+    { id: 'emFerias',   label: 'Em férias agora',     count: totais.emFerias,   color: 'blue'   },
+    { id: 'agendadas',  label: 'Agendadas',            count: totais.agendadas,  color: 'green'  },
+    { id: 'vencendo30', label: 'Vencendo em 30 dias',  count: totais.vencendo30, color: totais.vencendo30 > 0 ? 'amber' : 'gray' },
+    { id: 'vencendo60', label: 'Vencendo em 60 dias',  count: totais.vencendo60, color: 'gray'   },
+    { id: 'vencendo90', label: 'Vencendo em 90 dias',  count: totais.vencendo90, color: 'gray'   },
+    { id: 'vencidas',   label: 'Vencidas',             count: totais.vencidas,   color: totais.vencidas > 0 ? 'red' : 'gray' },
+    { id: 'todas',      label: 'Todas',                count: data.todas.length, color: 'gray'   },
+  ]
+
+  const tabColor: Record<string, string> = {
+    blue:  'bg-blue-100 text-blue-700',
+    green: 'bg-green-100 text-green-700',
+    amber: 'bg-amber-100 text-amber-700',
+    red:   'bg-red-100 text-red-600',
+    gray:  'bg-gray-100 text-gray-500',
+  }
+
+  // Conteúdo de cada tab
+  function renderVacationCard(v: any) {
+    const emp = v.employee ?? v
+    const pid = emp?.id
+    return (
+      <div key={v.id ?? pid} className="flex items-center gap-3 p-3 bg-white border border-gray-100 rounded-xl hover:border-orange-200 transition-all">
+        <div className="w-10 h-10 rounded-full overflow-hidden bg-gray-100 flex-shrink-0 flex items-center justify-center">
+          {emp?.photo
+            ? <img src={`${API}${emp.photo.startsWith('/') ? '' : '/'}${emp.photo}`} alt={emp.name} className="w-full h-full object-cover" />
+            : <span className="text-xs font-bold text-gray-500">{emp?.name?.[0] ?? '?'}</span>
+          }
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <p className="text-sm font-semibold text-gray-800 truncate">{emp?.name}</p>
+            <span className="text-[10px] text-gray-400">{emp?.code}</span>
+          </div>
+          <p className="text-xs text-gray-400 truncate">{emp?.role ?? 'Sem função'}</p>
+          {v.startDate && (
+            <p className="text-xs text-blue-600 mt-0.5">
+              🏖️ {fmt(v.startDate)} → {fmt(v.endDate)}
+              {v.days ? ` (${v.days} dias)` : ''}
+            </p>
+          )}
+          {v.endDate && vacTab === 'emFerias' && (
+            <p className="text-xs text-gray-400">Retorno: {fmt(new Date(new Date(v.endDate).getTime() + 86_400_000).toISOString())}</p>
+          )}
+          {vacTab === 'agendadas' && v.startDate && (
+            <p className="text-xs text-gray-400">Começa em {daysLeft(v.startDate)} dias</p>
+          )}
+        </div>
+        <Link href={`/app/colaboradores/${pid}`}
+          className="text-xs text-[#F5A623] hover:underline flex-shrink-0 font-medium">
+          Ver perfil
+        </Link>
+      </div>
+    )
+  }
+
+  function renderDeadlineCard(emp: any, urgent = false) {
+    const dl = daysLeft(emp.deadline)
+    return (
+      <div key={emp.id} className={`flex items-center gap-3 p-3 rounded-xl border transition-all ${urgent ? 'bg-red-50 border-red-200' : 'bg-amber-50 border-amber-200'}`}>
+        <div className="w-10 h-10 rounded-full overflow-hidden bg-gray-100 flex-shrink-0 flex items-center justify-center">
+          {emp.photo
+            ? <img src={`${API}${emp.photo.startsWith('/') ? '' : '/'}${emp.photo}`} alt={emp.name} className="w-full h-full object-cover" />
+            : <span className="text-xs font-bold text-gray-500">{emp.name?.[0] ?? '?'}</span>
+          }
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <p className={`text-sm font-semibold truncate ${urgent ? 'text-red-800' : 'text-gray-800'}`}>{emp.name}</p>
+            <span className="text-[10px] text-gray-400">{emp.code}</span>
+          </div>
+          <p className="text-xs text-gray-400 truncate">{emp.role ?? 'Sem função'}{emp.project?.name ? ` · ${emp.project.name}` : ''}</p>
+          <p className={`text-xs mt-0.5 font-medium ${urgent ? 'text-red-700' : 'text-amber-700'}`}>
+            {urgent
+              ? `⚠️ FÉRIAS VENCIDAS há ${Math.abs(dl)} dias — venceu em ${fmt(emp.deadline)}`
+              : `⏰ Prazo vence em ${dl} dias (${fmt(emp.deadline)})`
+            }
+          </p>
+          <p className="text-xs text-gray-400">Admissão: {fmt(emp.admissionDate)}</p>
+        </div>
+        <button
+          onClick={() => { setSchedEmpId(emp.id); setSchedEmpName(emp.name); setShowScheduleModal(true) }}
+          className={`text-xs px-2 py-1 rounded-lg flex-shrink-0 font-medium ${urgent ? 'bg-red-600 text-white hover:bg-red-700' : 'bg-amber-500 text-white hover:bg-amber-600'}`}>
+          Agendar
+        </button>
+      </div>
+    )
+  }
+
+  // Tab "Todas" com filtros
+  const todasFiltered = data.todas.filter((v: any) => {
+    const name = v.employee?.name ?? ''
+    if (search && !name.toLowerCase().includes(search.toLowerCase())) return false
+    if (filterStatus !== 'ALL' && v.status !== filterStatus) return false
+    return true
+  })
+
+  const statusLabel: Record<string, string> = { SCHEDULED: 'Agendada', ACTIVE: 'Ativa', COMPLETED: 'Concluída', CANCELLED: 'Cancelada' }
+  const statusColor: Record<string, string> = {
+    SCHEDULED: 'bg-blue-100 text-blue-700', ACTIVE: 'bg-green-100 text-green-700',
+    COMPLETED: 'bg-gray-100 text-gray-600', CANCELLED: 'bg-red-100 text-red-500',
+  }
+
+  return (
+    <div className="p-4 space-y-5">
+      {/* Cards de alerta */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        {[
+          { label: 'Em férias agora',      value: totais.emFerias,   icon: '🏖️', bg: 'bg-blue-50',   border: 'border-blue-100',   text: 'text-blue-700',   sub: 'em gozo' },
+          { label: 'Férias agendadas',     value: totais.agendadas,  icon: '📅', bg: 'bg-green-50',  border: 'border-green-100',  text: 'text-green-700',  sub: 'próximas programadas' },
+          { label: 'Vencendo em 30 dias',  value: totais.vencendo30, icon: '⏰', bg: totais.vencendo30 > 0 ? 'bg-amber-50' : 'bg-gray-50',   border: totais.vencendo30 > 0 ? 'border-amber-100' : 'border-gray-100',   text: totais.vencendo30 > 0 ? 'text-amber-700' : 'text-gray-500', sub: 'prazo se aproximando' },
+          { label: 'Férias vencidas',      value: totais.vencidas,   icon: '⚠️', bg: totais.vencidas > 0 ? 'bg-red-50' : 'bg-gray-50',     border: totais.vencidas > 0 ? 'border-red-100' : 'border-gray-100',     text: totais.vencidas > 0 ? 'text-red-700' : 'text-gray-500',   sub: 'ação necessária' },
+        ].map(c => (
+          <div key={c.label} className={`${c.bg} border ${c.border} rounded-2xl px-4 py-3`}>
+            <div className="flex items-start justify-between mb-1">
+              <span className="text-lg">{c.icon}</span>
+              <p className={`text-xl font-bold ${c.text}`}>{c.value}</p>
+            </div>
+            <p className="text-[11px] font-semibold text-gray-600 leading-tight">{c.label}</p>
+            <p className="text-[10px] text-gray-400 mt-0.5">{c.sub}</p>
+          </div>
+        ))}
+      </div>
+
+      {/* Header com botão agendar */}
+      <div className="flex items-center justify-between">
+        <h3 className="text-sm font-semibold text-gray-700">Gestão de férias</h3>
+        <button
+          onClick={() => { setSchedEmpId(''); setSchedEmpName(''); setShowScheduleModal(true) }}
+          className="flex items-center gap-1.5 text-sm bg-[#F5A623] hover:bg-[#d4891a] text-white font-semibold px-3 py-1.5 rounded-xl transition-colors"
+        >
+          <Plus size={14} /> Agendar férias
+        </button>
+      </div>
+
+      {/* Tabs */}
+      <div className="flex gap-2 flex-wrap">
+        {vacTabs.map(t => (
+          <button
+            key={t.id}
+            onClick={() => setVacTab(t.id)}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+              vacTab === t.id
+                ? 'bg-gray-800 text-white'
+                : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50'
+            }`}
+          >
+            {t.label}
+            {t.count > 0 && (
+              <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-bold ${
+                vacTab === t.id ? 'bg-white/20 text-white' : tabColor[t.color ?? 'gray']
+              }`}>
+                {t.count}
+              </span>
+            )}
+          </button>
+        ))}
+      </div>
+
+      {/* Conteúdo das tabs */}
+      <div className="space-y-2">
+        {vacTab === 'emFerias' && (
+          data.emFerias.length === 0
+            ? <EmptyState label="Nenhum colaborador em férias agora" />
+            : data.emFerias.map(renderVacationCard)
+        )}
+
+        {vacTab === 'agendadas' && (
+          data.agendadas.length === 0
+            ? <EmptyState label="Nenhuma férias agendada" />
+            : data.agendadas.map(renderVacationCard)
+        )}
+
+        {vacTab === 'vencendo30' && (
+          data.vencendo30.length === 0
+            ? <EmptyState label="Nenhum colaborador com férias vencendo em 30 dias" icon="✅" />
+            : data.vencendo30.map(emp => renderDeadlineCard(emp, false))
+        )}
+
+        {vacTab === 'vencendo60' && (
+          data.vencendo60.length === 0
+            ? <EmptyState label="Nenhum colaborador com férias vencendo em 60 dias" icon="✅" />
+            : data.vencendo60.map(emp => renderDeadlineCard(emp, false))
+        )}
+
+        {vacTab === 'vencendo90' && (
+          data.vencendo90.length === 0
+            ? <EmptyState label="Nenhum colaborador com férias vencendo em 90 dias" icon="✅" />
+            : data.vencendo90.map(emp => renderDeadlineCard(emp, false))
+        )}
+
+        {vacTab === 'vencidas' && (
+          data.vencidas.length === 0
+            ? <EmptyState label="Nenhum colaborador com férias vencidas — tudo em dia! ✅" />
+            : data.vencidas.map(emp => renderDeadlineCard(emp, true))
+        )}
+
+        {vacTab === 'todas' && (
+          <div className="space-y-3">
+            {/* Filtros da tab Todas */}
+            <div className="flex gap-2 flex-wrap">
+              <div className="relative">
+                <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
+                <input
+                  type="text"
+                  value={search}
+                  onChange={e => setSearch(e.target.value)}
+                  placeholder="Buscar colaborador..."
+                  className="border border-gray-200 rounded-lg pl-7 pr-3 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-orange-300 w-48"
+                />
+              </div>
+              <select
+                value={filterStatus}
+                onChange={e => setFilterStatus(e.target.value)}
+                className="border border-gray-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-orange-300 bg-white"
+              >
+                <option value="ALL">Todos os status</option>
+                <option value="SCHEDULED">Agendada</option>
+                <option value="ACTIVE">Ativa</option>
+                <option value="COMPLETED">Concluída</option>
+                <option value="CANCELLED">Cancelada</option>
+              </select>
+            </div>
+            {/* Tabela */}
+            <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-50 text-[10px] text-gray-500 uppercase tracking-wide">
+                    <tr>
+                      <th className="px-4 py-2.5 text-left font-semibold">Colaborador</th>
+                      <th className="px-3 py-2.5 text-left font-semibold">Função</th>
+                      <th className="px-3 py-2.5 text-left font-semibold">Início</th>
+                      <th className="px-3 py-2.5 text-left font-semibold">Fim</th>
+                      <th className="px-3 py-2.5 text-center font-semibold">Dias</th>
+                      <th className="px-3 py-2.5 text-center font-semibold">Status</th>
+                      <th className="px-3 py-2.5 text-center font-semibold">Ações</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-50">
+                    {todasFiltered.length === 0 ? (
+                      <tr><td colSpan={7} className="text-center py-6 text-sm text-gray-400">Nenhuma férias encontrada</td></tr>
+                    ) : todasFiltered.map((v: any) => (
+                      <tr key={v.id} className="hover:bg-gray-50 transition-colors">
+                        <td className="px-4 py-2.5">
+                          <p className="font-medium text-gray-800 text-sm">{v.employee?.name ?? '—'}</p>
+                          <p className="text-xs text-gray-400">{v.employee?.code}</p>
+                        </td>
+                        <td className="px-3 py-2.5 text-xs text-gray-500">{v.employee?.role ?? '—'}</td>
+                        <td className="px-3 py-2.5 text-xs text-gray-600">{fmt(v.startDate)}</td>
+                        <td className="px-3 py-2.5 text-xs text-gray-600">{fmt(v.endDate)}</td>
+                        <td className="px-3 py-2.5 text-center text-xs font-semibold text-gray-700">{v.days ?? '—'}</td>
+                        <td className="px-3 py-2.5 text-center">
+                          <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${statusColor[v.status] ?? 'bg-gray-100 text-gray-500'}`}>
+                            {statusLabel[v.status] ?? v.status}
+                          </span>
+                        </td>
+                        <td className="px-3 py-2.5 text-center">
+                          <Link href={`/app/colaboradores/${v.employee?.id}`}
+                            className="text-xs text-[#F5A623] hover:underline">
+                            Ver
+                          </Link>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Modal: Agendar férias */}
+      {showScheduleModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setShowScheduleModal(false)} />
+          <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md p-5 space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-base font-bold text-gray-900">Agendar férias</h3>
+              <button onClick={() => setShowScheduleModal(false)} className="p-1.5 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100">
+                <X size={16} />
+              </button>
+            </div>
+
+            {schedError && (
+              <div className="flex items-center gap-2 bg-red-50 border border-red-200 rounded-xl px-3 py-2">
+                <AlertTriangle size={13} className="text-red-500 flex-shrink-0" />
+                <p className="text-xs text-red-700">{schedError}</p>
+              </div>
+            )}
+
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
+                  Colaborador <span className="text-red-400">*</span>
+                </label>
+                <select
+                  value={schedEmpId}
+                  onChange={e => {
+                    const emp = allEmployees.find(x => x.id === e.target.value)
+                    setSchedEmpId(e.target.value)
+                    setSchedEmpName(emp?.name ?? '')
+                  }}
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-300 bg-white"
+                >
+                  <option value="">Selecione o colaborador...</option>
+                  {allEmployees.map(e => (
+                    <option key={e.id} value={e.id}>{e.name}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
+                    Data início <span className="text-red-400">*</span>
+                  </label>
+                  <input
+                    type="date"
+                    value={schedStart}
+                    onChange={e => {
+                      setSchedStart(e.target.value)
+                      if (e.target.value && schedEnd) setSchedDays(String(calcDays(e.target.value, schedEnd)))
+                    }}
+                    className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-300"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
+                    Data fim <span className="text-red-400">*</span>
+                  </label>
+                  <input
+                    type="date"
+                    value={schedEnd}
+                    onChange={e => {
+                      setSchedEnd(e.target.value)
+                      if (schedStart && e.target.value) setSchedDays(String(calcDays(schedStart, e.target.value)))
+                    }}
+                    className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-300"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
+                  Dias de férias <span className="text-gray-400 font-normal normal-case">(calculado automaticamente)</span>
+                </label>
+                <input
+                  type="number"
+                  value={schedDays}
+                  onChange={e => setSchedDays(e.target.value)}
+                  placeholder="Ex: 30"
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-300"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
+                  Observações <span className="text-gray-400 font-normal normal-case">(opcional)</span>
+                </label>
+                <textarea
+                  value={schedObs}
+                  onChange={e => setSchedObs(e.target.value)}
+                  rows={2}
+                  placeholder="Ex: Férias combinadas com RH..."
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-300 resize-none"
+                />
+              </div>
+            </div>
+
+            <div className="flex gap-3 pt-1">
+              <button
+                onClick={() => setShowScheduleModal(false)}
+                disabled={schedLoading}
+                className="flex-1 border border-gray-200 text-gray-600 text-sm font-medium py-2.5 rounded-xl hover:bg-gray-50 transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleSchedule}
+                disabled={schedLoading}
+                className="flex-1 bg-[#F5A623] hover:bg-[#d4891a] text-white text-sm font-semibold py-2.5 rounded-xl transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {schedLoading ? <Loader2 size={14} className="animate-spin" /> : <CalendarDays size={14} />}
+                Agendar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function EmptyState({ label, icon = '📭' }: { label: string; icon?: string }) {
+  return (
+    <div className="text-center py-8 bg-gray-50 rounded-2xl border border-dashed border-gray-200">
+      <span className="text-3xl block mb-2">{icon}</span>
+      <p className="text-sm text-gray-400">{label}</p>
     </div>
   )
 }

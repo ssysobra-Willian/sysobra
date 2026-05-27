@@ -1003,6 +1003,150 @@ export async function employeeRoutes(app: FastifyInstance) {
   })
 
   // ══════════════════════════════════════════════════════════════════════════
+  // VISÃO GERAL DE FÉRIAS
+  // ══════════════════════════════════════════════════════════════════════════
+
+  /**
+   * GET /api/v1/employees/vacations-overview
+   * Retorna: emFerias, agendadas, vencendo30/60/90, vencidas, todas, totais.
+   */
+  app.get('/vacations-overview', async (request, reply) => {
+    const req       = request as RequestWithMember
+    const companyId = req.companyId!
+    const hoje = new Date()
+
+    // Helper: calcula prazo de vencimento das férias
+    function calcDeadline(admissionDate: Date, lastVacEnd?: Date): Date {
+      const base   = lastVacEnd ?? admissionDate
+      const months = lastVacEnd ? 12 : 24   // CLT: 1º período = adm+24m; demais = última+12m
+      const d = new Date(base)
+      d.setMonth(d.getMonth() + months)
+      return d
+    }
+
+    const [emFeriasRaw, agendadasRaw, allActive, todasRaw] = await Promise.all([
+      // Em férias agora: startDate <= hoje <= endDate
+      p.employeeVacation.findMany({
+        where: {
+          companyId,
+          isActive: true,
+          startDate: { lte: hoje },
+          endDate:   { gte: hoje },
+        },
+        include: {
+          employee: {
+            select: {
+              id: true, name: true, code: true, role: true, photo: true,
+              project: { select: { name: true } },
+            },
+          },
+        },
+        orderBy: { endDate: 'asc' },
+      }),
+
+      // Agendadas (futuras)
+      p.employeeVacation.findMany({
+        where: {
+          companyId,
+          isActive:  true,
+          status:    'SCHEDULED',
+          startDate: { gt: hoje },
+        },
+        include: {
+          employee: {
+            select: { id: true, name: true, code: true, role: true, photo: true },
+          },
+        },
+        orderBy: { startDate: 'asc' },
+      }),
+
+      // Colaboradores ativos para cálculo de vencimento
+      p.employee.findMany({
+        where: {
+          companyId,
+          isActive: true,
+          status:   { in: ['ACTIVE', 'AWAY'] },
+          admissionDate: { not: null },
+        },
+        select: {
+          id: true, name: true, code: true, role: true, photo: true,
+          admissionDate: true,
+          project: { select: { name: true } },
+          vacations: {
+            where:   { isActive: true, status: 'COMPLETED' },
+            orderBy: { endDate: 'desc' },
+            take: 1,
+            select: { endDate: true },
+          },
+        },
+      }),
+
+      // Todas as férias (histórico)
+      p.employeeVacation.findMany({
+        where:   { companyId, isActive: true },
+        include: {
+          employee: {
+            select: { id: true, name: true, code: true, role: true, photo: true },
+          },
+        },
+        orderBy: { startDate: 'desc' },
+        take: 300,
+      }),
+    ])
+
+    // Classificar colaboradores por vencimento de férias
+    const emFeriasIds = new Set(emFeriasRaw.map((v: any) => v.employee?.id).filter(Boolean))
+    const agendadasIds = new Set(agendadasRaw.map((v: any) => v.employee?.id).filter(Boolean))
+
+    const vencendo30: any[] = []
+    const vencendo60: any[] = []
+    const vencendo90: any[] = []
+    const vencidas:   any[] = []
+
+    for (const emp of allActive) {
+      // Pular quem está em férias agora ou tem agendamento futuro
+      if (emFeriasIds.has(emp.id) || agendadasIds.has(emp.id)) continue
+
+      const lastVacEnd   = emp.vacations?.[0]?.endDate ? new Date(emp.vacations[0].endDate) : undefined
+      const deadline     = calcDeadline(new Date(emp.admissionDate), lastVacEnd)
+      const daysToDeadline = Math.ceil((deadline.getTime() - hoje.getTime()) / 86_400_000)
+
+      const entry = {
+        ...emp,
+        deadline:       deadline.toISOString(),
+        daysToDeadline,
+        admissionDate:  emp.admissionDate instanceof Date ? emp.admissionDate.toISOString() : emp.admissionDate,
+      }
+
+      if      (daysToDeadline < 0)  vencidas.push(entry)
+      else if (daysToDeadline <= 30) vencendo30.push(entry)
+      else if (daysToDeadline <= 60) vencendo60.push(entry)
+      else if (daysToDeadline <= 90) vencendo90.push(entry)
+    }
+
+    // Ordenar vencidas pelo mais atrasado primeiro
+    vencidas.sort((a: any, b: any) => a.daysToDeadline - b.daysToDeadline)
+
+    return reply.send({
+      emFerias:  emFeriasRaw,
+      agendadas: agendadasRaw,
+      vencendo30,
+      vencendo60,
+      vencendo90,
+      vencidas,
+      todas: todasRaw,
+      totais: {
+        emFerias:   emFeriasRaw.length,
+        agendadas:  agendadasRaw.length,
+        vencendo30: vencendo30.length,
+        vencendo60: vencendo60.length,
+        vencendo90: vencendo90.length,
+        vencidas:   vencidas.length,
+      },
+    })
+  })
+
+  // ══════════════════════════════════════════════════════════════════════════
   // FOLHA DE PAGAMENTO
   // ══════════════════════════════════════════════════════════════════════════
 

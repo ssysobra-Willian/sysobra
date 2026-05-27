@@ -121,11 +121,13 @@ export function EmployeeFormModal({ isOpen, onClose, onSuccess, editId, projects
     if (!isOpen) return
     const token     = localStorage.getItem('token')     ?? ''
     const companyId = localStorage.getItem('companyId') ?? ''
-    fetch(`${API}/api/v1/projects?status=ACTIVE&limit=200`, {
+    fetch(`${API}/api/v1/projects?limit=200&status=ALL`, {
       headers: { Authorization: `Bearer ${token}`, 'x-company-id': companyId },
     }).then(r => r.json()).then(d => {
       const list = (d.projects ?? d) as any[]
-      setProjects(list.map(p => ({ id: p.id, name: p.name, code: p.code ?? null })))
+      // Filtrar client-side: excluir apenas obras finalizadas/canceladas
+      const active = list.filter((p: any) => !['COMPLETED','CANCELLED'].includes(p.status))
+      setProjects(active.map((p: any) => ({ id: p.id, name: p.name, code: p.code ?? null })))
     }).catch(() => {})
   }, [isOpen])
 
