@@ -87,7 +87,12 @@
       "Bash(New-Item -ItemType Directory -Force \"C:\\\\projetos\\\\sysobra\\\\apps\\\\web\\\\src\\\\app\\\\app\\\\dashboard\\\\atividades\")",
       "PowerShell(cd C:\\\\projetos\\\\sysobra; $env:DATABASE_URL = \\(Get-Content apps\\\\api\\\\.env | Select-String \"DATABASE_URL\"\\).ToString\\(\\).Split\\(\"=\",2\\)[1].Trim\\('\"'\\); npx prisma db push --accept-data-loss --schema packages/database/prisma/schema.prisma 2>&1 | Select-Object -Last 10)",
       "Bash(export DATABASE_URL=\"postgresql://sysobra:sysobra123@127.0.0.1:5432/sysobra\")",
-      "Bash(cat)"
+      "Bash(cat)",
+      "Bash(set DATABASE_URL=postgresql://sysobra:sysobra123@127.0.0.1:5432/sysobra)",
+      "Bash(DATABASE_URL=postgresql://sysobra:sysobra123@127.0.0.1:5432/sysobra npx prisma validate --schema=../../packages/database/prisma/schema.prisma)",
+      "Bash(DATABASE_URL=postgresql://sysobra:sysobra123@127.0.0.1:5432/sysobra npx prisma migrate dev --schema=../../packages/database/prisma/schema.prisma --name \"deposito_module\")",
+      "Bash(DATABASE_URL=postgresql://sysobra:sysobra123@127.0.0.1:5432/sysobra npx prisma db push --schema=../../packages/database/prisma/schema.prisma)",
+      "PowerShell($env:DATABASE_URL = \"postgresql://sysobra:sysobra123@127.0.0.1:5432/sysobra\"; cd C:\\\\projetos\\\\sysobra; npx prisma db push --schema=packages/database/prisma/schema.prisma 2>&1)"
     ]
   }
 }

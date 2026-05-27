@@ -96,6 +96,9 @@ enum StockMovementType {
   OUT
   ADJUSTMENT
   TRANSFER
+  RETURN
+  LOSS
+  EPI_DELIVERY
 }
 
 enum ToolMovementType {
@@ -309,6 +312,10 @@ model User {
   epiDeliveries  EpiDelivery[]   @relation("EpiResponsible")
   toolMovements  ToolMovement[]  @relation("ToolResponsible")
   diaryEntries    DiaryEntry[]    @relation("DiaryAuthor")
+  stockMovementsResponsible StockMovement[] @relation("StockMovementResponsible")
+  toolCustodiesResponsible  ToolCustody[]   @relation("ToolCustodyResponsible")
+  stockEpiDeliveriesResponsible StockEpiDelivery[] @relation("StockEpiResponsible")
+  stockBasketsResponsible   StockBasket[]   @relation("BasketResponsible")
   diaryApprovals  DiaryEntry[]    @relation("DiaryApprover")
   diaryRejections DiaryEntry[]    @relation("DiaryRejector")
   diaryComments   DiaryComment[]
@@ -386,6 +393,12 @@ model Company {
   recurringTransactions RecurringTransaction[]
   financialAuditLogs    FinancialAuditLog[]
   payrollDrafts         PayrollDraft[]
+  stockMovements        StockMovement[]
+  toolCustodies         ToolCustody[]
+  projectCostEntries    ProjectCostEntry[]
+  stockEpiDeliveries    StockEpiDelivery[]
+  supplierLots          SupplierLot[]
+  stockBaskets          StockBasket[]
 
   @@map("companies")
 }
@@ -524,6 +537,11 @@ model Project {
   financialTransactions FinancialTransaction[]
   employees             Employee[]
   employeeHistory       EmployeeProjectHistory[]
+  currentStockItems     StockItem[]             @relation("StockCurrentProject")
+  toolCustodies         ToolCustody[]
+  projectCostEntries    ProjectCostEntry[]
+  stockEpiDeliveries    StockEpiDelivery[]
+  stockBaskets          StockBasket[]
 
   @@map("projects")
 }
@@ -640,6 +658,7 @@ model Supplier {
   purchaseQuotations    PurchaseQuotation[]
   financialTransactions FinancialTransaction[]
   recurringTransactions RecurringTransaction[]
+  supplierLots          SupplierLot[]
 
   @@map("suppliers")
 }
@@ -978,6 +997,10 @@ model Employee {
   epiDeliveries  EpiDelivery[]
   toolMovements  ToolMovement[]           @relation("ToolEmployee")
   projectHistory EmployeeProjectHistory[]
+  stockMovements StockMovement[]          @relation("StockMovementEmployee")
+  toolCustodies  ToolCustody[]
+  stockEpiDeliveries StockEpiDelivery[]
+  stockBaskets   StockBasket[]            @relation("BasketEmployee")
 
   @@unique([companyId, code])
   @@index([companyId, status])
@@ -1072,44 +1095,162 @@ model EmployeeProjectHistory {
 // ─────────────────────────────────────────
 
 model StockItem {
-  id          String   @id @default(cuid())
-  companyId   String   @map("company_id")
-  name        String
-  description String?
-  category    String?
-  unit        String   @default("un")
-  quantity    Decimal  @default(0) @db.Decimal(10, 3)
-  minQuantity Decimal  @default(0) @db.Decimal(10, 3) @map("min_quantity")
-  unitCost    Decimal? @db.Decimal(10, 2) @map("unit_cost")
-  location    String?
-  code        String?
-  imageUrl    String?  @map("image_url")
-  isActive    Boolean  @default(true) @map("is_active")
-  createdAt   DateTime @default(now()) @map("created_at")
-  updatedAt   DateTime @updatedAt @map("updated_at")
+  id               String   @id @default(cuid())
+  companyId        String   @map("company_id")
+  name             String
+  description      String?
+  category         String?
+  unit             String   @default("un")
+  quantity         Decimal  @default(0) @db.Decimal(10, 3)
+  minQuantity      Decimal  @default(0) @db.Decimal(10, 3) @map("min_quantity")
+  maxQuantity      Decimal? @db.Decimal(10, 3) @map("max_quantity")
+  unitCost         Decimal? @db.Decimal(10, 2) @map("unit_cost")
+  averageCost      Decimal? @db.Decimal(10, 2) @map("average_cost")
+  location         String?
+  code             String?
+  imageUrl         String?  @map("image_url")
+  isActive         Boolean  @default(true) @map("is_active")
+  // Classificação
+  isConsumable     Boolean  @default(true) @map("is_consumable")
+  requiresCustody  Boolean  @default(false) @map("requires_custody")
+  isEpi            Boolean  @default(false) @map("is_epi")
+  isUniform        Boolean  @default(false) @map("is_uniform")
+  // Identificação do item (ferramentas/equipamentos)
+  brand            String?
+  model            String?
+  serialNumber     String?  @map("serial_number")
+  // Localização no depósito (endereçamento)
+  locationShelf    String?  @map("location_shelf")    // ex: "A", "B", "C"
+  locationSection  String?  @map("location_section")  // ex: "1", "2", "3"
+  locationDetail   String?  @map("location_detail")   // ex: "Caixa 4"
+  locationFull     String?  @map("location_full")     // computed: "Prateleira A / Seção 2"
+  // Localização atual (qual obra)
+  currentProjectId String?  @map("current_project_id")
+  currentLocation  String?  @map("current_location")
+  // Especificações técnicas (ferramentas/equipamentos)
+  toolType         String?  @map("tool_type")         // MANUAL | ELECTRIC | PNEUMATIC | HYDRAULIC | MEASURING
+  voltage          String?  @map("voltage")            // 127V | 220V | BIVOLT
+  power            String?  @map("power")              // ex: "1500W", "2CV"
+  // Dados de compra e garantia
+  purchaseDate     DateTime? @map("purchase_date")
+  warrantyMonthsTool Int?   @map("warranty_months_tool")  // meses de garantia (para ferramentas)
+  warrantyExpiry   DateTime? @map("warranty_expiry")
+  isUnderWarranty  Boolean  @default(false) @map("is_under_warranty")
+  // Assistência técnica autorizada
+  authorizedName   String?  @map("authorized_name")
+  authorizedPhone  String?  @map("authorized_phone")
+  authorizedAddress String? @map("authorized_address")
+  authorizedCity   String?  @map("authorized_city")
+  // Manutenção preventiva
+  lastMaintenance  DateTime? @map("last_maintenance")
+  nextMaintenance  DateTime? @map("next_maintenance")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
 
   company          Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  currentProject   Project?          @relation("StockCurrentProject", fields: [currentProjectId], references: [id])
   movements        StockMovement[]
+  custodies        ToolCustody[]
+  epiDeliveries    StockEpiDelivery[]
   purchaseMapItems PurchaseMapItem[]
+  supplierLots     SupplierLot[]
 
   @@map("stock_items")
 }
 
 model StockMovement {
-  id          String            @id @default(cuid())
-  stockItemId String            @map("stock_item_id")
-  projectId   String?           @map("project_id")
-  type        StockMovementType
-  quantity    Decimal           @db.Decimal(10, 3)
-  unitCost    Decimal?          @db.Decimal(10, 2) @map("unit_cost")
-  reason      String?
-  notes       String?
-  createdAt   DateTime          @default(now()) @map("created_at")
+  id              String            @id @default(cuid())
+  companyId       String            @map("company_id")
+  stockItemId     String            @map("stock_item_id")
+  projectId       String?           @map("project_id")
+  employeeId      String?           @map("employee_id")
+  responsibleId   String?           @map("responsible_id")
+  basketId        String?           @map("basket_id")    // vínculo com romaneio
+  type            StockMovementType
+  quantity        Decimal           @db.Decimal(10, 3)
+  unitCost        Decimal?          @db.Decimal(10, 2) @map("unit_cost")
+  averageCostAfter Decimal?         @db.Decimal(10, 2) @map("average_cost_after")
+  totalCost       Decimal?          @db.Decimal(10, 2) @map("total_cost")
+  docNumber       String?           @map("doc_number")   // número do documento (OS-2026-0001)
+  signatureUrl    String?           @map("signature_url")
+  reason          String?
+  notes           String?
+  createdAt       DateTime          @default(now()) @map("created_at")
 
-  stockItem StockItem @relation(fields: [stockItemId], references: [id], onDelete: Cascade)
-  project   Project?  @relation(fields: [projectId], references: [id])
+  company     Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  stockItem   StockItem    @relation(fields: [stockItemId], references: [id], onDelete: Cascade)
+  project     Project?     @relation(fields: [projectId], references: [id])
+  employee    Employee?    @relation("StockMovementEmployee", fields: [employeeId], references: [id])
+  responsible User?        @relation("StockMovementResponsible", fields: [responsibleId], references: [id])
+  basket      StockBasket? @relation(fields: [basketId], references: [id])
+  costEntries ProjectCostEntry[]
 
   @@map("stock_movements")
+}
+
+// ─────────────────────────────────────────
+// DEPÓSITO — Lotes de Fornecedor
+// ─────────────────────────────────────────
+
+/// Rastreia lotes de compra por fornecedor (NF, validade, custo)
+model SupplierLot {
+  id            String    @id @default(cuid())
+  companyId     String    @map("company_id")
+  stockItemId   String    @map("stock_item_id")
+  supplierId    String?   @map("supplier_id")
+  lotNumber     String?   @map("lot_number")       // número do lote
+  invoiceNumber String?   @map("invoice_number")   // número da NF
+  purchaseDate  DateTime? @map("purchase_date")
+  quantity      Decimal   @db.Decimal(10, 3)
+  unitCost      Decimal?  @db.Decimal(10, 2) @map("unit_cost")
+  expiryDate    DateTime? @map("expiry_date")      // para materiais com validade
+  notes         String?
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  company   Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  stockItem StockItem @relation(fields: [stockItemId], references: [id], onDelete: Cascade)
+  supplier  Supplier? @relation(fields: [supplierId], references: [id])
+
+  @@map("supplier_lots")
+}
+
+// ─────────────────────────────────────────
+// DEPÓSITO — Romaneio / Cesta de Saída
+// ─────────────────────────────────────────
+
+/// Romaneio de saída (cesta de itens) com assinatura digital do responsável e do recebedor
+model StockBasket {
+  id          String    @id @default(cuid())
+  companyId   String    @map("company_id")
+  docNumber   String    @map("doc_number")   // OS-2026-0001 (sequencial por empresa/ano)
+  type        String    @default("OUT")       // OUT | EPI | RETURN
+  status      String    @default("DRAFT")     // DRAFT | SIGNED | CANCELLED
+  projectId   String?   @map("project_id")
+  employeeId  String?   @map("employee_id")   // colaborador que recebe
+  destinatary String?                          // Nome livre (se não for colaborador cadastrado)
+  notes       String?
+  /// Snapshot JSON dos itens no momento da emissão
+  items       Json      @default("[]")
+
+  // Assinaturas digitais
+  senderSignatureUrl   String?   @map("sender_signature_url")
+  receiverSignatureUrl String?   @map("receiver_signature_url")
+  signedAt             DateTime? @map("signed_at")
+
+  responsibleId String? @map("responsible_id")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  company     Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  project     Project?  @relation(fields: [projectId], references: [id])
+  employee    Employee? @relation("BasketEmployee", fields: [employeeId], references: [id])
+  responsible User?     @relation("BasketResponsible", fields: [responsibleId], references: [id])
+  movements   StockMovement[]
+
+  @@unique([companyId, docNumber])
+  @@index([companyId, status])
+  @@map("stock_baskets")
 }
 
 // ─────────────────────────────────────────
@@ -1134,6 +1275,89 @@ model EpiDelivery {
   responsible User     @relation("EpiResponsible", fields: [responsibleId], references: [id])
 
   @@map("epi_deliveries")
+}
+
+// ─────────────────────────────────────────
+// DEPÓSITO — Custódia de Ferramentas
+// ─────────────────────────────────────────
+
+model ToolCustody {
+  id              String    @id @default(cuid())
+  companyId       String    @map("company_id")
+  stockItemId     String    @map("stock_item_id")
+  employeeId      String    @map("employee_id")
+  projectId       String?   @map("project_id")
+  responsibleId   String?   @map("responsible_id")
+  quantity        Decimal   @default(1) @db.Decimal(10, 3)
+  checkedOutAt    DateTime  @default(now()) @map("checked_out_at")
+  dueDate         DateTime? @map("due_date")
+  returnedAt      DateTime? @map("returned_at")
+  condition       String?
+  conditionOnReturn String? @map("condition_on_return")
+  notes           String?
+  createdAt       DateTime  @default(now()) @map("created_at")
+
+  company     Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  stockItem   StockItem @relation(fields: [stockItemId], references: [id], onDelete: Cascade)
+  employee    Employee  @relation(fields: [employeeId], references: [id])
+  project     Project?  @relation(fields: [projectId], references: [id])
+  responsible User?     @relation("ToolCustodyResponsible", fields: [responsibleId], references: [id])
+
+  @@map("tool_custodies")
+}
+
+// ─────────────────────────────────────────
+// DEPÓSITO — Entrega de EPI/Uniforme via Estoque
+// ─────────────────────────────────────────
+
+model StockEpiDelivery {
+  id              String    @id @default(cuid())
+  companyId       String    @map("company_id")
+  stockItemId     String    @map("stock_item_id")
+  employeeId      String    @map("employee_id")
+  projectId       String?   @map("project_id")
+  responsibleId   String?   @map("responsible_id")
+  quantity        Decimal   @default(1) @db.Decimal(10, 3)
+  deliveredAt     DateTime  @default(now()) @map("delivered_at")
+  returnedAt      DateTime? @map("returned_at")
+  condition       String?
+  notes           String?
+  signatureUrl    String?   @map("signature_url")
+  caNumber        String?   @map("ca_number")   // CA do equipamento EPI
+  createdAt       DateTime  @default(now()) @map("created_at")
+
+  company     Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  stockItem   StockItem @relation(fields: [stockItemId], references: [id], onDelete: Cascade)
+  employee    Employee  @relation(fields: [employeeId], references: [id])
+  project     Project?  @relation(fields: [projectId], references: [id])
+  responsible User?     @relation("StockEpiResponsible", fields: [responsibleId], references: [id])
+
+  @@map("stock_epi_deliveries")
+}
+
+// ─────────────────────────────────────────
+// DEPÓSITO — Reclassificação de Custo por Obra
+// ─────────────────────────────────────────
+
+model ProjectCostEntry {
+  id              String    @id @default(cuid())
+  companyId       String    @map("company_id")
+  projectId       String    @map("project_id")
+  stockMovementId String?   @map("stock_movement_id")
+  description     String
+  category        String?
+  quantity        Decimal   @db.Decimal(10, 3)
+  unitCost        Decimal   @db.Decimal(10, 2) @map("unit_cost")
+  totalCost       Decimal   @db.Decimal(10, 2) @map("total_cost")
+  date            DateTime  @default(now())
+  notes           String?
+  createdAt       DateTime  @default(now()) @map("created_at")
+
+  company       Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  project       Project        @relation(fields: [projectId], references: [id])
+  stockMovement StockMovement? @relation(fields: [stockMovementId], references: [id])
+
+  @@map("project_cost_entries")
 }
 
 // ─────────────────────────────────────────

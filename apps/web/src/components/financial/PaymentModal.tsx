@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import Link from 'next/link'
 import { X, Loader2, CheckCircle, AlertTriangle } from 'lucide-react'
 import { formatCurrency } from '@/lib/format'
 
@@ -153,7 +154,7 @@ export function PaymentModal({ isOpen, onClose, onConfirm, transaction, accounts
                 <AlertTriangle size={13} className="flex-shrink-0" />
                 <span>
                   Nenhuma conta bancária ativa.{' '}
-                  <a href="/app/financeiro/contas-bancarias" className="underline font-medium">Cadastrar conta →</a>
+                  <Link href="/app/financeiro/contas-bancarias" className="underline font-medium">Cadastrar conta →</Link>
                 </span>
               </div>
             ) : (

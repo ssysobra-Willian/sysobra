@@ -1,11 +1,9 @@
 'use client'
 
-import { useMemo } from 'react'
+import { useMemo, useState, useEffect } from 'react'
 import type { MemberRole, MemberType, PermissionsMap } from '@/lib/auth-cookies'
 
 // ─── Mapa de módulos disponíveis por plano ────────────────────────────────────
-// Módulos bloqueados em planos menores não aparecem na sidebar, mesmo que o
-// usuário tenha permissão — a conta precisa do plano adequado.
 const PLAN_MODULES: Record<string, string[]> = {
   FREE: ['dashboard', 'diario_obra'],
   STARTER: [
@@ -25,8 +23,9 @@ const PLAN_MODULES: Record<string, string[]> = {
   ],
 }
 
+// ─── Leituras seguras do localStorage (apenas no cliente montado) ─────────────
+
 function readPermissions(): PermissionsMap {
-  if (typeof window === 'undefined') return { all: true }
   try {
     return JSON.parse(localStorage.getItem('sysobra_permissions') ?? '{"all":true}')
   } catch {
@@ -35,17 +34,50 @@ function readPermissions(): PermissionsMap {
 }
 
 function readPlan(): string {
-  if (typeof window === 'undefined') return 'STARTER'
   return localStorage.getItem('selectedPlan') ?? 'STARTER'
+}
+
+function readMemberRole(): MemberRole {
+  return (localStorage.getItem('memberRole') ?? 'MEMBER') as MemberRole
+}
+
+function readMemberType(): MemberType {
+  return (localStorage.getItem('memberType') ?? 'INTERNAL') as MemberType
 }
 
 // ─── Hook principal ───────────────────────────────────────────────────────────
 
 export function usePermissions() {
-  // useMemo evita re-parse a cada render; re-calcula só quando o componente
-  // remonta (o token/permissão raramente muda em tempo de vida de uma página).
-  const permissions = useMemo(readPermissions, [])
-  const plan = useMemo(readPlan, [])
+  // ── Padrão anti-hydration-mismatch ──────────────────────────────────────────
+  // O servidor (SSR) e o cliente na PRIMEIRA render devem produzir HTML idêntico.
+  // Leituras de localStorage só são seguras APÓS o componente montar no cliente.
+  // Com mounted=false: servidor e cliente produzem os mesmos valores padrão.
+  // Com mounted=true (após useEffect): valores reais do localStorage são usados.
+  const [mounted, setMounted] = useState(false)
+  useEffect(() => { setMounted(true) }, [])
+
+  // Valores derivados — recalculados apenas quando mounted muda
+  const permissions = useMemo<PermissionsMap>(
+    () => mounted ? readPermissions() : { all: true },
+    [mounted],
+  )
+
+  const plan = useMemo(
+    () => mounted ? readPlan() : 'STARTER',
+    [mounted],
+  )
+
+  const memberRole = useMemo<MemberRole>(
+    () => mounted ? readMemberRole() : 'MEMBER',
+    [mounted],
+  )
+
+  const memberType = useMemo<MemberType>(
+    () => mounted ? readMemberType() : 'INTERNAL',
+    [mounted],
+  )
+
+  // ─── API pública ─────────────────────────────────────────────────────────────
 
   /**
    * Verifica se o usuário pode executar `action` no `module`.
@@ -74,14 +106,6 @@ export function usePermissions() {
     return !!(perms[module]?.length)
   }
 
-  const memberRole = (typeof window !== 'undefined'
-    ? localStorage.getItem('memberRole')
-    : 'MEMBER') as MemberRole
-
-  const memberType = (typeof window !== 'undefined'
-    ? localStorage.getItem('memberType')
-    : 'INTERNAL') as MemberType
-
   const isOwnerOrAdmin = memberRole === 'OWNER' || memberRole === 'ADMIN'
   const isExternal     = memberType === 'EXTERNAL'
   const isClient       = memberType === 'CLIENT'
@@ -96,5 +120,7 @@ export function usePermissions() {
     isOwnerOrAdmin,
     isExternal,
     isClient,
+    // Exposto para casos onde o consumer precisa saber se já montou
+    mounted,
   }
 }

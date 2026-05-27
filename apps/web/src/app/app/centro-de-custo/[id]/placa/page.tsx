@@ -1,194 +1,226 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import {
-  ChevronLeft, Download, Printer, Eye, HardHat,
-  Calendar, MapPin, Building2, User, Loader2,
+  ChevronLeft, Download, Printer, Loader2,
+  Building2, Camera, RefreshCw,
 } from 'lucide-react'
-import { Breadcrumb }  from '@/components/ui/Breadcrumb'
-import { toImageUrl } from '@/lib/imageUrl'
+import { Breadcrumb } from '@/components/ui/Breadcrumb'
+import { cn } from '@/lib/utils'
 
-function getAuthHeaders(): Record<string, string> {
-  const token     = typeof window !== 'undefined' ? localStorage.getItem('token')     ?? '' : ''
-  const companyId = typeof window !== 'undefined' ? localStorage.getItem('companyId') ?? '' : ''
-  return { Authorization: `Bearer ${token}`, 'x-company-id': companyId }
-}
+// ─── auth ─────────────────────────────────────────────────────────────────────
+
+function getToken()     { return typeof window !== 'undefined' ? (localStorage.getItem('token')     ?? '') : '' }
+function getCompanyId() { return typeof window !== 'undefined' ? (localStorage.getItem('companyId') ?? '') : '' }
+function authHeaders()  { return { Authorization: `Bearer ${getToken()}`, 'x-company-id': getCompanyId() } }
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
 
+// ─── types ────────────────────────────────────────────────────────────────────
+
 interface PlateData {
-  projectId: string
-  projectName: string
-  projectCode: string | null
-  address: string | null
-  city: string | null
-  state: string | null
-  clientName: string | null
-  cno: string | null
-  artExecution: string | null
-  artProjects: string | null
-  technicalName: string | null
-  technicalTitle: string | null
-  technicalCrea: string | null
-  technicalPhoto: string | null
-  startDate: string | null
-  expectedEndDate: string | null
+  projectId:       string
+  projectName:     string
+  projectCode:     string | null
+  address:         string | null
+  coverImage:      string | null
   company: {
     name: string | null
     logo: string | null
-    cnpj: string | null
-    phone: string | null
-    email: string | null
-    address: string | null
-    city: string | null
-    state: string | null
   }
 }
 
-function formatDateBR(iso: string | null | undefined) {
-  if (!iso) return '—'
-  return new Date(iso).toLocaleDateString('pt-BR')
+// ─── PlacaPreview — iframe com HTML real do backend ──────────────────────────
+
+interface PlacaPreviewProps {
+  projectId:         string
+  imageType:         'logo' | 'photo'
+  onChangeImageType: (t: 'logo' | 'photo') => void
+  onDownloadPdf:     () => void
+  onDownloadPng:     () => void
+  downloadingPdf:    boolean
+  downloadingPng:    boolean
+  downloadError:     string
+  projectName:       string
+  projectCode:       string | null
+  hasCompanyLogo:    boolean
+  hasCoverImage:     boolean
 }
 
-// ─── Preview da Placa ─────────────────────────────────────────────────────────
+function PlacaPreview({
+  projectId, imageType, onChangeImageType,
+  onDownloadPdf, onDownloadPng,
+  downloadingPdf, downloadingPng, downloadError,
+  projectName, projectCode,
+  hasCompanyLogo, hasCoverImage,
+}: PlacaPreviewProps) {
+  const [html,    setHtml]    = useState<string | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [error,   setError]   = useState('')
 
-function PlatePreview({ data, showPhoto }: { data: PlateData; showPhoto: boolean }) {
-  const fullAddress = [data.address, data.city, data.state].filter(Boolean).join(', ')
+  // Container + iframe refs para ResizeObserver
+  const containerRef = useRef<HTMLDivElement>(null)
+  const iframeRef    = useRef<HTMLIFrameElement>(null)
+
+  // Buscar HTML da prévia do backend
+  const fetchPreview = useCallback(async () => {
+    setLoading(true)
+    setError('')
+    try {
+      const res = await fetch(
+        `${API}/api/v1/projects/${projectId}/plate/preview?imageType=${imageType}`,
+        { headers: authHeaders() },
+      )
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const text = await res.text()
+      setHtml(text)
+    } catch (err: any) {
+      setError('Erro ao carregar prévia. Verifique a conexão.')
+    } finally {
+      setLoading(false)
+    }
+  }, [projectId, imageType])
+
+  useEffect(() => { fetchPreview() }, [fetchPreview])
+
+  // ResizeObserver: recalcula scale quando o container muda de tamanho
+  useEffect(() => {
+    if (!containerRef.current || !iframeRef.current) return
+
+    const applyScale = (width: number) => {
+      const scale = width / 900
+      if (iframeRef.current) {
+        iframeRef.current.style.transform = `scale(${scale})`
+      }
+    }
+
+    // Aplicar imediatamente
+    applyScale(containerRef.current.offsetWidth)
+
+    const observer = new ResizeObserver((entries) => {
+      const w = entries[0]?.contentRect.width
+      if (w) applyScale(w)
+    })
+    observer.observe(containerRef.current)
+    return () => observer.disconnect()
+  }, [html])   // re-registrar quando html for carregado (iframe renderizado)
 
   return (
-    <div
-      id="plate-preview"
-      className="bg-white rounded-2xl shadow-2xl overflow-hidden"
-      style={{ width: '100%', maxWidth: 640, aspectRatio: '3/4', fontFamily: 'Arial, sans-serif' }}
-    >
-      {/* ── Faixa superior laranja ───────────────────────────────────────── */}
-      <div className="bg-[#F5A623] px-6 py-5 flex items-center justify-between">
-        {/* Logo da empresa */}
-        <div className="flex items-center gap-3">
-          {data.company.logo ? (
-            <img src={toImageUrl(data.company.logo)} alt="Logo" className="h-12 w-auto object-contain" />
-          ) : (
-            <div className="h-12 w-12 bg-white/20 rounded-xl flex items-center justify-center">
-              <Building2 size={24} className="text-white" />
-            </div>
-          )}
-          <div>
-            <p className="text-white font-bold text-base leading-tight">{data.company.name ?? 'Empresa'}</p>
-            {data.company.cnpj && <p className="text-white/70 text-[11px]">CNPJ: {data.company.cnpj}</p>}
-          </div>
-        </div>
-        {/* Ícone de obra */}
-        <div className="h-12 w-12 bg-white/20 rounded-xl flex items-center justify-center">
-          <HardHat size={26} className="text-white" />
-        </div>
-      </div>
-
-      {/* ── Título da obra ───────────────────────────────────────────────── */}
-      <div className="bg-[#1a1a1a] px-6 py-4">
-        <p className="text-[#F5A623] text-[10px] font-semibold uppercase tracking-widest mb-1">Obra em andamento</p>
-        <h1 className="text-white font-bold text-xl leading-tight">{data.projectName}</h1>
-        {data.projectCode && (
-          <p className="text-gray-400 text-xs mt-0.5 font-mono">{data.projectCode}</p>
-        )}
-      </div>
-
-      {/* ── Corpo ───────────────────────────────────────────────────────── */}
-      <div className="px-6 py-4 space-y-4 flex-1">
-        {/* Endereço */}
-        {fullAddress && (
-          <div className="flex items-start gap-2.5">
-            <MapPin size={14} className="text-[#F5A623] flex-shrink-0 mt-0.5" />
-            <div>
-              <p className="text-[9px] text-gray-400 uppercase tracking-wide font-semibold">Endereço da obra</p>
-              <p className="text-sm font-medium text-gray-800">{fullAddress}</p>
-            </div>
-          </div>
-        )}
-
-        {/* Cliente */}
-        {data.clientName && (
-          <div className="flex items-start gap-2.5">
-            <User size={14} className="text-[#F5A623] flex-shrink-0 mt-0.5" />
-            <div>
-              <p className="text-[9px] text-gray-400 uppercase tracking-wide font-semibold">Proprietário / Cliente</p>
-              <p className="text-sm font-medium text-gray-800">{data.clientName}</p>
-            </div>
-          </div>
-        )}
-
-        {/* Datas */}
-        <div className="flex items-start gap-2.5">
-          <Calendar size={14} className="text-[#F5A623] flex-shrink-0 mt-0.5" />
-          <div>
-            <p className="text-[9px] text-gray-400 uppercase tracking-wide font-semibold">Prazo</p>
-            <p className="text-sm font-medium text-gray-800">
-              Início: {formatDateBR(data.startDate)} &nbsp;|&nbsp; Previsão: {formatDateBR(data.expectedEndDate)}
-            </p>
-          </div>
-        </div>
-
-        {/* Separador */}
-        <div className="border-t border-gray-100" />
-
-        {/* CNO e ARTs */}
-        <div className="grid grid-cols-3 gap-3">
-          {data.cno && (
-            <div>
-              <p className="text-[9px] text-gray-400 uppercase tracking-wide font-semibold">CNO</p>
-              <p className="text-xs font-medium text-gray-800 font-mono mt-0.5">{data.cno}</p>
-            </div>
-          )}
-          {data.artExecution && (
-            <div>
-              <p className="text-[9px] text-gray-400 uppercase tracking-wide font-semibold">ART Execução</p>
-              <p className="text-xs font-medium text-gray-800 font-mono mt-0.5">{data.artExecution}</p>
-            </div>
-          )}
-          {data.artProjects && (
-            <div>
-              <p className="text-[9px] text-gray-400 uppercase tracking-wide font-semibold">ART Projetos</p>
-              <p className="text-xs font-medium text-gray-800 font-mono mt-0.5">{data.artProjects}</p>
-            </div>
-          )}
-        </div>
-
-        {/* Separador */}
-        {(data.technicalName || data.technicalCrea) && <div className="border-t border-gray-100" />}
-
-        {/* Responsável técnico */}
-        {(data.technicalName || data.technicalCrea) && (
-          <div className="flex items-center gap-4">
-            {showPhoto && data.technicalPhoto && (
-              <img src={toImageUrl(data.technicalPhoto)} alt={data.technicalName ?? 'RT'} className="h-14 w-14 rounded-full object-cover border-2 border-[#F5A623] flex-shrink-0" />
+    <div className="flex flex-col items-center gap-4 w-full">
+      {/* Seletor de imagem central */}
+      <div className="flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 flex-wrap">
+        <span className="text-xs font-medium text-gray-500 mr-1">Imagem central:</span>
+        {([
+          { value: 'logo',  label: '🏢 Logo da empresa', has: hasCompanyLogo },
+          { value: 'photo', label: '📷 Foto da obra',    has: hasCoverImage  },
+        ] as const).map((opt) => (
+          <button
+            key={opt.value}
+            onClick={() => onChangeImageType(opt.value)}
+            disabled={!opt.has}
+            title={!opt.has ? `${opt.value === 'logo' ? 'Logo' : 'Foto'} não cadastrada` : undefined}
+            className={cn(
+              'px-3 py-1.5 rounded-full text-xs font-medium border transition-all',
+              imageType === opt.value
+                ? 'border-[#F5A623] bg-[#FEF3DC] text-amber-800'
+                : opt.has
+                  ? 'border-gray-200 text-gray-600 hover:border-gray-300'
+                  : 'border-gray-100 text-gray-300 cursor-not-allowed',
             )}
-            <div>
-              <p className="text-[9px] text-gray-400 uppercase tracking-wide font-semibold">Responsável técnico</p>
-              {data.technicalName && (
-                <p className="text-sm font-bold text-gray-900 mt-0.5">{data.technicalName}</p>
-              )}
-              {data.technicalTitle && (
-                <p className="text-xs text-gray-600">{data.technicalTitle}</p>
-              )}
-              {data.technicalCrea && (
-                <p className="text-xs text-gray-500 font-mono">{data.technicalCrea}</p>
-              )}
-            </div>
+          >
+            {opt.label}
+            {!opt.has && <span className="ml-1 text-[10px] opacity-60">(não cadastrada)</span>}
+          </button>
+        ))}
+        <button
+          onClick={fetchPreview}
+          disabled={loading}
+          className="p-1.5 rounded-lg hover:bg-gray-200 text-gray-500 transition ml-1"
+          title="Atualizar prévia"
+        >
+          <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
+        </button>
+      </div>
+
+      {/* Container da prévia — mantém proporção 3:4 (900:1200) */}
+      <div
+        ref={containerRef}
+        className="w-full max-w-[500px] relative overflow-hidden border border-gray-200 rounded-lg shadow-lg bg-gray-100"
+        style={{ paddingTop: 'calc(100% * 1200 / 900)' }}
+      >
+        {loading && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center bg-gray-50 gap-3">
+            <Loader2 size={28} className="animate-spin text-[#F5A623]" />
+            <p className="text-xs text-gray-400">Carregando prévia…</p>
           </div>
+        )}
+
+        {error && !loading && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center bg-gray-50 gap-2 px-6 text-center">
+            <p className="text-sm text-red-500">{error}</p>
+            <button
+              onClick={fetchPreview}
+              className="text-xs text-[#F5A623] underline"
+            >
+              Tentar novamente
+            </button>
+          </div>
+        )}
+
+        {html && !loading && !error && (
+          <iframe
+            ref={iframeRef}
+            srcDoc={html}
+            title="Prévia da placa de obra"
+            scrolling="no"
+            style={{
+              position:        'absolute',
+              top:             0,
+              left:            0,
+              width:           900,
+              height:          1200,
+              border:          'none',
+              transformOrigin: 'top left',
+              // scale será aplicado pelo ResizeObserver
+            }}
+          />
         )}
       </div>
 
-      {/* ── Rodapé ──────────────────────────────────────────────────────── */}
-      <div className="bg-gray-50 border-t border-gray-100 px-6 py-3 flex items-center justify-between">
-        <div>
-          {data.company.phone && <p className="text-[10px] text-gray-500">☎ {data.company.phone}</p>}
-          {data.company.email && <p className="text-[10px] text-gray-500">✉ {data.company.email}</p>}
+      {/* Nota de fidelidade */}
+      <p className="text-[11px] text-gray-400 text-center leading-relaxed">
+        📐 A prévia é idêntica ao arquivo gerado &nbsp;·&nbsp; Tamanho real: <strong>90 × 120 cm</strong>
+      </p>
+
+      {/* Erro de download */}
+      {downloadError && (
+        <div className="w-full flex items-start gap-2 bg-red-50 border border-red-200 rounded-lg px-3 py-2 text-xs text-red-700">
+          ⚠️ {downloadError}
         </div>
-        <div className="text-right">
-          <p className="text-[9px] text-gray-400 uppercase tracking-wide">Gerado por</p>
-          <p className="text-[10px] font-semibold text-gray-600">SYSOBRA</p>
-        </div>
+      )}
+
+      {/* Botões */}
+      <div className="flex gap-3 w-full max-w-[500px]">
+        <button
+          onClick={onDownloadPng}
+          disabled={downloadingPng}
+          className="flex-1 flex items-center justify-center gap-2 border border-gray-200 bg-white hover:bg-gray-50 text-gray-700 text-sm font-medium py-3 rounded-lg transition disabled:opacity-60"
+        >
+          {downloadingPng
+            ? <><Loader2 size={15} className="animate-spin" /> Gerando…</>
+            : <><Download size={15} /> Baixar PNG</>}
+        </button>
+        <button
+          onClick={onDownloadPdf}
+          disabled={downloadingPdf}
+          className="flex-1 flex items-center justify-center gap-2 bg-[#F5A623] hover:bg-[#e09610] text-white text-sm font-semibold py-3 rounded-lg transition disabled:opacity-60"
+        >
+          {downloadingPdf
+            ? <><Loader2 size={15} className="animate-spin" /> Gerando…</>
+            : <><Printer size={15} /> Baixar PDF</>}
+        </button>
       </div>
     </div>
   )
@@ -203,19 +235,26 @@ export default function PlacaObraPage() {
 
   const [data,       setData]       = useState<PlateData | null>(null)
   const [loading,    setLoading]    = useState(true)
-  const [showPhoto,  setShowPhoto]  = useState(true)
+  const [imageType,  setImageType]  = useState<'logo' | 'photo'>('logo')
+
+  const [downloadingPdf, setDownloadingPdf] = useState(false)
+  const [downloadingPng, setDownloadingPng] = useState(false)
+  const [downloadError,  setDownloadError]  = useState('')
 
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const token     = localStorage.getItem('token') || ''
-      const companyId = localStorage.getItem('companyId') || ''
-      const res = await fetch(`${API}/api/v1/projects/${id}/plate`, {
-        headers: { Authorization: `Bearer ${token}`, 'x-company-id': companyId },
-      })
+      const res = await fetch(`${API}/api/v1/projects/${id}/plate`, { headers: authHeaders() })
       if (!res.ok) { router.push(`/app/centro-de-custo/${id}`); return }
       const json = await res.json()
       setData(json.plate)
+
+      // Escolher imageType inicial: foto se existir, logo caso contrário
+      if (json.plate?.coverImage) {
+        setImageType('photo')
+      } else {
+        setImageType('logo')
+      }
     } finally {
       setLoading(false)
     }
@@ -223,69 +262,30 @@ export default function PlacaObraPage() {
 
   useEffect(() => { load() }, [load])
 
-  const [downloadingPdf, setDownloadingPdf] = useState(false)
-  const [downloadingPng, setDownloadingPng] = useState(false)
-  const [downloadError,  setDownloadError]  = useState('')
-
-  const handleDownloadPdf = async () => {
-    setDownloadingPdf(true)
+  const downloadFile = async (format: 'pdf' | 'png') => {
+    const setter = format === 'pdf' ? setDownloadingPdf : setDownloadingPng
+    setter(true)
     setDownloadError('')
     try {
-      const res = await fetch(`${API}/api/v1/projects/${id}/plate/pdf`, { headers: getAuthHeaders() })
-      if (!res.ok) throw new Error(`Erro ao gerar PDF (HTTP ${res.status})`)
+      const res = await fetch(
+        `${API}/api/v1/projects/${id}/plate/${format}?imageType=${imageType}`,
+        { headers: authHeaders() },
+      )
+      if (!res.ok) throw new Error(`Erro ao gerar ${format.toUpperCase()} (HTTP ${res.status})`)
       const blob = await res.blob()
       const url  = URL.createObjectURL(blob)
       const a    = document.createElement('a')
       a.href     = url
-      a.download = `placa-${data?.projectCode ?? id}.pdf`
+      a.download = `placa-${data?.projectCode ?? id}.${format}`
       document.body.appendChild(a)
       a.click()
       document.body.removeChild(a)
       URL.revokeObjectURL(url)
     } catch (err: any) {
-      setDownloadError(err.message || 'Erro ao gerar PDF')
+      setDownloadError(err.message || `Erro ao gerar ${format.toUpperCase()}`)
     } finally {
-      setDownloadingPdf(false)
+      setter(false)
     }
-  }
-
-  const handleDownloadPng = async () => {
-    setDownloadingPng(true)
-    setDownloadError('')
-    try {
-      const res = await fetch(`${API}/api/v1/projects/${id}/plate/png`, { headers: getAuthHeaders() })
-      if (!res.ok) throw new Error(`Erro ao gerar PNG (HTTP ${res.status})`)
-      const blob = await res.blob()
-      const url  = URL.createObjectURL(blob)
-      const a    = document.createElement('a')
-      a.href     = url
-      a.download = `placa-${data?.projectCode ?? id}.png`
-      document.body.appendChild(a)
-      a.click()
-      document.body.removeChild(a)
-      URL.revokeObjectURL(url)
-    } catch (err: any) {
-      setDownloadError(err.message || 'Erro ao gerar PNG')
-    } finally {
-      setDownloadingPng(false)
-    }
-  }
-
-  const handlePrint = () => {
-    const content = document.getElementById('plate-preview')
-    if (!content) return
-    const w = window.open('', '_blank', 'width=700,height=900')
-    if (!w) return
-    w.document.write(`<!DOCTYPE html><html><head><title>Placa de Obra</title>
-      <style>
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-        body { font-family: Arial, sans-serif; background: white; }
-        @media print { @page { size: A4 portrait; margin: 10mm; } }
-      </style>
-    </head><body>${content.outerHTML}</body></html>`)
-    w.document.close()
-    w.focus()
-    setTimeout(() => { w.print(); w.close() }, 500)
   }
 
   if (loading) {
@@ -298,9 +298,12 @@ export default function PlacaObraPage() {
 
   if (!data) return null
 
+  const hasCompanyLogo = Boolean(data.company?.logo)
+  const hasCoverImage  = Boolean(data.coverImage)
+
   return (
-    <div className="max-w-5xl mx-auto space-y-6">
-      {/* ── Breadcrumb ─────────────────────────────────────────────────── */}
+    <div className="max-w-5xl mx-auto space-y-6 pb-12">
+      {/* Breadcrumb */}
       <Breadcrumb items={[
         { label: 'Centro de Custo', href: '/app/centro-de-custo' },
         { label: data.projectName,  href: `/app/centro-de-custo/${id}` },
@@ -308,115 +311,98 @@ export default function PlacaObraPage() {
       ]} />
 
       <div>
-        <h1 className="text-2xl font-bold text-gray-900">Gerador de placa de obra</h1>
-        <p className="text-sm text-gray-500">Preview interativo — imprima ou gere o PDF para a gráfica</p>
+        <h1 className="text-2xl font-bold text-gray-900">Placa de obra</h1>
+        <p className="text-sm text-gray-500 mt-0.5">
+          Prévia fiel ao arquivo — o que você vê é exatamente o que será gerado
+        </p>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* ── Preview ──────────────────────────────────────────────────── */}
-        <div className="lg:col-span-2 flex justify-center">
-          <PlatePreview data={data} showPhoto={showPhoto} />
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
+        {/* ── Prévia (col-span-2) ──────────────────────────────────────── */}
+        <div className="lg:col-span-2">
+          <PlacaPreview
+            projectId={id}
+            imageType={imageType}
+            onChangeImageType={setImageType}
+            onDownloadPdf={() => downloadFile('pdf')}
+            onDownloadPng={() => downloadFile('png')}
+            downloadingPdf={downloadingPdf}
+            downloadingPng={downloadingPng}
+            downloadError={downloadError}
+            projectName={data.projectName}
+            projectCode={data.projectCode}
+            hasCompanyLogo={hasCompanyLogo}
+            hasCoverImage={hasCoverImage}
+          />
         </div>
 
-        {/* ── Painel de controles ───────────────────────────────────────── */}
+        {/* ── Painel lateral ───────────────────────────────────────────── */}
         <div className="space-y-4">
-          <div className="bg-white rounded-xl border border-gray-200 p-5 space-y-4">
-            <h3 className="text-sm font-semibold text-gray-700">Opções da placa</h3>
+          {/* Status das imagens */}
+          <div className="bg-white rounded-xl border border-gray-200 p-5 space-y-3">
+            <h3 className="text-sm font-semibold text-gray-700">Imagens disponíveis</h3>
 
-            {/* Toggle foto do RT */}
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-800">Foto do responsável técnico</p>
-                <p className="text-xs text-gray-400 mt-0.5">Exibir na placa</p>
-              </div>
-              <button
-                onClick={() => setShowPhoto(v => !v)}
-                className={`w-10 h-5 rounded-full transition-colors relative ${showPhoto ? 'bg-[#F5A623]' : 'bg-gray-200'}`}
-              >
-                <div className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow-sm transition-transform ${showPhoto ? 'translate-x-5' : 'translate-x-0.5'}`} />
-              </button>
-            </div>
-
-            <hr className="border-gray-100" />
-
-            {/* Informações exibidas */}
             <div className="space-y-2">
-              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Campos na placa</p>
-              {[
-                { label: 'Nome da obra',        value: data.projectName },
-                { label: 'Endereço',            value: data.address },
-                { label: 'Cliente',             value: data.clientName },
-                { label: 'CNO',                 value: data.cno },
-                { label: 'ART de execução',     value: data.artExecution },
-                { label: 'ART de projetos',     value: data.artProjects },
-                { label: 'Responsável técnico', value: data.technicalName },
-                { label: 'Data início',         value: data.startDate ? formatDateBR(data.startDate) : null },
-                { label: 'Previsão de entrega', value: data.expectedEndDate ? formatDateBR(data.expectedEndDate) : null },
-              ].map(({ label, value }) => (
-                <div key={label} className="flex items-center justify-between py-1">
-                  <span className="text-xs text-gray-500">{label}</span>
-                  <span className={`text-[11px] font-medium ${value ? 'text-green-600' : 'text-gray-300'}`}>
-                    {value ? '✓' : '—'}
-                  </span>
+              <div className={cn(
+                'flex items-center gap-2.5 p-3 rounded-lg border text-sm',
+                hasCompanyLogo
+                  ? 'border-green-200 bg-green-50 text-green-700'
+                  : 'border-gray-100 bg-gray-50 text-gray-400',
+              )}>
+                <Building2 size={16} />
+                <div>
+                  <p className="font-medium">Logo da empresa</p>
+                  {!hasCompanyLogo && (
+                    <p className="text-xs opacity-70">
+                      Cadastre em{' '}
+                      <Link href="/app/configuracoes" className="underline">
+                        Configurações
+                      </Link>
+                    </p>
+                  )}
                 </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Botões de ação */}
-          <div className="space-y-2">
-            {/* Erro de download */}
-            {downloadError && (
-              <div className="flex items-center gap-2 bg-red-50 border border-red-200 rounded-lg px-3 py-2 text-xs text-red-700">
-                ⚠️ {downloadError}
+                <span className="ml-auto">{hasCompanyLogo ? '✓' : '—'}</span>
               </div>
-            )}
 
-            <button
-              onClick={handleDownloadPdf}
-              disabled={downloadingPdf}
-              className="w-full flex items-center justify-center gap-2 bg-[#F5A623] hover:bg-[#e09610] text-white text-sm font-medium py-3 rounded-lg transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
-            >
-              {downloadingPdf ? (
-                <><Loader2 size={16} className="animate-spin" /> Gerando PDF...</>
-              ) : (
-                <><Printer size={16} /> Baixar PDF (90×120cm)</>
-              )}
-            </button>
-
-            <button
-              onClick={handleDownloadPng}
-              disabled={downloadingPng}
-              className="w-full flex items-center justify-center gap-2 border border-gray-200 text-gray-700 text-sm font-medium py-3 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
-            >
-              {downloadingPng ? (
-                <><Loader2 size={16} className="animate-spin" /> Gerando PNG...</>
-              ) : (
-                <><Download size={16} /> Exportar PNG</>
-              )}
-            </button>
-
-            <button
-              onClick={handlePrint}
-              className="w-full flex items-center justify-center gap-2 border border-gray-100 text-gray-500 text-xs py-2 rounded-lg hover:bg-gray-50 transition-colors"
-            >
-              <Eye size={13} /> Visualizar / Imprimir pelo navegador
-            </button>
-
-            <Link
-              href={`/app/centro-de-custo/${id}`}
-              className="w-full flex items-center justify-center gap-2 text-sm font-medium text-gray-500 hover:text-gray-700 py-2 transition-colors"
-            >
-              <ChevronLeft size={14} /> Voltar para a obra
-            </Link>
+              <div className={cn(
+                'flex items-center gap-2.5 p-3 rounded-lg border text-sm',
+                hasCoverImage
+                  ? 'border-green-200 bg-green-50 text-green-700'
+                  : 'border-gray-100 bg-gray-50 text-gray-400',
+              )}>
+                <Camera size={16} />
+                <div>
+                  <p className="font-medium">Foto da obra</p>
+                  {!hasCoverImage && (
+                    <p className="text-xs opacity-70">
+                      Adicione na{' '}
+                      <Link href={`/app/centro-de-custo/${id}`} className="underline">
+                        ficha da obra
+                      </Link>
+                    </p>
+                  )}
+                </div>
+                <span className="ml-auto">{hasCoverImage ? '✓' : '—'}</span>
+              </div>
+            </div>
           </div>
 
           {/* Dica */}
-          <div className="bg-blue-50 border border-blue-100 rounded-lg p-3">
-            <p className="text-xs text-blue-600 leading-relaxed">
-              💡 <strong>Dica:</strong> O PDF e PNG são gerados com dimensão exata de 90×120cm em alta resolução — prontos para envio à gráfica. Use o botão "Visualizar" para imprimir diretamente pelo navegador.
+          <div className="bg-amber-50 border border-amber-100 rounded-xl p-4">
+            <p className="text-xs text-amber-700 leading-relaxed">
+              💡 <strong>Dica gráfica:</strong> Baixe o <strong>PDF</strong> para envio a gráficas —
+              ele já está no tamanho exato de 90×120 cm com impressão em alta resolução (2×).
+              Use o <strong>PNG</strong> para publicações digitais ou apresentações.
             </p>
           </div>
+
+          {/* Voltar */}
+          <Link
+            href={`/app/centro-de-custo/${id}`}
+            className="flex items-center justify-center gap-2 text-sm font-medium text-gray-500 hover:text-gray-700 py-2 transition-colors"
+          >
+            <ChevronLeft size={14} /> Voltar para a obra
+          </Link>
         </div>
       </div>
     </div>

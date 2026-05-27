@@ -166,7 +166,9 @@ function SidebarContent({ collapsed, onToggleCollapsed, showCloseButton, onClose
       </div>
 
       {/* ── Navegação ───────────────────────────────────────────────── */}
-      <nav className="flex-1 overflow-y-auto py-4 px-2 space-y-0.5">
+      {/* suppressHydrationWarning: defesa extra contra extensões de browser que
+          injetam atributos/elementos — o fix principal está em usePermissions */}
+      <nav className="flex-1 overflow-y-auto py-4 px-2 space-y-0.5" suppressHydrationWarning>
         {visibleItems.map(({ label, icon: Icon, href }) => {
           const active = pathname === href || pathname.startsWith(href + '/')
           return (

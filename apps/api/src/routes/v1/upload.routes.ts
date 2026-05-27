@@ -146,4 +146,47 @@ export async function uploadRoutes(app: FastifyInstance) {
       wasCompressed: result.wasCompressed,
     })
   })
+
+  // ── POST /api/v1/uploads/stock-item-photo ───────────────────────────────────
+  app.post('/stock-item-photo', {
+    preHandler: [authenticate, requireCompany],
+  }, async (request, reply) => {
+    const req = request as RequestWithMember
+    const { companyId } = req
+
+    const data = await request.file()
+    if (!data) return reply.status(400).send({ error: 'Nenhum arquivo enviado' })
+
+    if (!ALLOWED_TYPES.includes(data.mimetype)) {
+      return reply.status(400).send({ error: 'Tipo inválido. Apenas JPEG, PNG e WEBP são aceitas.' })
+    }
+
+    let buffer: Buffer
+    try {
+      buffer = await streamToBuffer(data.file)
+    } catch {
+      return reply.status(500).send({ error: 'Erro ao ler arquivo' })
+    }
+
+    if (buffer.length > MAX_COVER_SIZE) {
+      return reply.status(400).send({ error: 'Arquivo muito grande. Máximo 5MB.' })
+    }
+
+    const itemId  = (data.fields as any)?.itemId?.value ?? 'temp'
+    const dir     = path.join(UPLOADS_ROOT, 'stock', companyId, String(itemId))
+    const basename = `${Date.now()}-${safeFilename(data.filename)}`
+
+    const result = await processAndSaveImage({
+      inputBuffer: buffer,
+      outputDir:   dir,
+      filename:    basename,
+      type:        'cover',
+    })
+
+    return reply.send({
+      url:           result.relativePath,
+      savedPercent:  result.savedPercent,
+      wasCompressed: result.wasCompressed,
+    })
+  })
 }

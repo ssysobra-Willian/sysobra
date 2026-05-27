@@ -20,6 +20,7 @@ import { supplierRoutes } from './routes/v1/supplier.routes'
 import { uploadRoutes }   from './routes/v1/upload.routes'
 import { auditLogRoutes } from './routes/v1/audit-logs.routes'
 import { employeeRoutes, employeePhotoUploadRoute } from './routes/v1/employee.routes'
+import { depositRoutes }  from './routes/v1/deposit.routes'
 import { stripeRoutes }   from './routes/stripe'
 import { env } from './utils/env'
 import { prisma } from '@sysobra/database'
@@ -165,6 +166,7 @@ async function bootstrap() {
   await app.register(auditLogRoutes,          { prefix: '/api/v1/audit-logs' })
   await app.register(employeeRoutes,          { prefix: '/api/v1/employees' })
   await app.register(employeePhotoUploadRoute, { prefix: '/api/v1/uploads' })
+  await app.register(depositRoutes,           { prefix: '/api/v1/deposit' })
 
   // ── Rotas Stripe ─────────────────────────────────────────────────────────
   await app.register(stripeRoutes, { prefix: '/api/stripe' })
