@@ -2,11 +2,15 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useRouter } from 'next/navigation'
+import { useQuery } from '@tanstack/react-query'
+import {
+  PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend,
+} from 'recharts'
 import {
   Plus, Pencil, Search, RefreshCw, X,
   Truck, TrendingDown, DollarSign, Star,
   User, Building2, Phone, ChevronLeft, ChevronRight,
-  CheckCircle, XCircle,
+  CheckCircle, XCircle, Trophy, Calendar, ChevronDown,
 } from 'lucide-react'
 import { TableActionMenu }  from '@/components/ui/TableActionMenu'
 import { MaskedInput }      from '@/components/ui/MaskedInput'
@@ -78,6 +82,360 @@ function StarRating({ rating }: { rating: number | null }) {
       {[1,2,3,4,5].map(i => (
         <Star key={i} size={10} className={i<=rating?'text-[#F5A623] fill-[#F5A623]':'text-gray-200'} />
       ))}
+    </div>
+  )
+}
+
+// ─── Ranking Types ────────────────────────────────────────────────────────────
+
+interface RankingItem {
+  position:          number
+  supplierId:        string
+  name:              string
+  tradeName:         string | null
+  type:              'PERSON' | 'COMPANY'
+  category:          string | null
+  rating:            number | null
+  totalComprado:     number
+  percentualDoTotal: number
+  ticketMedio:       number
+  transactionCount:  number
+}
+
+interface RankingMeta {
+  period:            string
+  startDate:         string
+  endDate:           string
+  totalGeral:        number
+  totalFornecedores: number
+}
+
+type RankingPeriod = 'month' | 'quarter' | 'semester' | 'year' | 'custom'
+
+const PERIOD_LABELS: Record<RankingPeriod, string> = {
+  month:    'Este mês',
+  quarter:  'Trimestre',
+  semester: 'Semestre',
+  year:     'Este ano',
+  custom:   'Personalizado',
+}
+
+const DONUT_COLORS = ['#F5A623', '#F59E0B', '#FBBF24', '#FCD34D', '#FDE68A', '#D1D5DB']
+
+const CAT_LABELS: Record<string, string> = {
+  MATERIAL:  'Material',
+  LABOR:     'Mão de obra',
+  SERVICE:   'Serviço',
+  EQUIPMENT: 'Equipamento',
+  TRANSPORT: 'Transporte',
+  OTHER:     'Outro',
+}
+
+// ─── useSupplierRanking ───────────────────────────────────────────────────────
+
+function useSupplierRanking(
+  period: RankingPeriod,
+  startDate: string,
+  endDate:   string,
+  limit = 10,
+) {
+  const getToken = () => (typeof window !== 'undefined' ? localStorage.getItem('token') || '' : '')
+  return useQuery({
+    queryKey: ['supplier-ranking', period, startDate, endDate, limit],
+    queryFn: async () => {
+      const params = new URLSearchParams({ period, limit: String(limit) })
+      if (period === 'custom' && startDate && endDate) {
+        params.set('startDate', startDate)
+        params.set('endDate',   endDate)
+      }
+      const res = await fetch(`${API}/api/v1/suppliers/ranking?${params}`, {
+        headers: { Authorization: `Bearer ${getToken()}` },
+      })
+      if (!res.ok) throw new Error('Erro ao carregar ranking')
+      return res.json() as Promise<{ ranking: RankingItem[]; meta: RankingMeta }>
+    },
+    staleTime: 5 * 60_000,
+  })
+}
+
+// ─── SupplierRanking Component ────────────────────────────────────────────────
+
+function SupplierRanking() {
+  const router = useRouter()
+  const [period,     setPeriod]     = useState<RankingPeriod>('month')
+  const [custStart,  setCustStart]  = useState('')
+  const [custEnd,    setCustEnd]    = useState('')
+  const [applied,    setApplied]    = useState({ start: '', end: '' })
+  const [showAll,    setShowAll]    = useState(false)
+
+  const { data, isLoading, isError } = useSupplierRanking(
+    period, applied.start, applied.end, showAll ? 50 : 10,
+  )
+
+  const ranking = data?.ranking ?? []
+  const meta    = data?.meta
+  const preview = showAll ? ranking : ranking.slice(0, 5)
+
+  // donut data: top5 + outros
+  const top5  = ranking.slice(0, 5)
+  const outros = ranking.slice(5).reduce((acc, r) => acc + r.totalComprado, 0)
+  const donutData = [
+    ...top5.map(r => ({ name: r.tradeName || r.name, value: r.totalComprado })),
+    ...(outros > 0 ? [{ name: 'Outros', value: outros }] : []),
+  ]
+
+  function applyCustom() {
+    if (!custStart || !custEnd) return
+    setApplied({ start: custStart, end: custEnd })
+  }
+
+  function positionBadge(pos: number) {
+    if (pos === 1) return 'bg-yellow-100 text-yellow-700 border-yellow-300'
+    if (pos === 2) return 'bg-gray-100 text-gray-600 border-gray-300'
+    if (pos === 3) return 'bg-orange-100 text-orange-700 border-orange-300'
+    return 'bg-white text-gray-400 border-gray-200'
+  }
+
+  function initials(name: string) {
+    return name.trim().split(/\s+/).slice(0,2).map(w => w[0]).join('').toUpperCase()
+  }
+
+  const CustomTooltip = ({ active, payload }: any) => {
+    if (!active || !payload?.length) return null
+    const { name, value } = payload[0].payload
+    return (
+      <div className="bg-white border border-gray-200 rounded-xl shadow-lg px-3 py-2 text-sm">
+        <p className="font-semibold text-gray-800 mb-0.5">{name}</p>
+        <p className="text-[#F5A623] font-bold">{fmt(value)}</p>
+        {meta && meta.totalGeral > 0 && (
+          <p className="text-xs text-gray-400">{((value / meta.totalGeral) * 100).toFixed(1)}% do total</p>
+        )}
+      </div>
+    )
+  }
+
+  return (
+    <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
+      {/* Header */}
+      <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-4 border-b border-gray-100">
+        <div className="flex items-center gap-2.5">
+          <div className="w-9 h-9 rounded-xl bg-orange-100 flex items-center justify-center">
+            <Trophy size={18} className="text-[#F5A623]" />
+          </div>
+          <div>
+            <h2 className="text-base font-bold text-gray-900 leading-none">Ranking de Fornecedores</h2>
+            <p className="text-xs text-gray-400 mt-0.5">Por volume de compras pagas</p>
+          </div>
+        </div>
+
+        {/* Período pills */}
+        <div className="flex flex-wrap items-center gap-1.5">
+          {(Object.keys(PERIOD_LABELS) as RankingPeriod[]).map(p => (
+            <button
+              key={p}
+              onClick={() => { setPeriod(p); setShowAll(false) }}
+              className={`flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-medium transition-all border ${
+                period === p
+                  ? 'bg-[#F5A623] text-white border-[#F5A623] shadow-sm'
+                  : 'bg-white text-gray-500 border-gray-200 hover:border-[#F5A623] hover:text-[#F5A623]'
+              }`}
+            >
+              {p === 'custom' && <Calendar size={11} />}
+              {PERIOD_LABELS[p]}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Custom date range */}
+      {period === 'custom' && (
+        <div className="flex flex-wrap items-center gap-2 px-5 py-3 bg-orange-50 border-b border-orange-100">
+          <Calendar size={14} className="text-[#F5A623]" />
+          <span className="text-xs font-medium text-gray-600">Período:</span>
+          <input
+            type="date" value={custStart} onChange={e => setCustStart(e.target.value)}
+            className="border border-gray-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-[#F5A623]"
+          />
+          <span className="text-xs text-gray-400">até</span>
+          <input
+            type="date" value={custEnd} onChange={e => setCustEnd(e.target.value)}
+            className="border border-gray-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-[#F5A623]"
+          />
+          <button
+            onClick={applyCustom}
+            disabled={!custStart || !custEnd}
+            className="px-3 py-1.5 bg-[#F5A623] text-white text-xs font-semibold rounded-lg disabled:opacity-40"
+          >
+            Aplicar
+          </button>
+        </div>
+      )}
+
+      {/* Loading skeleton */}
+      {isLoading && (
+        <div className="p-5 space-y-3 animate-pulse">
+          <div className="grid grid-cols-4 gap-3">
+            {[0,1,2,3].map(i => (
+              <div key={i} className="h-16 bg-gray-100 rounded-xl" />
+            ))}
+          </div>
+          <div className="grid grid-cols-1 lg:grid-cols-5 gap-4 mt-4">
+            <div className="lg:col-span-3 space-y-2">
+              {[0,1,2,3,4].map(i => (
+                <div key={i} className="h-12 bg-gray-100 rounded-lg" />
+              ))}
+            </div>
+            <div className="lg:col-span-2 h-48 bg-gray-100 rounded-xl" />
+          </div>
+        </div>
+      )}
+
+      {/* Error */}
+      {isError && !isLoading && (
+        <div className="p-8 text-center text-sm text-gray-400">
+          Erro ao carregar ranking. Verifique a conexão com a API.
+        </div>
+      )}
+
+      {/* Empty */}
+      {!isLoading && !isError && ranking.length === 0 && (
+        <div className="p-10 text-center">
+          <Trophy size={32} className="mx-auto mb-3 text-gray-200" />
+          <p className="text-sm font-medium text-gray-500">Nenhuma compra paga no período</p>
+          <p className="text-xs text-gray-400 mt-1">Altere o período ou registre pagamentos a fornecedores</p>
+        </div>
+      )}
+
+      {/* Content */}
+      {!isLoading && !isError && ranking.length > 0 && (
+        <div className="p-5 space-y-4">
+          {/* Metric cards */}
+          <div className="grid grid-cols-2 xl:grid-cols-4 gap-3">
+            <div className="bg-orange-50 rounded-xl p-3.5">
+              <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide mb-1">Total comprado</p>
+              <p className="text-xl font-bold text-gray-900">{fmt(meta?.totalGeral ?? 0)}</p>
+            </div>
+            <div className="bg-yellow-50 rounded-xl p-3.5">
+              <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide mb-1">1º lugar</p>
+              <p className="text-base font-bold text-gray-900 truncate">{ranking[0]?.tradeName || ranking[0]?.name || '—'}</p>
+              <p className="text-xs text-[#F5A623] font-semibold">{fmt(ranking[0]?.totalComprado ?? 0)}</p>
+            </div>
+            <div className="bg-amber-50 rounded-xl p-3.5">
+              <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide mb-1">Ticket médio</p>
+              <p className="text-xl font-bold text-gray-900">
+                {fmt(ranking.length > 0 ? (meta?.totalGeral ?? 0) / ranking.reduce((a, r) => a + r.transactionCount, 0) : 0)}
+              </p>
+            </div>
+            <div className="bg-gray-50 rounded-xl p-3.5">
+              <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide mb-1">Fornecedores ativos</p>
+              <p className="text-xl font-bold text-gray-900">{meta?.totalFornecedores ?? 0}</p>
+            </div>
+          </div>
+
+          {/* Lista + Donut */}
+          <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
+            {/* Lista rankeada */}
+            <div className="lg:col-span-3 space-y-1.5">
+              {preview.map(r => (
+                <div
+                  key={r.supplierId}
+                  onClick={() => router.push(`/app/financeiro/fornecedores/${r.supplierId}`)}
+                  className="flex items-center gap-3 p-2.5 rounded-xl hover:bg-gray-50 cursor-pointer transition-colors group"
+                >
+                  {/* Position badge */}
+                  <div className={`w-7 h-7 flex-shrink-0 rounded-full border flex items-center justify-center text-xs font-bold ${positionBadge(r.position)}`}>
+                    {r.position <= 3 ? ['🥇','🥈','🥉'][r.position-1] : r.position}
+                  </div>
+
+                  {/* Avatar */}
+                  <div className="w-8 h-8 flex-shrink-0 rounded-lg bg-orange-100 flex items-center justify-center text-xs font-bold text-orange-700">
+                    {initials(r.name)}
+                  </div>
+
+                  {/* Info */}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className="text-sm font-semibold text-gray-900 truncate group-hover:text-[#F5A623]">
+                        {r.tradeName || r.name}
+                      </span>
+                      {r.category && (
+                        <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${CAT_COLORS[r.category] ?? 'bg-gray-100 text-gray-600'}`}>
+                          {CAT_LABELS[r.category] ?? r.category}
+                        </span>
+                      )}
+                    </div>
+                    {/* Progress bar */}
+                    <div className="mt-1 flex items-center gap-2">
+                      <div className="flex-1 h-1 bg-gray-100 rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-gradient-to-r from-[#F5A623] to-[#f59e0b] rounded-full transition-all"
+                          style={{ width: `${Math.min(100, r.percentualDoTotal)}%` }}
+                        />
+                      </div>
+                      <span className="text-[10px] text-gray-400 w-10 text-right flex-shrink-0">
+                        {r.percentualDoTotal.toFixed(1)}%
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Valores */}
+                  <div className="text-right flex-shrink-0">
+                    <p className="text-sm font-bold text-gray-900">{fmt(r.totalComprado)}</p>
+                    <p className="text-[10px] text-gray-400">{r.transactionCount} pag.</p>
+                  </div>
+                </div>
+              ))}
+
+              {ranking.length > 5 && (
+                <button
+                  onClick={() => setShowAll(v => !v)}
+                  className="w-full flex items-center justify-center gap-1.5 py-2 text-xs font-medium text-gray-500 hover:text-[#F5A623] transition-colors"
+                >
+                  <ChevronDown size={14} className={`transition-transform ${showAll ? 'rotate-180' : ''}`} />
+                  {showAll ? 'Ver menos' : `Ver mais ${ranking.length - 5} fornecedores`}
+                </button>
+              )}
+            </div>
+
+            {/* Donut chart */}
+            <div className="lg:col-span-2 flex flex-col items-center justify-center min-h-[240px]">
+              {donutData.length > 0 ? (
+                <ResponsiveContainer width="100%" height={240}>
+                  <PieChart>
+                    <Pie
+                      data={donutData}
+                      cx="50%"
+                      cy="50%"
+                      innerRadius={55}
+                      outerRadius={85}
+                      paddingAngle={2}
+                      dataKey="value"
+                    >
+                      {donutData.map((_, i) => (
+                        <Cell key={i} fill={DONUT_COLORS[i % DONUT_COLORS.length]} />
+                      ))}
+                    </Pie>
+                    <Tooltip content={<CustomTooltip />} />
+                    <Legend
+                      formatter={(value) => (
+                        <span className="text-[11px] text-gray-600">{value}</span>
+                      )}
+                    />
+                  </PieChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="text-xs text-gray-300">Sem dados</div>
+              )}
+              {meta && meta.totalGeral > 0 && (
+                <p className="text-center mt-1">
+                  <span className="text-xs text-gray-400">Total: </span>
+                  <span className="text-sm font-bold text-gray-800">{fmt(meta.totalGeral)}</span>
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -520,6 +878,9 @@ export default function FornecedoresPage() {
           </div>
         ))}
       </div>
+
+      {/* Ranking de Fornecedores */}
+      <SupplierRanking />
 
       {/* Tabela */}
       <div className="bg-white rounded-2xl border border-gray-200 shadow-sm">

@@ -246,6 +246,124 @@ export async function supplierRoutes(app: FastifyInstance) {
     return reply.status(201).send({ supplier })
   })
 
+  // ── GET /api/v1/suppliers/ranking ───────────────────────────────────────────
+  app.get('/ranking', {
+    preHandler: [requirePermission('financeiro', 'view')],
+  }, async (request, reply) => {
+    const req = request as RequestWithMember
+    const { companyId } = req
+    const q = request.query as {
+      period?: string
+      startDate?: string
+      endDate?: string
+      limit?: string
+    }
+
+    const period    = q.period    || 'month'
+    const limitNum  = Math.min(50, Math.max(1, parseInt(q.limit || '10') || 10))
+
+    // ─── Calcular range de datas ──────────────────────────────────────────────
+    const now = new Date()
+    let startDate: Date
+    let endDate: Date = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999)
+
+    if (period === 'custom' && q.startDate && q.endDate) {
+      startDate = new Date(q.startDate + 'T00:00:00')
+      endDate   = new Date(q.endDate   + 'T23:59:59')
+    } else if (period === 'month') {
+      startDate = new Date(now.getFullYear(), now.getMonth(), 1)
+    } else if (period === 'quarter') {
+      const quarterStart = Math.floor(now.getMonth() / 3) * 3
+      startDate = new Date(now.getFullYear(), quarterStart, 1)
+    } else if (period === 'semester') {
+      const semStart = now.getMonth() < 6 ? 0 : 6
+      startDate = new Date(now.getFullYear(), semStart, 1)
+    } else if (period === 'year') {
+      startDate = new Date(now.getFullYear(), 0, 1)
+    } else {
+      startDate = new Date(now.getFullYear(), now.getMonth(), 1)
+    }
+
+    // ─── Agrupar por fornecedor ───────────────────────────────────────────────
+    const grouped = await (prisma as any).financialTransaction.groupBy({
+      by:     ['supplierId'],
+      where: {
+        companyId,
+        isActive:   true,
+        type:       'EXPENSE',
+        supplierId: { not: null },
+        paidAt: {
+          gte: startDate,
+          lte: endDate,
+        },
+      },
+      _sum:   { netAmount: true },
+      _count: { id: true },
+      orderBy: { _sum: { netAmount: 'desc' } },
+    })
+
+    const totalGeral = grouped.reduce(
+      (acc: number, g: any) => acc + Number(g._sum.netAmount ?? 0),
+      0
+    )
+
+    if (grouped.length === 0) {
+      return reply.send({
+        ranking: [],
+        meta: {
+          period,
+          startDate: startDate.toISOString(),
+          endDate:   endDate.toISOString(),
+          totalGeral:        0,
+          totalFornecedores: 0,
+        },
+      })
+    }
+
+    // ─── Buscar dados dos fornecedores ────────────────────────────────────────
+    const supplierIds = grouped.map((g: any) => g.supplierId).filter(Boolean)
+    const suppliers   = await (prisma as any).supplier.findMany({
+      where: { id: { in: supplierIds }, companyId },
+      select: {
+        id: true, name: true, tradeName: true, type: true,
+        category: true, rating: true,
+      },
+    })
+    const supplierMap = new Map(suppliers.map((s: any) => [s.id, s]))
+
+    const ranking = grouped
+      .slice(0, limitNum)
+      .map((g: any, idx: number) => {
+        const s       = supplierMap.get(g.supplierId) as any
+        const total   = Number(g._sum.netAmount ?? 0)
+        const count   = Number(g._count.id ?? 0)
+        return {
+          position:          idx + 1,
+          supplierId:        g.supplierId,
+          name:              s?.name      ?? '—',
+          tradeName:         s?.tradeName ?? null,
+          type:              s?.type      ?? 'COMPANY',
+          category:          s?.category  ?? null,
+          rating:            s?.rating    ?? null,
+          totalComprado:     total,
+          percentualDoTotal: totalGeral > 0 ? (total / totalGeral) * 100 : 0,
+          ticketMedio:       count > 0 ? total / count : 0,
+          transactionCount:  count,
+        }
+      })
+
+    return reply.send({
+      ranking,
+      meta: {
+        period,
+        startDate:         startDate.toISOString(),
+        endDate:           endDate.toISOString(),
+        totalGeral,
+        totalFornecedores: grouped.length,
+      },
+    })
+  })
+
   // ── GET /api/v1/suppliers/:id ────────────────────────────────────────────────
   app.get('/:id', {
     preHandler: [requirePermission('financeiro', 'view')],
