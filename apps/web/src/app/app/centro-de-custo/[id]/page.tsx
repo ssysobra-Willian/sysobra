@@ -19,6 +19,7 @@ import { UserAvatar } from '@/components/ui/UserAvatar'
 import { TableActionMenu } from '@/components/ui/TableActionMenu'
 import { Breadcrumb } from '@/components/ui/Breadcrumb'
 import { StageFormModal, type ProjectStage as StagePayload } from '../components/StageFormModal'
+import { toImageUrl }  from '@/lib/imageUrl'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
 
@@ -719,7 +720,7 @@ export default function ObraDetailPage() {
             <div className="h-40 bg-gradient-to-br from-gray-800 to-gray-600 relative">
               {project.coverImage ? (
                 <img
-                  src={project.coverImage.startsWith('/uploads/') ? `${API}${project.coverImage}` : project.coverImage}
+                  src={toImageUrl(project.coverImage)}
                   alt={project.name}
                   className="w-full h-full object-cover"
                 />

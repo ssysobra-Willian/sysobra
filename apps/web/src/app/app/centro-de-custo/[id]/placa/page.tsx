@@ -7,7 +7,8 @@ import {
   ChevronLeft, Download, Printer, Eye, EyeOff, HardHat,
   Calendar, MapPin, Building2, User, Loader2,
 } from 'lucide-react'
-import { Breadcrumb } from '@/components/ui/Breadcrumb'
+import { Breadcrumb }  from '@/components/ui/Breadcrumb'
+import { toImageUrl } from '@/lib/imageUrl'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
 
@@ -61,7 +62,7 @@ function PlatePreview({ data, showPhoto }: { data: PlateData; showPhoto: boolean
         {/* Logo da empresa */}
         <div className="flex items-center gap-3">
           {data.company.logo ? (
-            <img src={data.company.logo} alt="Logo" className="h-12 w-auto object-contain" />
+            <img src={toImageUrl(data.company.logo)} alt="Logo" className="h-12 w-auto object-contain" />
           ) : (
             <div className="h-12 w-12 bg-white/20 rounded-xl flex items-center justify-center">
               <Building2 size={24} className="text-white" />
@@ -154,7 +155,7 @@ function PlatePreview({ data, showPhoto }: { data: PlateData; showPhoto: boolean
         {(data.technicalName || data.technicalCrea) && (
           <div className="flex items-center gap-4">
             {showPhoto && data.technicalPhoto && (
-              <img src={data.technicalPhoto} alt={data.technicalName ?? 'RT'} className="h-14 w-14 rounded-full object-cover border-2 border-[#F5A623] flex-shrink-0" />
+              <img src={toImageUrl(data.technicalPhoto)} alt={data.technicalName ?? 'RT'} className="h-14 w-14 rounded-full object-cover border-2 border-[#F5A623] flex-shrink-0" />
             )}
             <div>
               <p className="text-[9px] text-gray-400 uppercase tracking-wide font-semibold">Responsável técnico</p>

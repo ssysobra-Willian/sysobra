@@ -2,6 +2,7 @@
 
 import { useRef, useState } from 'react'
 import { Camera, Trash2, Building2 } from 'lucide-react'
+import { toImageUrl } from '@/lib/imageUrl'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
 
@@ -104,10 +105,6 @@ export function ProjectCoverUpload({
   }
 
   // ── Com foto ───────────────────────────────────────────────────────────────
-  const imgSrc = currentUrl.startsWith('/uploads/')
-    ? `${API}${currentUrl}`
-    : currentUrl
-
   return (
     <div className="space-y-1">
       <div
@@ -115,7 +112,7 @@ export function ProjectCoverUpload({
         style={{ height: 200 }}
       >
         <img
-          src={imgSrc}
+          src={toImageUrl(currentUrl)}
           alt="Foto da obra"
           className="w-full h-full object-cover"
         />

@@ -37,7 +37,13 @@ const app = Fastify({
 
 async function bootstrap() {
   // ── Segurança ────────────────────────────────────────────────────────────
-  await app.register(helmet, { global: true })
+  await app.register(helmet, {
+    global: true,
+    // Permite que /uploads/* sejam carregados por origens diferentes (browser cross-origin).
+    // O padrão "same-origin" bloquearia as imagens servidas pelo @fastify/static quando o
+    // frontend roda numa porta diferente do backend.
+    crossOriginResourcePolicy: { policy: 'cross-origin' },
+  })
 
   await app.register(rateLimit, {
     max: 100,
@@ -74,9 +80,15 @@ async function bootstrap() {
   // ── Arquivos estáticos (uploads) ─────────────────────────────────────────
   const uploadsDir = path.join(process.cwd(), 'uploads')
   await app.register(staticFiles, {
-    root: uploadsDir,
-    prefix: '/uploads/',
-    decorateReply: false,
+    root:           uploadsDir,
+    prefix:         '/uploads/',
+    decorateReply:  false,
+    // Cabeçalhos CORS e cache em cada arquivo servido
+    setHeaders(res) {
+      res.setHeader('Access-Control-Allow-Origin',   '*')
+      res.setHeader('Cross-Origin-Resource-Policy',  'cross-origin')
+      res.setHeader('Cache-Control', 'public, max-age=31536000, immutable')
+    },
   })
 
   // ── Health check ─────────────────────────────────────────────────────────

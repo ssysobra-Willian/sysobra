@@ -190,7 +190,8 @@ export async function companyRoutes(app: FastifyInstance) {
     const filePath = path.join(uploadsDir, filename)
     fs.writeFileSync(filePath, buffer)
 
-    const logoUrl = `${env.API_URL}/uploads/logos/${filename}`
+    // Salva caminho relativo — o frontend usa toImageUrl() para converter para proxy
+    const logoUrl = `/uploads/logos/${filename}`
 
     await prisma.company.update({
       where: { id: companyId },

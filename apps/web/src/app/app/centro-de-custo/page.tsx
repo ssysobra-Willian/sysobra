@@ -10,6 +10,7 @@ import {
 } from 'lucide-react'
 import { formatCurrency } from '@/lib/format'
 import { UserAvatar } from '@/components/ui/UserAvatar'
+import { toImageUrl }  from '@/lib/imageUrl'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
 
@@ -108,7 +109,7 @@ function ProjectCard({ proj }: { proj: Project }) {
       <div className="h-32 bg-gradient-to-br from-gray-800 to-gray-600 relative flex-shrink-0">
         {proj.coverImage ? (
           <img
-            src={proj.coverImage.startsWith('/uploads/') ? `${API}${proj.coverImage}` : proj.coverImage}
+            src={toImageUrl(proj.coverImage)}
             alt={proj.name}
             className="w-full h-full object-cover"
           />

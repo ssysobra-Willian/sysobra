@@ -1,23 +1,15 @@
 /**
  * Utilitários para URLs de uploads.
  *
- * Imagens são salvas com caminhos relativos (/uploads/...) tanto no
- * banco quanto nas respostas da API. Para exibição no browser, é
- * necessário prefixar com o domínio da API (porta 3001 em dev).
+ * Imagens são salvas com caminhos relativos (/uploads/...) no banco.
+ * Para exibição, o Next.js faz proxy em /api/uploads/... → elimina
+ * problemas de CORS e Cross-Origin-Resource-Policy.
  */
 
-const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
+export { toImageUrl } from './imageUrl'
 
 /**
- * Converte um caminho de upload em URL absoluta acessível pelo browser.
- *
- * - `/uploads/...`  → `http://localhost:3001/uploads/...`
- * - `blob:...`      → retorna como está (preview local durante upload)
- * - `http://...`    → retorna como está (URL externa ou já absoluta)
- * - null / ''       → retorna ''
+ * Alias mantido para retrocompatibilidade.
+ * Prefira `toImageUrl` de '@/lib/imageUrl' em código novo.
  */
-export function resolveUploadUrl(url: string | null | undefined): string {
-  if (!url) return ''
-  if (url.startsWith('/uploads/')) return `${API}${url}`
-  return url
-}
+export { toImageUrl as resolveUploadUrl } from './imageUrl'

@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { saveCompanySession, clearSession } from '@/lib/auth-cookies'
 import type { MemberRole, MemberType } from '@/lib/auth-cookies'
+import { toImageUrl } from '@/lib/imageUrl'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
 
@@ -229,7 +230,7 @@ export default function SelecionarEmpresaPage() {
                     }`}>
                       {company.logo ? (
                         <img
-                          src={company.logo}
+                          src={toImageUrl(company.logo)}
                           alt={company.name}
                           className="h-10 w-10 rounded-lg object-cover"
                         />

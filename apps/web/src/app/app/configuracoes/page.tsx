@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useRef, useEffect } from 'react'
+import { toImageUrl } from '@/lib/imageUrl'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
 
@@ -131,7 +132,7 @@ export default function ConfiguracoesPage() {
         {currentLogo && !preview && (
           <div className="mb-5 flex items-center gap-4">
             <img
-              src={currentLogo}
+              src={toImageUrl(currentLogo)}
               alt="Logo da empresa"
               className="h-16 w-16 rounded-xl object-cover border border-gray-200"
             />

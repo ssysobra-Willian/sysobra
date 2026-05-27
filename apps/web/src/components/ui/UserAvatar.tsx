@@ -1,6 +1,7 @@
 'use client'
 
 import React from 'react'
+import { toImageUrl } from '@/lib/imageUrl'
 
 export type AvatarSize = 'xs' | 'sm' | 'md' | 'lg'
 
@@ -54,7 +55,7 @@ export function UserAvatar({ name, avatarUrl, size = 'md', className = '', toolt
       style={!avatarUrl ? { backgroundColor: color } : undefined}
     >
       {avatarUrl ? (
-        <img src={avatarUrl} alt={name} className={`${sz.img} rounded-full object-cover`} />
+        <img src={toImageUrl(avatarUrl)} alt={name} className={`${sz.img} rounded-full object-cover`} />
       ) : (
         <span className={`${sz.text} font-bold text-white leading-none select-none`}>{initials}</span>
       )}

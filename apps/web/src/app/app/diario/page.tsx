@@ -9,6 +9,7 @@ import { Badge }                             from '@/components/ui/Badge'
 import { SemAcesso }                         from '@/components/SemAcesso'
 import { usePermissions }                    from '@/hooks/usePermissions'
 import type { BadgeVariant }                 from '@/components/ui/Badge'
+import { toImageUrl }                        from '@/lib/imageUrl'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
 
@@ -140,7 +141,7 @@ function ProjectSelectModal({
                   {/* Miniatura */}
                   <div className="w-10 h-10 rounded-xl overflow-hidden flex-shrink-0 bg-gray-100">
                     {proj.coverImage ? (
-                      <Image src={proj.coverImage} alt={proj.name} width={40} height={40} className="object-cover w-full h-full" />
+                      <Image src={toImageUrl(proj.coverImage)} alt={proj.name} width={40} height={40} className="object-cover w-full h-full" unoptimized />
                     ) : (
                       <div className={`w-full h-full bg-gradient-to-br ${sc.color} opacity-80`} />
                     )}
@@ -337,11 +338,12 @@ function ProjectCard({ project: proj, canCreate }: { project: DiaryProject; canC
       <div className="relative w-[68px] flex-shrink-0">
         {proj.coverImage ? (
           <Image
-            src={proj.coverImage}
+            src={toImageUrl(proj.coverImage)}
             alt={proj.name}
             fill
             className="object-cover"
             sizes="68px"
+            unoptimized
           />
         ) : (
           <div className={`w-full h-full bg-gradient-to-b ${sc.color}`} />
