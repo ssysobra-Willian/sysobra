@@ -9,6 +9,7 @@ import {
   JwtPayload,
 } from '../../middlewares/auth.middleware'
 import { generatePdf, type ClientReportData } from '../../utils/pdf'
+import { createAuditLog } from '../../utils/audit'
 
 // ─── Validação CPF ────────────────────────────────────────────────────────────
 
@@ -191,6 +192,17 @@ export async function clientRoutes(app: FastifyInstance) {
         contactPhone: d.contactPhone ?? null,
         notes:        d.notes       ?? null,
       },
+    })
+
+    await createAuditLog({
+      prisma, companyId, userId: payload.sub, request,
+      action:      'CREATE',
+      module:      'FINANCIAL',
+      entity:      'Client',
+      entityId:    client.id,
+      entityName:  client.name,
+      description: `Cliente "${client.name}" cadastrado`,
+      metadata:    { type: d.type, cpfCnpj: d.cpfCnpj },
     })
 
     return reply.status(201).send({ client })

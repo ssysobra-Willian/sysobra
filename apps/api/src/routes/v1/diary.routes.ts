@@ -9,6 +9,7 @@ import {
 } from '../../middlewares/auth.middleware'
 import { generatePdf } from '../../utils/pdf'
 import { PDF_COLORS, getPdfHeader, getPdfFooter, buildPdfDocument } from '../../utils/pdfTemplate'
+import { createAuditLog } from '../../utils/audit'
 
 const p = prisma as any
 
@@ -480,15 +481,15 @@ export async function diaryRoutes(app: FastifyInstance) {
     })
 
     // Audit log
-    await prisma.auditLog.create({
-      data: {
-        companyId,
-        userId,
-        action:   'CREATE',
-        entity:   'DiaryEntry',
-        entityId: entry.id,
-        after:    { reportNumber, projectId: body.projectId, date: entryDate },
-      },
+    await createAuditLog({
+      prisma, companyId, userId, request,
+      action:      'CREATE',
+      module:      'DIARY',
+      entity:      'DiaryEntry',
+      entityId:    entry.id,
+      entityName:  reportNumber ?? entry.id,
+      description: `RDO ${reportNumber} criado para obra "${body.projectId}"`,
+      metadata:    { reportNumber, projectId: body.projectId, date: entryDate.toISOString() },
     })
 
     const created = await p.diaryEntry.findUnique({
@@ -654,17 +655,15 @@ export async function diaryRoutes(app: FastifyInstance) {
       data:  { status: 'APPROVED', approvedById: payload.sub, approvedAt: new Date(), rejectionNote: null },
     })
 
-    await (prisma as any).auditLog.create({
-      data: {
-        companyId:   entry.projectId ? (await p.project.findUnique({ where: { id: entry.projectId }, select: { companyId: true } }))?.companyId ?? req.companyId : req.companyId,
-        userId:      payload.sub,
-        action:      'APPROVE',
-        entity:      'DiaryEntry',
-        entityId:    id,
-        entityName:  entry.reportNumber ?? id,
-        description: `RDO ${entry.reportNumber ?? ''} aprovado`,
-      },
-    }).catch(() => null)
+    await createAuditLog({
+      prisma, companyId: req.companyId!, userId: payload.sub, request,
+      action:      'APPROVE',
+      module:      'DIARY',
+      entity:      'DiaryEntry',
+      entityId:    id,
+      entityName:  entry.reportNumber ?? id,
+      description: `RDO ${entry.reportNumber ?? ''} aprovado`,
+    })
 
     return reply.send({ entry: updated })
   })
@@ -692,18 +691,16 @@ export async function diaryRoutes(app: FastifyInstance) {
       },
     })
 
-    await (prisma as any).auditLog.create({
-      data: {
-        companyId:   entry.projectId ? (await p.project.findUnique({ where: { id: entry.projectId }, select: { companyId: true } }))?.companyId ?? req.companyId : req.companyId,
-        userId:      payload.sub,
-        action:      'REJECT',
-        entity:      'DiaryEntry',
-        entityId:    id,
-        entityName:  entry.reportNumber ?? id,
-        description: `RDO ${entry.reportNumber ?? ''} devolvido`,
-        metadata:    { note: rejectionNote.trim() },
-      },
-    }).catch(() => null)
+    await createAuditLog({
+      prisma, companyId: req.companyId!, userId: payload.sub, request,
+      action:      'REJECT',
+      module:      'DIARY',
+      entity:      'DiaryEntry',
+      entityId:    id,
+      entityName:  entry.reportNumber ?? id,
+      description: `RDO ${entry.reportNumber ?? ''} rejeitado — motivo: "${rejectionNote.trim()}"`,
+      metadata:    { rejectionNote: rejectionNote.trim() },
+    })
 
     return reply.send({ entry: updated })
   })
@@ -725,17 +722,15 @@ export async function diaryRoutes(app: FastifyInstance) {
 
     const updated = await p.diaryEntry.update({ where: { id }, data: { status: 'PENDING' } })
 
-    await (prisma as any).auditLog.create({
-      data: {
-        companyId:   req.companyId!,
-        userId:      payload.sub,
-        action:      'SUBMIT',
-        entity:      'DiaryEntry',
-        entityId:    id,
-        entityName:  entry.reportNumber ?? id,
-        description: `RDO ${entry.reportNumber ?? ''} enviado para aprovação`,
-      },
-    }).catch(() => null)
+    await createAuditLog({
+      prisma, companyId: req.companyId!, userId: payload.sub, request,
+      action:      'SUBMIT',
+      module:      'DIARY',
+      entity:      'DiaryEntry',
+      entityId:    id,
+      entityName:  entry.reportNumber ?? id,
+      description: `RDO ${entry.reportNumber ?? ''} enviado para aprovação`,
+    })
 
     return reply.send({ entry: updated })
   })
@@ -1330,17 +1325,15 @@ export async function diaryRoutes(app: FastifyInstance) {
     }
 
     // Audit log
-    await (prisma as any).auditLog.create({
-      data: {
-        companyId:   req.companyId!,
-        userId:      payload.sub,
-        action:      'UPDATE',
-        entity:      'DiaryEntry',
-        entityId:    id,
-        entityName:  entry.reportNumber ?? id,
-        description: `RDO ${entry.reportNumber ?? ''} atualizado`,
-      },
-    }).catch(() => null)
+    await createAuditLog({
+      prisma, companyId: req.companyId!, userId: payload.sub, request,
+      action:      'UPDATE',
+      module:      'DIARY',
+      entity:      'DiaryEntry',
+      entityId:    id,
+      entityName:  entry.reportNumber ?? id,
+      description: `RDO ${entry.reportNumber ?? ''} editado`,
+    })
 
     return reply.send({ entry: updated })
   })
@@ -1377,17 +1370,15 @@ export async function diaryRoutes(app: FastifyInstance) {
       data: { status: 'APPROVED', approvedById: payload.sub, approvedAt: new Date(), rejectionNote: null },
     })
 
-    await (prisma as any).auditLog.create({
-      data: {
-        companyId:   req.companyId!,
-        userId:      payload.sub,
-        action:      'APPROVE',
-        entity:      'DiaryEntry',
-        entityId:    id,
-        entityName:  entry.reportNumber ?? id,
-        description: `Registro ${entry.reportNumber ?? ''} aprovado`,
-      },
-    }).catch(() => null)
+    await createAuditLog({
+      prisma, companyId: req.companyId!, userId: payload.sub, request,
+      action:      'APPROVE',
+      module:      'DIARY',
+      entity:      'DiaryEntry',
+      entityId:    id,
+      entityName:  entry.reportNumber ?? id,
+      description: `RDO ${entry.reportNumber ?? ''} aprovado`,
+    })
 
     return reply.send({ entry: updated })
   })
@@ -1407,18 +1398,16 @@ export async function diaryRoutes(app: FastifyInstance) {
 
     const updated = await p.diaryEntry.update({ where: { id }, data: { status: 'REJECTED', rejectionNote: rejectionNote.trim() } })
 
-    await (prisma as any).auditLog.create({
-      data: {
-        companyId:   req.companyId!,
-        userId:      payload.sub,
-        action:      'REJECT',
-        entity:      'DiaryEntry',
-        entityId:    id,
-        entityName:  entry.reportNumber ?? id,
-        description: `Registro ${entry.reportNumber ?? ''} devolvido`,
-        metadata:    { note: rejectionNote.trim() },
-      },
-    }).catch(() => null)
+    await createAuditLog({
+      prisma, companyId: req.companyId!, userId: payload.sub, request,
+      action:      'REJECT',
+      module:      'DIARY',
+      entity:      'DiaryEntry',
+      entityId:    id,
+      entityName:  entry.reportNumber ?? id,
+      description: `RDO ${entry.reportNumber ?? ''} rejeitado — motivo: "${rejectionNote.trim()}"`,
+      metadata:    { rejectionNote: rejectionNote.trim() },
+    })
 
     return reply.send({ entry: updated })
   })
@@ -1450,18 +1439,16 @@ export async function diaryRoutes(app: FastifyInstance) {
       },
     })
 
-    await (prisma as any).auditLog.create({
-      data: {
-        companyId:   req.companyId!,
-        userId:      payload.sub,
-        action:      'COMMENT',
-        entity:      'DiaryEntry',
-        entityId:    id,
-        entityName:  entry.reportNumber ?? id,
-        description: `Comentário adicionado ao RDO ${entry.reportNumber ?? ''}`,
-        metadata:    { isInternal: actualInternal, preview: content.trim().slice(0, 80) },
-      },
-    }).catch(() => null)
+    await createAuditLog({
+      prisma, companyId: req.companyId!, userId: payload.sub, request,
+      action:      'COMMENT',
+      module:      'DIARY',
+      entity:      'DiaryEntry',
+      entityId:    id,
+      entityName:  entry.reportNumber ?? id,
+      description: `Comentário adicionado ao RDO ${entry.reportNumber ?? ''}`,
+      metadata:    { isInternal: actualInternal, preview: content.trim().slice(0, 80) },
+    })
 
     return reply.status(201).send({ comment })
   })

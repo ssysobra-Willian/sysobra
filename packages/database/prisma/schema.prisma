@@ -1412,12 +1412,17 @@ model Signature {
 model AuditLog {
   id          String   @id @default(cuid())
   companyId   String   @map("company_id")
-  userId      String   @map("user_id")
-  action      String
-  entity      String
-  entityId    String   @map("entity_id")
+  userId      String?  @map("user_id")    // null = ação do sistema
+  action      String   // CREATE | UPDATE | DELETE | APPROVE | REJECT | SUBMIT |
+                       // COMMENT | UPLOAD | LOGIN | LOGOUT | TRANSFER | REVERSE |
+                       // PAY | RECEIVE | CANCEL | INVITE | PERMISSION_CHANGE |
+                       // EXPORT | PRINT | REVERSE_TRANSFER
+  module      String   // FINANCIAL | PROJECT | DIARY | DEPOSIT | FLEET |
+                       // PURCHASES | COLLABORATORS | TRACKER | SETTINGS | AUTH | REPORTS
+  entity      String   // FinancialTransaction | Project | DiaryEntry | BankAccount | etc.
+  entityId    String?  @map("entity_id")
   entityName  String?  @map("entity_name")
-  description String?
+  description String
   before      Json?
   after       Json?
   metadata    Json?
@@ -1426,11 +1431,12 @@ model AuditLog {
   createdAt   DateTime @default(now()) @map("created_at")
 
   company Company @relation(fields: [companyId], references: [id])
-  user    User    @relation(fields: [userId], references: [id])
+  user    User?   @relation(fields: [userId], references: [id])
 
+  @@index([companyId, createdAt(sort: Desc)])
+  @@index([companyId, module])
   @@index([companyId, entity, entityId])
-  @@index([companyId, createdAt])
-  @@index([userId])
+  @@index([companyId, userId])
   @@map("audit_logs")
 }
 

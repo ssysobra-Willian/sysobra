@@ -175,8 +175,8 @@ function ActivitiesCard({ loading }: { loading: boolean }) {
       <PanelHeader
         title="Atividades recentes"
         actions={
-          <Link href="/app/dashboard/atividades" className="text-xs text-[#F5A623] hover:underline font-medium">
-            Ver todas
+          <Link href="/app/atividades" className="text-xs text-[#F5A623] hover:underline font-medium">
+            Ver todas →
           </Link>
         }
       />
@@ -184,7 +184,13 @@ function ActivitiesCard({ loading }: { loading: boolean }) {
         <SkeletonRows n={5} />
       ) : (
         <div className="px-5 pb-5">
-          <ActivityFeed limit={5} showHeader={false} compact />
+          <ActivityFeed
+            limit={8}
+            showHeader={false}
+            compact={false}
+            showModule
+            showPaging
+          />
         </div>
       )}
     </Panel>

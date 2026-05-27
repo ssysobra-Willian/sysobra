@@ -9,6 +9,7 @@ import {
   RequestWithMember,
   JwtPayload,
 } from '../../middlewares/auth.middleware'
+import { createAuditLog, fmtMoney, diffObjects } from '../../utils/audit'
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -716,12 +717,25 @@ export async function financialRoutes(app: FastifyInstance) {
       // saldo bancário
       if (d.isPaid) await updateBalance(prismaT, d.bankAccountId, d.type, net, 'apply')
 
-      // audit log
+      // audit log financeiro (legado)
       await (prismaT as any).financialAuditLog.create({
         data: { companyId, transactionId: transaction.id, userId: payload.sub, action: 'CREATED', newData: d },
       })
 
       return transaction
+    })
+
+    // auditoria geral
+    const typeLabel = d.type === 'INCOME' ? 'Receita' : 'Despesa'
+    await createAuditLog({
+      prisma, companyId, userId: payload.sub, request,
+      action:      'CREATE',
+      module:      'FINANCIAL',
+      entity:      'FinancialTransaction',
+      entityId:    tx.id,
+      entityName:  d.description,
+      description: `Lançamento "${d.description}" criado — ${fmtMoney(d.grossAmount)} (${typeLabel})`,
+      metadata:    { type: d.type, grossAmount: d.grossAmount, netAmount: calcNet(d.grossAmount, d.interestAmount ?? 0, d.retentionAmount ?? 0), isPaid: d.isPaid },
     })
 
     // recalcular alertas da obra vinculada
@@ -888,6 +902,34 @@ export async function financialRoutes(app: FastifyInstance) {
       return transaction
     })
 
+    // auditoria geral
+    const beforeForDiff = {
+      description:  existing.description,
+      grossAmount:  toNum(existing.grossAmount),
+      netAmount:    toNum(existing.netAmount),
+      isPaid:       existing.isPaid,
+      type:         existing.type,
+      bankAccountId: existing.bankAccountId,
+    }
+    const afterForDiff = {
+      description:  d.description ?? existing.description,
+      grossAmount:  d.grossAmount ?? toNum(existing.grossAmount),
+      netAmount:    net,
+      isPaid:       d.isPaid ?? existing.isPaid,
+      type:         d.type ?? existing.type,
+      bankAccountId: d.bankAccountId !== undefined ? (d.bankAccountId ?? null) : existing.bankAccountId,
+    }
+    await createAuditLog({
+      prisma, companyId, userId: payload.sub, request,
+      action:      'UPDATE',
+      module:      'FINANCIAL',
+      entity:      'FinancialTransaction',
+      entityId:    id,
+      entityName:  d.description ?? existing.description,
+      description: `Lançamento "${d.description ?? existing.description}" editado`,
+      metadata:    { changes: diffObjects(beforeForDiff, afterForDiff) },
+    })
+
     // recalcular alertas da obra vinculada (nova e anterior se mudou)
     const newProjectId = d.projectId !== undefined ? (d.projectId ?? null) : (existing as any).projectId
     const oldProjectId = (existing as any).projectId
@@ -942,6 +984,22 @@ export async function financialRoutes(app: FastifyInstance) {
       return tx
     })
 
+    // auditoria geral
+    const payAction = existing.type === 'INCOME' ? 'RECEIVE' : 'PAY'
+    const payLabel  = existing.type === 'INCOME'
+      ? `Recebimento de "${existing.description}" confirmado — ${fmtMoney(netAmount)}`
+      : `Lançamento "${existing.description}" marcado como pago — ${fmtMoney(netAmount)}`
+    await createAuditLog({
+      prisma, companyId, userId: payload.sub, request,
+      action:      payAction,
+      module:      'FINANCIAL',
+      entity:      'FinancialTransaction',
+      entityId:    id,
+      entityName:  existing.description,
+      description: payLabel,
+      metadata:    { netAmount, paidAt: paidAt.toISOString(), bankAccountId: bankAccId },
+    })
+
     // recalcular alertas da obra ao pagar
     const paidProjectId = (existing as any).projectId
     if (paidProjectId) await recalcProjectAlerts(paidProjectId, companyId)
@@ -991,6 +1049,18 @@ export async function financialRoutes(app: FastifyInstance) {
           },
         },
       })
+    })
+
+    // auditoria geral
+    await createAuditLog({
+      prisma, companyId, userId: payload.sub, request,
+      action:      'CANCEL',
+      module:      'FINANCIAL',
+      entity:      'FinancialTransaction',
+      entityId:    id,
+      entityName:  existing.description,
+      description: `Lançamento "${existing.description}" cancelado`,
+      metadata:    { netAmount: toNum(existing.netAmount), type: existing.type, wasPaid: existing.isPaid },
     })
 
     return reply.send({ success: true })
@@ -1195,6 +1265,8 @@ export async function financialRoutes(app: FastifyInstance) {
     if (!body.success) return reply.status(400).send({ error: 'Dados inválidos', details: body.error.flatten() })
     const d = body.data
 
+    const payload = request.user as JwtPayload
+
     const account = await prisma.bankAccount.create({
       data: {
         companyId,
@@ -1215,6 +1287,17 @@ export async function financialRoutes(app: FastifyInstance) {
       },
     })
 
+    await createAuditLog({
+      prisma, companyId, userId: payload.sub, request,
+      action:      'CREATE',
+      module:      'FINANCIAL',
+      entity:      'BankAccount',
+      entityId:    account.id,
+      entityName:  account.name,
+      description: `Conta bancária "${account.name}"${d.bank ? ` (${d.bank})` : ''} cadastrada`,
+      metadata:    { accountType: d.accountType, initialBalance: d.initialBalance },
+    })
+
     return reply.status(201).send({ account })
   })
 
@@ -1233,6 +1316,8 @@ export async function financialRoutes(app: FastifyInstance) {
     const existing = await prisma.bankAccount.findFirst({ where: { id, companyId } })
     if (!existing) return reply.status(404).send({ error: 'Conta não encontrada' })
 
+    const putPayload = request.user as JwtPayload
+
     const updated = await prisma.bankAccount.update({
       where: { id },
       data: {
@@ -1249,6 +1334,17 @@ export async function financialRoutes(app: FastifyInstance) {
         holderDocument:    d.holderDocument    ?? existing.holderDocument,
         integrationActive: d.integrationActive ?? existing.integrationActive,
       },
+    })
+
+    await createAuditLog({
+      prisma, companyId, userId: putPayload.sub, request,
+      action:      'UPDATE',
+      module:      'FINANCIAL',
+      entity:      'BankAccount',
+      entityId:    id,
+      entityName:  updated.name,
+      description: `Conta bancária "${updated.name}" editada`,
+      metadata:    { changes: diffObjects({ name: existing.name, bank: existing.bank }, { name: updated.name, bank: updated.bank }) },
     })
 
     return reply.send({ account: updated })
@@ -1649,10 +1745,11 @@ export async function financialRoutes(app: FastifyInstance) {
           companyId,
           userId,
           action:      'TRANSFER',
+          module:      'FINANCIAL',
           entity:      'BankAccount',
           entityId:    body.fromAccountId,
           entityName:  fromAccount.name,
-          description: `Transferência de R$ ${body.amount.toFixed(2).replace('.', ',')} de "${fromAccount.name}" para "${toAccount.name}"`,
+          description: `Transferência de ${fmtMoney(body.amount)} de "${fromAccount.name}" para "${toAccount.name}"`,
           metadata: {
             fromAccountId:  body.fromAccountId,
             toAccountId:    body.toAccountId,
@@ -1717,6 +1814,14 @@ export async function financialRoutes(app: FastifyInstance) {
 
     const amount = toNum(outTx.netAmount)
 
+    // Buscar nomes das contas para o log (antes da transação)
+    const [fromAccForLog, toAccForLog] = await Promise.all([
+      p.bankAccount.findUnique({ where: { id: outTx.bankAccountId }, select: { name: true } }),
+      p.bankAccount.findUnique({ where: { id: inTx.bankAccountId  }, select: { name: true } }),
+    ])
+    const fromAccountName = fromAccForLog?.name ?? outTx.bankAccountId
+    const toAccountName   = toAccForLog?.name   ?? inTx.bankAccountId
+
     await p.$transaction(async (tx: any) => {
       // Marcar ambos como inativo
       await tx.financialTransaction.updateMany({
@@ -1747,9 +1852,10 @@ export async function financialRoutes(app: FastifyInstance) {
           companyId,
           userId,
           action:      'REVERSE_TRANSFER',
+          module:      'FINANCIAL',
           entity:      'BankAccount',
           entityId:    outTx.bankAccountId,
-          description: `Estorno de transferência de R$ ${amount.toFixed(2).replace('.', ',')}`,
+          description: `Estorno de transferência de ${fmtMoney(amount)} — "${fromAccountName}" ↔ "${toAccountName}"`,
           metadata:    { transferPairId: pairId, amount },
         },
       }).catch(() => null)

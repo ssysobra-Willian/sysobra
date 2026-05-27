@@ -8,6 +8,7 @@ import {
   RequestWithMember,
   JwtPayload,
 } from '../../middlewares/auth.middleware'
+import { createAuditLog, diffObjects } from '../../utils/audit'
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -307,15 +308,15 @@ export async function projectRoutes(app: FastifyInstance) {
     })
 
     // Auditoria
-    await prisma.auditLog.create({
-      data: {
-        companyId,
-        userId,
-        action:   'CREATE',
-        entity:   'Project',
-        entityId: project.id,
-        after:    { name: project.name, code: project.code },
-      },
+    await createAuditLog({
+      prisma, companyId, userId, request,
+      action:      'CREATE',
+      module:      'PROJECT',
+      entity:      'Project',
+      entityId:    project.id,
+      entityName:  project.name,
+      description: `Obra "${project.name}" (${project.code}) criada`,
+      metadata:    { code: project.code, status: project.status, globalBudget: body.globalBudget },
     })
 
     return reply.status(201).send({ project: serialiseProject(project) })
@@ -506,16 +507,15 @@ export async function projectRoutes(app: FastifyInstance) {
 
     await recalcProject(id, companyId)
 
-    await prisma.auditLog.create({
-      data: {
-        companyId,
-        userId,
-        action:   'UPDATE',
-        entity:   'Project',
-        entityId: id,
-        before:   { name: existing.name },
-        after:    { name: project.name },
-      },
+    await createAuditLog({
+      prisma, companyId, userId, request,
+      action:      'UPDATE',
+      module:      'PROJECT',
+      entity:      'Project',
+      entityId:    id,
+      entityName:  project.name,
+      description: `Obra "${project.name}" editada`,
+      metadata:    { changes: diffObjects({ name: existing.name, status: existing.status }, { name: project.name, status: project.status ?? existing.status }) },
     })
 
     const updated = await p.project.findUnique({
@@ -559,15 +559,15 @@ export async function projectRoutes(app: FastifyInstance) {
       data:  { isActive: false },
     })
 
-    await prisma.auditLog.create({
-      data: {
-        companyId,
-        userId,
-        action:   'DELETE',
-        entity:   'Project',
-        entityId: id,
-        before:   { name: project.name },
-      },
+    await createAuditLog({
+      prisma, companyId, userId, request,
+      action:      'DELETE',
+      module:      'PROJECT',
+      entity:      'Project',
+      entityId:    id,
+      entityName:  project.name,
+      description: `Obra "${project.name}" inativada`,
+      metadata:    { txCount },
     })
 
     return reply.send({ success: true })
@@ -645,15 +645,15 @@ export async function projectRoutes(app: FastifyInstance) {
 
     await recalcProject(id, companyId)
 
-    await prisma.auditLog.create({
-      data: {
-        companyId,
-        userId:   payload.sub,
-        action:   'CREATE',
-        entity:   'ProjectStage',
-        entityId: stage.id,
-        after:    { projectId: id, name: body.name, budgetTotal: mat + labor },
-      },
+    await createAuditLog({
+      prisma, companyId, userId: payload.sub, request,
+      action:      'CREATE',
+      module:      'PROJECT',
+      entity:      'ProjectStage',
+      entityId:    stage.id,
+      entityName:  stage.name,
+      description: `Etapa "${stage.name}" adicionada à obra "${project.name}"`,
+      metadata:    { projectId: id, budgetTotal: mat + labor },
     })
 
     return reply.status(201).send({ stage: serialiseStage(stage), message: 'Etapa criada com sucesso' })
@@ -704,15 +704,15 @@ export async function projectRoutes(app: FastifyInstance) {
     const updated = await p.projectStage.update({ where: { id: stageId }, data })
     await recalcProject(id, companyId)
 
-    await prisma.auditLog.create({
-      data: {
-        companyId,
-        userId:   payload.sub,
-        action:   'UPDATE',
-        entity:   'ProjectStage',
-        entityId: stageId,
-        after:    { changes: body, projectId: id },
-      },
+    await createAuditLog({
+      prisma, companyId, userId: payload.sub, request,
+      action:      'UPDATE',
+      module:      'PROJECT',
+      entity:      'ProjectStage',
+      entityId:    stageId,
+      entityName:  body.name ?? stage.name,
+      description: `Etapa "${body.name ?? stage.name}" da obra "${project.name}" editada`,
+      metadata:    { projectId: id, changes: body },
     })
 
     return reply.send({ stage: serialiseStage(updated) })
@@ -752,15 +752,15 @@ export async function projectRoutes(app: FastifyInstance) {
     await p.projectStage.delete({ where: { id: stageId } })
     await recalcProject(id, companyId)
 
-    await prisma.auditLog.create({
-      data: {
-        companyId,
-        userId:   payload.sub,
-        action:   'DELETE',
-        entity:   'ProjectStage',
-        entityId: stageId,
-        before:   { name: stage.name, projectId: id },
-      },
+    await createAuditLog({
+      prisma, companyId, userId: payload.sub, request,
+      action:      'DELETE',
+      module:      'PROJECT',
+      entity:      'ProjectStage',
+      entityId:    stageId,
+      entityName:  stage.name,
+      description: `Etapa "${stage.name}" removida da obra "${project.name}"`,
+      metadata:    { projectId: id },
     })
 
     return reply.send({ success: true })
@@ -789,15 +789,15 @@ export async function projectRoutes(app: FastifyInstance) {
     const updated = await p.projectStage.update({ where: { id: stageId }, data })
     await recalcProject(id, companyId)
 
-    await prisma.auditLog.create({
-      data: {
-        companyId,
-        userId,
-        action:   'PROGRESS_UPDATE',
-        entity:   'ProjectStage',
-        entityId: stageId,
-        after:    { progressPercent: body.progressPercent, stageId, projectId: id },
-      },
+    await createAuditLog({
+      prisma, companyId, userId, request,
+      action:      'UPDATE',
+      module:      'PROJECT',
+      entity:      'ProjectStage',
+      entityId:    stageId,
+      entityName:  stage.name,
+      description: `Progresso da etapa "${stage.name}" (obra "${project.name}") atualizado para ${body.progressPercent}%`,
+      metadata:    { progressPercent: body.progressPercent, previousProgress: toNum(stage.progressPercent), projectId: id },
     })
 
     const projUpdated = await p.project.findUnique({

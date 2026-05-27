@@ -9,6 +9,7 @@ import {
   JwtPayload,
 } from '../../middlewares/auth.middleware'
 import { generatePdf, type SupplierReportData } from '../../utils/pdf'
+import { createAuditLog } from '../../utils/audit'
 
 // ─── Validação CPF ────────────────────────────────────────────────────────────
 
@@ -241,6 +242,17 @@ export async function supplierRoutes(app: FastifyInstance) {
         rating:                d.rating               ?? null,
         notes:                 d.notes                ?? null,
       },
+    })
+
+    await createAuditLog({
+      prisma, companyId, userId: payload.sub, request,
+      action:      'CREATE',
+      module:      'FINANCIAL',
+      entity:      'Supplier',
+      entityId:    supplier.id,
+      entityName:  supplier.name,
+      description: `Fornecedor "${supplier.name}" cadastrado`,
+      metadata:    { type: d.type, category: d.category },
     })
 
     return reply.status(201).send({ supplier })
