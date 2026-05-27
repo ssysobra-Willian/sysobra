@@ -713,7 +713,11 @@ export default function ObraDetailPage() {
             {/* Capa */}
             <div className="h-40 bg-gradient-to-br from-gray-800 to-gray-600 relative">
               {project.coverImage ? (
-                <img src={project.coverImage} alt={project.name} className="w-full h-full object-cover" />
+                <img
+                  src={project.coverImage.startsWith('/uploads/') ? `${API}${project.coverImage}` : project.coverImage}
+                  alt={project.name}
+                  className="w-full h-full object-cover"
+                />
               ) : (
                 <div className="w-full h-full flex items-center justify-center">
                   <HardHat size={48} className="text-white/20" />

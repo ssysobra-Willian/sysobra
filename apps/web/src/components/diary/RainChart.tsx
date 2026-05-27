@@ -196,9 +196,34 @@ function exportCsv(records: RainDay[]) {
 // ─── Componente principal ─────────────────────────────────────────────────────
 
 export default function RainChart({ records, summary, projectId, projectName, compact }: Props) {
-  const [granularity, setGranularity] = useState<Granularity>('day')
-  const [period,      setPeriod]      = useState<Period>('all')
-  const [tableTab,    setTableTab]    = useState<Granularity>('day')
+  const [granularity,  setGranularity]  = useState<Granularity>('day')
+  const [period,       setPeriod]       = useState<Period>('all')
+  const [tableTab,     setTableTab]     = useState<Granularity>('day')
+  const [loadingPdf,   setLoadingPdf]   = useState<'chart' | 'report' | null>(null)
+
+  function getToken() {
+    return typeof window !== 'undefined' ? localStorage.getItem('token') || '' : ''
+  }
+
+  async function downloadPdf(url: string, filename: string, kind: 'chart' | 'report') {
+    setLoadingPdf(kind)
+    try {
+      const res = await fetch(url, { headers: { Authorization: `Bearer ${getToken()}` } })
+      if (!res.ok) throw new Error(`Erro ${res.status}`)
+      const blob = await res.blob()
+      const blobUrl = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = blobUrl
+      a.download = filename
+      a.click()
+      URL.revokeObjectURL(blobUrl)
+    } catch (err) {
+      console.error('Erro ao gerar PDF:', err)
+      alert('Erro ao gerar PDF. Tente novamente.')
+    } finally {
+      setLoadingPdf(null)
+    }
+  }
 
   // Filtra pelo período selecionado
   const filteredRecords = useMemo(() => {
@@ -330,12 +355,18 @@ export default function RainChart({ records, summary, projectId, projectName, co
               ))}
             </div>
 
-            {/* Exportar PDF */}
-            <a href={`${API}/api/v1/diary/projects/${projectId}/rain-report`}
-              target="_blank" rel="noreferrer"
-              className="text-xs font-medium px-2.5 py-1.5 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors flex items-center gap-1">
-              📄 PDF
-            </a>
+            {/* Exportar PDF — Gráfico */}
+            <button
+              onClick={() => downloadPdf(
+                `${API}/api/v1/diary/projects/${projectId}/pdf/rain-chart`,
+                `pluviometrico-grafico-${Date.now()}.pdf`,
+                'chart'
+              )}
+              disabled={loadingPdf === 'chart'}
+              className="text-xs font-medium px-2.5 py-1.5 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors flex items-center gap-1 disabled:opacity-60"
+            >
+              {loadingPdf === 'chart' ? '⏳ Gerando...' : '📊 PDF Gráfico'}
+            </button>
 
             {/* Exportar CSV */}
             <button onClick={() => exportCsv(filteredRecords)}
@@ -500,12 +531,29 @@ export default function RainChart({ records, summary, projectId, projectName, co
             Conforme cláusulas contratuais aplicáveis, solicita-se análise de aditivo de prazo de{' '}
             <strong>{filteredSummary.unworkable} dia{filteredSummary.unworkable !== 1 ? 's' : ''} corrido{filteredSummary.unworkable !== 1 ? 's' : ''}</strong>.
           </p>
-          <div className="mt-3">
-            <a href={`${API}/api/v1/diary/projects/${projectId}/rain-report`}
-              target="_blank" rel="noreferrer"
-              className="inline-flex items-center gap-1.5 text-xs font-semibold text-amber-800 bg-amber-100 hover:bg-amber-200 px-3 py-1.5 rounded-lg transition-colors">
-              📄 Gerar Relatório Pluviométrico Técnico
-            </a>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button
+              onClick={() => downloadPdf(
+                `${API}/api/v1/diary/projects/${projectId}/pdf/rain-chart`,
+                `pluviometrico-grafico-${Date.now()}.pdf`,
+                'chart'
+              )}
+              disabled={loadingPdf === 'chart'}
+              className="inline-flex items-center gap-1.5 text-xs font-semibold text-amber-800 bg-amber-100 hover:bg-amber-200 px-3 py-1.5 rounded-lg transition-colors disabled:opacity-60"
+            >
+              {loadingPdf === 'chart' ? '⏳ Gerando gráfico...' : '📊 PDF do Gráfico Pluviométrico'}
+            </button>
+            <button
+              onClick={() => downloadPdf(
+                `${API}/api/v1/diary/projects/${projectId}/rain-report`,
+                `relatorio-pluviometrico-tecnico-${Date.now()}.pdf`,
+                'report'
+              )}
+              disabled={loadingPdf === 'report'}
+              className="inline-flex items-center gap-1.5 text-xs font-semibold text-blue-800 bg-blue-100 hover:bg-blue-200 px-3 py-1.5 rounded-lg transition-colors disabled:opacity-60"
+            >
+              {loadingPdf === 'report' ? '⏳ Gerando relatório...' : '📄 Relatório Pluviométrico Técnico'}
+            </button>
           </div>
 
           {/* Tabela de dias impraticáveis */}

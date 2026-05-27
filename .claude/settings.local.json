@@ -63,7 +63,19 @@
       "PowerShell(Invoke-RestMethod -Uri \"http://localhost:3001/health\" -Method GET | ConvertTo-Json)",
       "PowerShell(docker cp \"C:\\\\projetos\\\\sysobra\\\\packages\\\\database\\\\prisma\\\\migrations\\\\20260526200000_diary_complement_dds\\\\migration.sql\" sysobra_postgres:/tmp/migration2.sql)",
       "PowerShell(Get-ChildItem \"C:\\\\projetos\\\\sysobra\\\\packages\\\\database\\\\prisma\" -Recurse | Where-Object { $_.Name -match \"seed\" } | Select-Object FullName)",
-      "PowerShell(Invoke-RestMethod -Uri \"http://localhost:3001/health\" | ConvertTo-Json)"
+      "PowerShell(Invoke-RestMethod -Uri \"http://localhost:3001/health\" | ConvertTo-Json)",
+      "Bash(git *)",
+      "Bash(npx next *)",
+      "PowerShell(cd C:\\\\projetos\\\\sysobra; npx tsc --noEmit --project apps/web/tsconfig.json 2>&1 | Where-Object { $_ -notmatch \"node_modules\" } | Select-Object -First 30)",
+      "PowerShell(node -e \"const l = require\\('C:/projetos/sysobra/node_modules/lucide-react'\\); console.log\\('LayoutGrid:', !!l.LayoutGrid, 'AlignLeft:', !!l.AlignLeft, 'List:', !!l.List\\)\")",
+      "PowerShell(Stop-Process *)",
+      "PowerShell(cd C:\\\\projetos\\\\sysobra; npx tsc --noEmit --project apps/api/tsconfig.json 2>&1 | Where-Object { $_ -notmatch \"node_modules\" } | Select-Object -First 10)",
+      "Bash(node *)",
+      "PowerShell(node -e \"const p = require\\('./apps/web/package.json'\\); console.log\\(p.dependencies['@tanstack/react-query'] ?? 'nao instalado'\\)\")",
+      "PowerShell(node -e \"const p = require\\('./apps/web/package.json'\\); console.log\\('recharts:', p.dependencies['recharts'] ?? 'nao instalado'\\)\")",
+      "PowerShell(Set-Location \"C:\\\\projetos\\\\sysobra\"; npx tsc --noEmit --project apps/web/tsconfig.json 2>&1 | Where-Object { $_ -match \"fornecedores\" } | Select-Object -First 20)",
+      "PowerShell(node -e \"const p = require\\('./apps/web/package.json'\\); const t = p.dependencies['@tabler/icons-react'] ?? p.devDependencies?.['@tabler/icons-react'] ?? 'nao instalado'; console.log\\('tabler:', t\\)\")",
+      "PowerShell(Set-Location \"C:\\\\projetos\\\\sysobra\"; npx tsc --noEmit --project apps/web/tsconfig.json 2>&1 | Where-Object { $_ -match \"error TS\" } | Select-Object -First 20)"
     ]
   }
 }

@@ -107,7 +107,11 @@ function ProjectCard({ proj }: { proj: Project }) {
       {/* Capa */}
       <div className="h-32 bg-gradient-to-br from-gray-800 to-gray-600 relative flex-shrink-0">
         {proj.coverImage ? (
-          <img src={proj.coverImage} alt={proj.name} className="w-full h-full object-cover" />
+          <img
+            src={proj.coverImage.startsWith('/uploads/') ? `${API}${proj.coverImage}` : proj.coverImage}
+            alt={proj.name}
+            className="w-full h-full object-cover"
+          />
         ) : (
           <div className="w-full h-full flex items-center justify-center">
             <HardHat size={40} className="text-white/30" />

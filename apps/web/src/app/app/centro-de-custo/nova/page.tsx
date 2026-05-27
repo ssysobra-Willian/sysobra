@@ -8,6 +8,7 @@ import {
   Search, Loader2, Save, Building2,
 } from 'lucide-react'
 import { formatCurrency } from '@/lib/format'
+import { ProjectCoverUpload } from '../components/ProjectCoverUpload'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
 
@@ -96,7 +97,8 @@ export default function NovaObraPage() {
   const [technicalCrea,  setTechCrea]      = useState('')
 
   // ── Etapas
-  const [stages, setStages] = useState<StageRow[]>([newStage()])
+  const [stages,      setStages]      = useState<StageRow[]>([newStage()])
+  const [coverImage,  setCoverImage]  = useState('')
 
   // ── Carregar código automático e listas
   useEffect(() => {
@@ -177,6 +179,7 @@ export default function NovaObraPage() {
         technicalName:   technicalName || null,
         technicalTitle:  technicalTitle || null,
         technicalCrea:   technicalCrea || null,
+        coverImage:      coverImage || null,
         stages: validStages.map((s, i) => ({
           code:           s.code || null,
           name:           s.name,
@@ -259,6 +262,17 @@ export default function NovaObraPage() {
       {/* ═══════════════════════════════════════════════════════════════════ */}
       {section === 'Dados gerais' && (
         <div className="bg-white rounded-xl border border-gray-200 p-6 space-y-5">
+          {/* Foto da obra */}
+          <div>
+            <label className={LabelClass}>Foto da obra (opcional)</label>
+            <ProjectCoverUpload
+              currentUrl={coverImage || null}
+              onChange={setCoverImage}
+              onRemove={() => setCoverImage('')}
+              token={typeof window !== 'undefined' ? localStorage.getItem('token') || '' : ''}
+            />
+          </div>
+
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {/* Nome */}
             <div className="md:col-span-2">

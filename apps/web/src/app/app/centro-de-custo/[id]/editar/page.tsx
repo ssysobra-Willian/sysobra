@@ -6,6 +6,7 @@ import {
   ChevronLeft, ChevronRight, Loader2, Save, Building2, CheckCircle2,
 } from 'lucide-react'
 import { Breadcrumb } from '@/components/ui/Breadcrumb'
+import { ProjectCoverUpload } from '../../components/ProjectCoverUpload'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
 
@@ -56,6 +57,8 @@ export default function EditarObraPage() {
   const [users,        setUsers]       = useState<UserItem[]>([])
   const [selectedResp, setSelectedResp]= useState<UserItem | null>(null)
   const [showRespDrop, setShowRespDrop]= useState(false)
+
+  const [coverImage, setCoverImage] = useState('')
 
   // ── Dados técnicos
   const [cno,            setCno]           = useState('')
@@ -123,6 +126,7 @@ export default function EditarObraPage() {
       setTechnicalName(proj.technicalName                               ?? '')
       setTechTitle(proj.technicalTitle                                  ?? '')
       setTechCrea(proj.technicalCrea                                    ?? '')
+      setCoverImage(proj.coverImage                                      ?? '')
 
       // Preenche cliente e responsável selecionados
       const allClients: Client[] = clientsData.clients ?? []
@@ -186,6 +190,7 @@ export default function EditarObraPage() {
         technicalName:   technicalName   || null,
         technicalTitle:  technicalTitle  || null,
         technicalCrea:   technicalCrea   || null,
+        coverImage:      coverImage      || null,
       }
 
       const res = await fetch(`${API}/api/v1/projects/${id}`, {
@@ -304,6 +309,17 @@ export default function EditarObraPage() {
       {/* ═══════════════════════════════════════════════════════════════════════ */}
       {section === 'Dados gerais' && (
         <div className="bg-white rounded-xl border border-gray-200 p-6 space-y-5">
+          {/* Foto da obra */}
+          <div>
+            <label className={LabelClass}>Foto da obra (opcional)</label>
+            <ProjectCoverUpload
+              currentUrl={coverImage || null}
+              onChange={setCoverImage}
+              onRemove={() => setCoverImage('')}
+              token={typeof window !== 'undefined' ? localStorage.getItem('token') || '' : ''}
+            />
+          </div>
+
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
 
             {/* Nome */}

@@ -17,6 +17,7 @@ import { diaryRoutes }    from './routes/v1/diary.routes'
 import { financialRoutes } from './routes/v1/financial.routes'
 import { clientRoutes }   from './routes/v1/client.routes'
 import { supplierRoutes } from './routes/v1/supplier.routes'
+import { uploadRoutes }   from './routes/v1/upload.routes'
 import { stripeRoutes }   from './routes/stripe'
 import { env } from './utils/env'
 import { prisma } from '@sysobra/database'
@@ -67,7 +68,7 @@ async function bootstrap() {
 
   // ── Multipart (upload de arquivos) ───────────────────────────────────────
   await app.register(multipart, {
-    limits: { fileSize: 2 * 1024 * 1024 }, // 2 MB
+    limits: { fileSize: 10 * 1024 * 1024 }, // 10 MB (fotos diário até 10MB, capa até 5MB validado na rota)
   })
 
   // ── Arquivos estáticos (uploads) ─────────────────────────────────────────
@@ -146,6 +147,7 @@ async function bootstrap() {
   await app.register(financialRoutes, { prefix: '/api/financial' })
   await app.register(clientRoutes,   { prefix: '/api/v1/clients' })
   await app.register(supplierRoutes, { prefix: '/api/v1/suppliers' })
+  await app.register(uploadRoutes,   { prefix: '/api/v1/uploads' })
 
   // ── Rotas Stripe ─────────────────────────────────────────────────────────
   await app.register(stripeRoutes, { prefix: '/api/stripe' })

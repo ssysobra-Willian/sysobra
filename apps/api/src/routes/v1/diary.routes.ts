@@ -789,6 +789,119 @@ export async function diaryRoutes(app: FastifyInstance) {
     }
   })
 
+  // ── GET /api/v1/diary/projects/:projectId/pdf/rain-chart — gráfico pluviométrico ─
+  app.get('/projects/:projectId/pdf/rain-chart', { preHandler: [requirePermission('diario_obra', 'view')] }, async (request, reply) => {
+    const req       = request as RequestWithMember
+    const companyId = req.companyId!
+    const { projectId } = request.params as { projectId: string }
+    const q = request.query as { startDate?: string; endDate?: string; period?: string }
+
+    const proj = await p.project.findFirst({
+      where:   { id: projectId, companyId },
+      select:  { id: true, name: true, code: true },
+    })
+    if (!proj) return reply.status(404).send({ error: 'Obra não encontrada' })
+
+    const where: any = { projectId }
+    if (q.startDate) where.date = { ...where.date, gte: new Date(q.startDate) }
+    if (q.endDate)   where.date = { ...where.date, lte: new Date(q.endDate + 'T23:59:59') }
+
+    const records  = await p.diaryRainRecord.findMany({ where, orderBy: { date: 'asc' } })
+    const totalMm  = records.reduce((s: number, r: any) => s + r.totalMm, 0)
+    const unworkable = records.filter((r: any) => r.isUnworkable).length
+    const rainyDays  = records.filter((r: any) => r.totalMm > 0).length
+    const maxDay     = records.reduce((mx: any, r: any) => (!mx || r.totalMm > mx.totalMm) ? r : mx, null as any)
+
+    const labels    = records.map((r: any) => new Date(r.date).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }))
+    const mmPorDia  = records.map((r: any) => r.totalMm)
+    let acc = 0
+    const acumulado = records.map((r: any) => { acc += r.totalMm; return Math.round(acc * 10) / 10 })
+
+    const html = `<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <style>
+    body { font-family: Arial, sans-serif; padding: 32px; background: white; color: #111; }
+    h1 { font-size: 18px; font-weight: 800; color: #111827; margin-bottom: 4px; }
+    .subtitle { color: #6B7280; font-size: 12px; margin-bottom: 24px; }
+    .cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 24px; }
+    .card { background: #F9FAFB; border: 1px solid #E5E7EB; border-radius: 8px; padding: 12px 16px; }
+    .card-label { font-size: 11px; color: #6B7280; margin-bottom: 4px; text-transform: uppercase; letter-spacing: .04em; }
+    .card-value { font-size: 20px; font-weight: 700; color: #111827; }
+    .footer { margin-top: 20px; font-size: 10px; color: #9CA3AF; text-align: right; }
+  </style>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
+</head>
+<body>
+  <h1>Relatório Pluviométrico — ${proj.name}${proj.code ? ' (' + proj.code + ')' : ''}</h1>
+  <p class="subtitle">Período: ${q.startDate ? new Date(q.startDate).toLocaleDateString('pt-BR') : 'início'} a ${q.endDate ? new Date(q.endDate).toLocaleDateString('pt-BR') : 'hoje'} · Gerado em ${new Date().toLocaleDateString('pt-BR')}</p>
+
+  <div class="cards">
+    <div class="card"><div class="card-label">Acumulado total</div><div class="card-value">${Math.round(totalMm * 10) / 10} mm</div></div>
+    <div class="card"><div class="card-label">Dias com chuva</div><div class="card-value">${rainyDays}</div></div>
+    <div class="card"><div class="card-label">Dias impraticáveis</div><div class="card-value" style="color:${unworkable > 0 ? '#dc2626' : '#111'}">${unworkable}</div></div>
+    <div class="card"><div class="card-label">Maior evento</div><div class="card-value">${maxDay ? maxDay.totalMm.toFixed(1) + ' mm' : '—'}</div></div>
+  </div>
+
+  <canvas id="chart" width="900" height="380"></canvas>
+
+  <script>
+    const ctx = document.getElementById('chart')
+    new Chart(ctx, {
+      type: 'bar',
+      data: {
+        labels: ${JSON.stringify(labels)},
+        datasets: [
+          {
+            type: 'bar',
+            label: 'Precipitação (mm)',
+            data: ${JSON.stringify(mmPorDia)},
+            backgroundColor: ${JSON.stringify(records.map((r: any) => r.isUnworkable ? '#ef4444' : '#3b82f6'))},
+            borderRadius: 3,
+            yAxisID: 'y'
+          },
+          {
+            type: 'line',
+            label: 'Acumulado (mm)',
+            data: ${JSON.stringify(acumulado)},
+            borderColor: '#F5A623',
+            backgroundColor: 'transparent',
+            borderWidth: 2,
+            pointRadius: 2,
+            tension: 0.3,
+            yAxisID: 'y2'
+          }
+        ]
+      },
+      options: {
+        responsive: false,
+        animation: false,
+        plugins: { legend: { position: 'top', labels: { font: { size: 11 } } } },
+        scales: {
+          y:  { beginAtZero: true, title: { display: true, text: 'mm' }, ticks: { font: { size: 10 } } },
+          y2: { beginAtZero: true, position: 'right', title: { display: true, text: 'acum. mm' }, grid: { drawOnChartArea: false }, ticks: { font: { size: 10 } } },
+          x:  { ticks: { font: { size: 9 }, maxRotation: 45 } }
+        }
+      }
+    })
+  </script>
+  <p class="footer">Documento gerado pelo SYSOBRA · ${proj.name}</p>
+</body>
+</html>`
+
+    try {
+      const pdfBuffer = await generatePdf({ kind: 'raw', html } as any)
+      const filename  = `pluviometrico-grafico-${proj.name.replace(/\s+/g, '-').toLowerCase()}.pdf`
+      reply
+        .header('Content-Type', 'application/pdf')
+        .header('Content-Disposition', `attachment; filename="${filename}"`)
+        .send(pdfBuffer)
+    } catch (err) {
+      return reply.status(500).send({ error: 'Falha ao gerar PDF do gráfico' })
+    }
+  })
+
   // ═══════════════════════════════════════════════════════════════════════════
   // ROTAS LEGADAS — mantidas para compatibilidade
   // ═══════════════════════════════════════════════════════════════════════════

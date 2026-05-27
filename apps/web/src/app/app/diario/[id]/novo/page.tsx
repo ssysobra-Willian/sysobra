@@ -8,6 +8,7 @@ import { PageHeader }                        from '@/components/ui/PageHeader'
 import { SemAcesso }                         from '@/components/SemAcesso'
 import { usePermissions }                    from '@/hooks/usePermissions'
 import DDSThemeSelector, { getSuggestedDdsTheme, type DdsStaticTheme } from '../../components/DDSThemeSelector'
+import { PhotoUpload, type PhotoItem } from '../../components/PhotoUpload'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
 
@@ -131,7 +132,7 @@ export default function NovoRdoPage() {
   const [notesPublic,  setNotesPublic]  = useState(false)
 
   // ── Seção 8: Fotos ────────────────────────────────────────────────────────
-  const [imageUrlsRaw, setImageUrlsRaw] = useState('')
+  const [photos, setPhotos] = useState<PhotoItem[]>([])
 
   // ── Carrega etapas do projeto e DDS ──────────────────────────────────────
   useEffect(() => {
@@ -234,10 +235,17 @@ export default function NovoRdoPage() {
     setLoading(true); setError('')
 
     try {
-      const imageUrls = imageUrlsRaw
-        .split('\n')
-        .map((u) => u.trim())
-        .filter(Boolean)
+      // Bloquear se há upload em andamento
+      const hasPending = photos.some(p => p.status === 'uploading')
+      if (hasPending) {
+        setError('Aguarde o upload das fotos concluir antes de salvar.')
+        setLoading(false)
+        return
+      }
+
+      const imageUrls = photos
+        .filter(p => p.status === 'done')
+        .map(p => p.url)
 
       const body: Record<string, unknown> = {
         projectId,
@@ -702,13 +710,12 @@ export default function NovoRdoPage() {
 
         {/* ── Seção 8: Fotos ─────────────────────────────────────────────── */}
         <Section number={stages.length > 0 ? 8 : 7} title="Fotos">
-          <Textarea
-            label="URLs das fotos (uma por linha)"
-            rows={3}
-            placeholder="https://storage.example.com/foto1.jpg"
-            value={imageUrlsRaw}
-            onChange={(e) => setImageUrlsRaw(e.target.value)}
-            hint="Cole os endereços das fotos já enviadas para o armazenamento."
+          <PhotoUpload
+            photos={photos}
+            onChange={setPhotos}
+            maxPhotos={20}
+            diaryId={projectId}
+            token={typeof window !== 'undefined' ? localStorage.getItem('token') || '' : ''}
           />
         </Section>
 
