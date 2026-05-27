@@ -4,6 +4,7 @@ import { prisma } from '@sysobra/database'
 import {
   authenticate,
   requireCompany,
+  requirePermission,
   RequestWithMember,
   JwtPayload,
 } from '../../middlewares/auth.middleware'

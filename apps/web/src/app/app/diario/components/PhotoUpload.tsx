@@ -11,12 +11,14 @@ const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export interface PhotoItem {
-  id:        string
-  url:       string
-  caption?:  string
-  status:    'uploading' | 'done' | 'error'
-  progress?: number
-  file?:     File
+  id:               string
+  url:              string
+  caption?:         string
+  status:           'uploading' | 'done' | 'error'
+  progress?:        number
+  file?:            File
+  compressionInfo?: string   // ex: "−72%" — exibido por 4s após upload
+  showBadge?:       boolean  // true durante os 4s do badge
 }
 
 export interface PhotoUploadProps {
@@ -100,11 +102,34 @@ export function PhotoUpload({
 
     xhr.onload = () => {
       if (xhr.status === 200) {
-        const { url } = JSON.parse(xhr.responseText)
+        const resp = JSON.parse(xhr.responseText) as {
+          url: string
+          savedPercent?: number
+          wasCompressed?: boolean
+        }
         URL.revokeObjectURL(localUrl)
+
+        // Badge de compressão: exibir por 4s se economizou ≥ 5%
+        const compressionInfo =
+          resp.wasCompressed && (resp.savedPercent ?? 0) >= 5
+            ? `−${resp.savedPercent}%`
+            : undefined
+
         onChange(prev => prev.map(p =>
-          p.id === tempId ? { ...p, url, status: 'done', progress: 100, file: undefined } : p
+          p.id === tempId
+            ? { ...p, url: resp.url, status: 'done', progress: 100, file: undefined,
+                compressionInfo, showBadge: !!compressionInfo }
+            : p
         ))
+
+        // Ocultar badge após 4s
+        if (compressionInfo) {
+          setTimeout(() => {
+            onChange(prev => prev.map(p =>
+              p.id === tempId ? { ...p, showBadge: false } : p
+            ))
+          }, 4000)
+        }
       } else {
         onChange(prev => prev.map(p => p.id === tempId ? { ...p, status: 'error' } : p))
       }
@@ -285,6 +310,14 @@ export function PhotoUpload({
                       </button>
                     )}
                   </div>
+
+                  {/* Badge de compressão (aparece por 4s) */}
+                  {photo.showBadge && photo.compressionInfo && (
+                    <div className="absolute bottom-1.5 left-1.5 flex items-center gap-1 bg-green-600/90 text-white text-[10px] font-bold rounded-full px-2 py-0.5 shadow animate-pulse">
+                      <span>⚡</span>
+                      <span>{photo.compressionInfo}</span>
+                    </div>
+                  )}
 
                   {/* Error: remove button */}
                   {photo.status === 'error' && (
