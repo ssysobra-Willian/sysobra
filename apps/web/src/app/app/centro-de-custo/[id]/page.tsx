@@ -121,6 +121,23 @@ interface RainRecord {
   unworkableReason: string | null
 }
 
+interface AllocTx {
+  id:              string
+  description:     string
+  type:            string
+  isPaid:          boolean
+  netAmount:       number
+  referenceDate:   string | null
+  dueDate:         string | null
+  category:        { id: string; name: string; color: string | null } | null
+  bankAccount:     { id: string; name: string } | null
+  costCenterAllocations: {
+    project: { id: string; name: string } | null
+    stage:   { id: string; name: string } | null
+    amount:  number
+  }[]
+}
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 const STATUS_LABELS: Record<string, string> = {
@@ -480,6 +497,17 @@ export default function ObraDetailPage() {
   const [rainPeriod,  setRainPeriod]  = useState<30 | 60 | 90>(60)
   const [rainLoading, setRainLoading] = useState(false)
 
+  // ── Aba Apropriações ──────────────────────────────────────────────────────
+  const [allocTxs,      setAllocTxs]      = useState<AllocTx[]>([])
+  const [allocTotal,    setAllocTotal]     = useState(0)
+  const [allocPage,     setAllocPage]      = useState(1)
+  const [allocLoading,  setAllocLoading]   = useState(false)
+  const [allocTypeFilter,   setAllocTypeFilter]   = useState('ALL')
+  const [allocStatusFilter, setAllocStatusFilter] = useState('ALL')
+  const [allocSearch,       setAllocSearch]       = useState('')
+  const [allocPeriod,       setAllocPeriod]       = useState('ALL')
+  const ALLOC_LIMIT = 10
+
   const loadProject = useCallback(async () => {
     setLoading(true)
     try {
@@ -533,6 +561,37 @@ export default function ObraDetailPage() {
       })
       .catch(() => {/* silencioso */})
   }, [id])
+
+  // Carrega lançamentos da aba Apropriações
+  useEffect(() => {
+    if (tab !== 'Apropriações') return
+    const token     = localStorage.getItem('token') || ''
+    const companyId = localStorage.getItem('companyId') || ''
+    if (!token || !id) return
+    setAllocLoading(true)
+
+    const qs = new URLSearchParams({ projectId: id, page: String(allocPage), limit: String(ALLOC_LIMIT) })
+    if (allocTypeFilter !== 'ALL')   qs.set('type',   allocTypeFilter)
+    if (allocStatusFilter === 'PAID')    qs.set('isPaid', 'true')
+    if (allocStatusFilter === 'PENDING') qs.set('isPaid', 'false')
+    if (allocSearch.trim())              qs.set('search', allocSearch.trim())
+    if (allocPeriod === 'THIS_MONTH') {
+      const now = new Date()
+      qs.set('startDate', new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10))
+      qs.set('endDate',   now.toISOString().slice(0, 10))
+    } else if (allocPeriod === 'THIS_YEAR') {
+      qs.set('startDate', `${new Date().getFullYear()}-01-01`)
+      qs.set('endDate',   new Date().toISOString().slice(0, 10))
+    }
+
+    fetch(`${API}/api/v1/financial/transactions?${qs}`, {
+      headers: { Authorization: `Bearer ${token}`, 'x-company-id': companyId },
+    })
+      .then((r) => r.json())
+      .then((d) => { setAllocTxs(d.transactions ?? []); setAllocTotal(d.total ?? 0) })
+      .catch(() => { setAllocTxs([]); setAllocTotal(0) })
+      .finally(() => setAllocLoading(false))
+  }, [tab, id, allocPage, allocTypeFilter, allocStatusFilter, allocSearch, allocPeriod])
 
   // Carrega dados pluviométricos quando a aba for aberta
   useEffect(() => {
@@ -837,12 +896,159 @@ export default function ObraDetailPage() {
               )}
 
               {tab === 'Apropriações' && (
-                <div className="py-6 text-center">
-                  <ClipboardList size={32} className="text-gray-300 mx-auto mb-3" />
-                  <p className="text-sm text-gray-400 mb-3">Lançamentos financeiros vinculados a esta obra</p>
-                  <Link href={`/app/financeiro?projectId=${id}`} className="text-sm text-[#F5A623] hover:text-[#e09610] flex items-center gap-1 justify-center">
-                    Ver no módulo Financeiro <ExternalLink size={12} />
-                  </Link>
+                <div className="space-y-4">
+                  {/* Cards de resumo calculados das transações carregadas */}
+                  {(() => {
+                    const receitas  = allocTxs.filter(t => t.type === 'INCOME').reduce((s, t) => s + t.netAmount, 0)
+                    const despesas  = allocTxs.filter(t => t.type === 'EXPENSE').reduce((s, t) => s + t.netAmount, 0)
+                    const pago      = allocTxs.filter(t => t.isPaid).reduce((s, t) => s + t.netAmount, 0)
+                    const pendente  = allocTxs.filter(t => !t.isPaid).reduce((s, t) => s + t.netAmount, 0)
+                    return (
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                        <div className="bg-green-50 border border-green-100 rounded-xl p-3 text-center">
+                          <p className="text-[10px] font-semibold text-green-500 uppercase tracking-wide mb-1">Receitas</p>
+                          <p className="text-sm font-bold text-green-700">{formatCurrency(receitas)}</p>
+                        </div>
+                        <div className="bg-red-50 border border-red-100 rounded-xl p-3 text-center">
+                          <p className="text-[10px] font-semibold text-red-500 uppercase tracking-wide mb-1">Despesas</p>
+                          <p className="text-sm font-bold text-red-700">{formatCurrency(despesas)}</p>
+                        </div>
+                        <div className="bg-blue-50 border border-blue-100 rounded-xl p-3 text-center">
+                          <p className="text-[10px] font-semibold text-blue-500 uppercase tracking-wide mb-1">Pago</p>
+                          <p className="text-sm font-bold text-blue-700">{formatCurrency(pago)}</p>
+                        </div>
+                        <div className="bg-amber-50 border border-amber-100 rounded-xl p-3 text-center">
+                          <p className="text-[10px] font-semibold text-amber-500 uppercase tracking-wide mb-1">Pendente</p>
+                          <p className="text-sm font-bold text-amber-700">{formatCurrency(pendente)}</p>
+                        </div>
+                      </div>
+                    )
+                  })()}
+
+                  {/* Filtros */}
+                  <div className="flex flex-wrap gap-2 items-center">
+                    <select value={allocTypeFilter} onChange={e => { setAllocTypeFilter(e.target.value); setAllocPage(1) }}
+                      className="border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-[#F5A623]">
+                      <option value="ALL">Todos os tipos</option>
+                      <option value="INCOME">Receitas</option>
+                      <option value="EXPENSE">Despesas</option>
+                    </select>
+                    <select value={allocStatusFilter} onChange={e => { setAllocStatusFilter(e.target.value); setAllocPage(1) }}
+                      className="border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-[#F5A623]">
+                      <option value="ALL">Todos os status</option>
+                      <option value="PAID">Pago</option>
+                      <option value="PENDING">Pendente</option>
+                    </select>
+                    <select value={allocPeriod} onChange={e => { setAllocPeriod(e.target.value); setAllocPage(1) }}
+                      className="border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-[#F5A623]">
+                      <option value="ALL">Todos os períodos</option>
+                      <option value="THIS_MONTH">Este mês</option>
+                      <option value="THIS_YEAR">Este ano</option>
+                    </select>
+                    <input
+                      type="text"
+                      placeholder="Buscar descrição..."
+                      value={allocSearch}
+                      onChange={e => { setAllocSearch(e.target.value); setAllocPage(1) }}
+                      className="border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs flex-1 min-w-[140px] focus:outline-none focus:ring-1 focus:ring-[#F5A623]"
+                    />
+                    <Link href={`/app/financeiro?projectId=${id}`}
+                      className="text-xs text-[#F5A623] hover:text-[#d4891a] font-medium flex items-center gap-1 flex-shrink-0">
+                      Ver no financeiro <ExternalLink size={11} />
+                    </Link>
+                  </div>
+
+                  {/* Tabela / estados */}
+                  {allocLoading ? (
+                    <div className="flex justify-center py-10">
+                      <div className="h-6 w-6 rounded-full border-2 border-[#F5A623] border-t-transparent animate-spin" />
+                    </div>
+                  ) : allocTxs.length === 0 ? (
+                    <div className="text-center py-10">
+                      <ClipboardList size={32} className="text-gray-300 mx-auto mb-3" />
+                      <p className="text-sm text-gray-500 font-medium">Nenhuma apropriação encontrada</p>
+                      <p className="text-xs text-gray-400 mt-1 mb-4">Lançamentos financeiros vinculados a esta obra aparecerão aqui</p>
+                      <Link href={`/app/financeiro/lancamentos/novo?projectId=${id}`}
+                        className="inline-block text-xs font-semibold py-1.5 px-3 bg-[#F5A623] text-white rounded-lg hover:bg-[#d4891a] transition-colors">
+                        + Novo lançamento
+                      </Link>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="overflow-x-auto rounded-xl border border-gray-100">
+                        <table className="w-full text-sm">
+                          <thead>
+                            <tr className="bg-gray-50 border-b border-gray-100">
+                              {['Data', 'Descrição', 'Categoria', 'Etapa', 'Valor', 'Status', 'Conta'].map(h => (
+                                <th key={h} className="px-3 py-2.5 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">{h}</th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-gray-50">
+                            {allocTxs.map(tx => {
+                              const stage = tx.costCenterAllocations.find(a => a.stage)?.stage
+                              const isOverdue = !tx.isPaid && tx.dueDate && new Date(tx.dueDate) < new Date()
+                              return (
+                                <tr key={tx.id} className="hover:bg-gray-50 transition-colors">
+                                  <td className="px-3 py-2.5 text-xs text-gray-500 whitespace-nowrap">
+                                    {tx.referenceDate ? formatDateBR(tx.referenceDate) : '—'}
+                                  </td>
+                                  <td className="px-3 py-2.5 text-xs text-gray-900 max-w-[180px]">
+                                    <p className="truncate font-medium">{tx.description}</p>
+                                  </td>
+                                  <td className="px-3 py-2.5">
+                                    {tx.category ? (
+                                      <span className="text-[10px] px-2 py-0.5 rounded-full font-medium whitespace-nowrap"
+                                        style={{ backgroundColor: `${tx.category.color ?? '#e5e7eb'}22`, color: tx.category.color ?? '#6b7280' }}>
+                                        {tx.category.name}
+                                      </span>
+                                    ) : <span className="text-xs text-gray-400">—</span>}
+                                  </td>
+                                  <td className="px-3 py-2.5">
+                                    {stage ? (
+                                      <span className="text-[10px] bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full whitespace-nowrap">{stage.name}</span>
+                                    ) : <span className="text-xs text-gray-400">—</span>}
+                                  </td>
+                                  <td className={`px-3 py-2.5 text-xs font-semibold whitespace-nowrap ${tx.type === 'INCOME' ? 'text-green-600' : 'text-red-600'}`}>
+                                    {tx.type === 'INCOME' ? '+' : '-'}{formatCurrency(tx.netAmount)}
+                                  </td>
+                                  <td className="px-3 py-2.5">
+                                    <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${
+                                      tx.isPaid      ? 'bg-green-100 text-green-700'  :
+                                      isOverdue      ? 'bg-red-100 text-red-600'      :
+                                      'bg-amber-100 text-amber-700'
+                                    }`}>
+                                      {tx.isPaid ? 'Pago' : isOverdue ? 'Vencido' : 'Pendente'}
+                                    </span>
+                                  </td>
+                                  <td className="px-3 py-2.5 text-xs text-gray-500 whitespace-nowrap">
+                                    {tx.bankAccount?.name ?? '—'}
+                                  </td>
+                                </tr>
+                              )
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+
+                      {/* Paginação */}
+                      {allocTotal > ALLOC_LIMIT && (
+                        <div className="flex items-center justify-between text-xs text-gray-500 pt-1">
+                          <span>{allocTotal} lançamentos · página {allocPage} de {Math.ceil(allocTotal / ALLOC_LIMIT)}</span>
+                          <div className="flex gap-2">
+                            <button onClick={() => setAllocPage(p => p - 1)} disabled={allocPage <= 1}
+                              className="px-2.5 py-1 border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed">
+                              ← Ant.
+                            </button>
+                            <button onClick={() => setAllocPage(p => p + 1)} disabled={allocPage * ALLOC_LIMIT >= allocTotal}
+                              className="px-2.5 py-1 border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed">
+                              Próx. →
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  )}
                 </div>
               )}
 
