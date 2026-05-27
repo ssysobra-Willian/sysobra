@@ -1,9 +1,10 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, type ReactNode } from 'react'
 import { useRouter, useParams }              from 'next/navigation'
 import Link                                  from 'next/link'
 import dynamic                               from 'next/dynamic'
+import { List, LayoutGrid, AlignLeft }       from 'lucide-react'
 import { Button }                            from '@/components/ui/Button'
 import { Badge }                             from '@/components/ui/Badge'
 import { PageHeader }                        from '@/components/ui/PageHeader'
@@ -125,7 +126,10 @@ function fmtDate(iso: string) {
   return new Date(iso).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' })
 }
 
-type TabId = 'reports' | 'stages' | 'rain' | 'photos' | 'occurrences'
+type TabId    = 'reports' | 'stages' | 'rain' | 'photos' | 'occurrences'
+type ViewMode = 'lista' | 'card' | 'compacto'
+
+const LS_VIEW_KEY = 'sysobra:rdo-view-mode'
 
 // ─── Componente principal ─────────────────────────────────────────────────────
 
@@ -148,6 +152,7 @@ export default function DiarioProjectPage() {
   const [rainRecords,  setRainRecords]  = useState<RainDay[]>([])
   const [rainSummary,  setRainSummary]  = useState<RainSummary | null>(null)
   const [rainLoading,  setRainLoading]  = useState(false)
+  const [viewMode,     setViewMode]     = useState<ViewMode>('lista')
 
   const LIMIT    = 20
   const canCreate = can('diario_obra', 'create')
@@ -191,6 +196,14 @@ export default function DiarioProjectPage() {
       .catch(() => {})
       .finally(() => setRainLoading(false))
   }, [tab, projectId, rainRecords.length])
+
+  // ── Restaura modo de visualização do localStorage ─────────────────────────
+  useEffect(() => {
+    const saved = localStorage.getItem(LS_VIEW_KEY) as ViewMode | null
+    if (saved === 'lista' || saved === 'card' || saved === 'compacto') {
+      setViewMode(saved)
+    }
+  }, [])
 
   // ── Return condicional DEPOIS de todos os hooks ───────────────────────────
   if (!canAccessModule('diario_obra')) return <SemAcesso modulo="Diário de Obra" />
@@ -286,10 +299,11 @@ export default function DiarioProjectPage() {
       {/* ── Tab: Relatórios ─────────────────────────────────────────────── */}
       {tab === 'reports' && (
         <div>
-          <div className="flex items-center gap-3 mb-4">
+          {/* Barra de filtros + toggle de visualização */}
+          <div className="flex items-center gap-3 mb-4 flex-wrap">
             <select value={statusFilter}
               onChange={(e) => { setStatusFilter(e.target.value); setPage(1) }}
-              className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 bg-white">
+              className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400 bg-white">
               <option value="ALL">Todos os status</option>
               <option value="DRAFT">Rascunho</option>
               <option value="PENDING">Aguardando aprovação</option>
@@ -297,6 +311,28 @@ export default function DiarioProjectPage() {
               <option value="REJECTED">Devolvido</option>
             </select>
             <span className="text-sm text-gray-400">{total} relatório{total !== 1 ? 's' : ''}</span>
+
+            {/* Botões de visualização */}
+            <div className="ml-auto flex items-center gap-1 bg-gray-100 rounded-lg p-1">
+              {([
+                { mode: 'lista'    as ViewMode, icon: <List size={14} />,       title: 'Lista'     },
+                { mode: 'card'     as ViewMode, icon: <LayoutGrid size={14} />, title: 'Cards'     },
+                { mode: 'compacto' as ViewMode, icon: <AlignLeft size={14} />,  title: 'Compacto'  },
+              ] as { mode: ViewMode; icon: ReactNode; title: string }[]).map(({ mode, icon, title }) => (
+                <button
+                  key={mode}
+                  title={title}
+                  onClick={() => { setViewMode(mode); localStorage.setItem(LS_VIEW_KEY, mode) }}
+                  className={`p-1.5 rounded-md transition-all ${
+                    viewMode === mode
+                      ? 'bg-white text-[#F5A623] shadow-sm'
+                      : 'text-gray-400 hover:text-gray-600'
+                  }`}
+                >
+                  {icon}
+                </button>
+              ))}
+            </div>
           </div>
 
           {loading ? (
@@ -314,78 +350,168 @@ export default function DiarioProjectPage() {
             </div>
           ) : (
             <>
-              {/* Relatórios agrupados por data */}
-              <div className="space-y-3">
-                {Object.entries(reportsByDate)
-                  .sort(([a], [b]) => b.localeCompare(a))
-                  .map(([dateKey, dayReports]) => (
-                    <div key={dateKey} className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
-                      {/* Cabeçalho do grupo (data) */}
-                      <div className="px-4 py-2.5 bg-gray-50 border-b border-gray-100 flex items-center gap-2">
-                        <span className="text-xs font-semibold text-gray-600">{fmtDate(dayReports[0].date)}</span>
-                        {dayReports.length > 1 && (
-                          <span className="text-[10px] bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-semibold">
-                            {dayReports.length} RDOs neste dia
-                          </span>
-                        )}
-                      </div>
-
-                      <table className="w-full">
-                        <tbody>
-                          {dayReports.map((r) => {
-                            const sc = STATUS_CFG[r.status] ?? STATUS_CFG.PENDING
-                            const isUnworkable = !r.workableMorning || !r.workableAfternoon || !r.workableNight
-                            return (
-                              <tr key={r.id}
-                                className={`border-b border-gray-100 last:border-0 hover:bg-gray-50 transition-colors ${r.isComplement ? 'pl-4' : ''}`}>
-                                <td className="px-4 py-3" style={{ paddingLeft: r.isComplement ? '2rem' : undefined }}>
-                                  <div className="flex items-center gap-2">
-                                    {r.isComplement && <span className="w-1 h-full bg-amber-300 rounded-full" />}
-                                    <div>
-                                      <span className="text-sm font-semibold text-gray-800">
-                                        {r.reportNumber ?? '—'}
-                                      </span>
-                                      {r.isComplement && (
-                                        <span className="ml-2 text-[10px] bg-amber-50 text-amber-700 border border-amber-200 px-1.5 py-0.5 rounded-full font-semibold">
-                                          Complemento
-                                        </span>
-                                      )}
+              {/* ── Modo: LISTA (tabela agrupada por data) ──────────────── */}
+              {viewMode === 'lista' && (
+                <div className="space-y-3">
+                  {Object.entries(reportsByDate)
+                    .sort(([a], [b]) => b.localeCompare(a))
+                    .map(([dateKey, dayReports]) => (
+                      <div key={dateKey} className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
+                        <div className="px-4 py-2.5 bg-gray-50 border-b border-gray-100 flex items-center gap-2">
+                          <span className="text-xs font-semibold text-gray-600">{fmtDate(dayReports[0].date)}</span>
+                          {dayReports.length > 1 && (
+                            <span className="text-[10px] bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-semibold">
+                              {dayReports.length} RDOs neste dia
+                            </span>
+                          )}
+                        </div>
+                        <table className="w-full">
+                          <tbody>
+                            {dayReports.map((r) => {
+                              const sc = STATUS_CFG[r.status] ?? STATUS_CFG.PENDING
+                              const isUnworkable = !r.workableMorning || !r.workableAfternoon || !r.workableNight
+                              return (
+                                <tr key={r.id}
+                                  className="border-b border-gray-100 last:border-0 hover:bg-gray-50 transition-colors">
+                                  <td className="px-4 py-3" style={{ paddingLeft: r.isComplement ? '2rem' : undefined }}>
+                                    <div className="flex items-center gap-2">
+                                      {r.isComplement && <span className="w-1 h-5 bg-amber-300 rounded-full flex-shrink-0" />}
+                                      <div>
+                                        <span className="text-sm font-semibold text-gray-800">{r.reportNumber ?? '—'}</span>
+                                        {r.isComplement && (
+                                          <span className="ml-2 text-[10px] bg-amber-50 text-amber-700 border border-amber-200 px-1.5 py-0.5 rounded-full font-semibold">
+                                            Complemento
+                                          </span>
+                                        )}
+                                      </div>
                                     </div>
-                                  </div>
-                                </td>
-                                <td className="px-4 py-3 hidden sm:table-cell">
-                                  <div className="flex items-center gap-1.5">
-                                    {r.weatherMorning && (
-                                      <span className="text-xs">{WEATHER_LABEL[r.weatherMorning]?.split(' ')[0]}</span>
-                                    )}
-                                    {r.totalRainMm > 0 && (
-                                      <span className="text-xs text-blue-600 font-medium">{Number(r.totalRainMm).toFixed(0)} mm</span>
-                                    )}
-                                    {isUnworkable && (
-                                      <span className="text-[10px] text-red-500 font-semibold">IMPRAT.</span>
-                                    )}
-                                  </div>
-                                </td>
-                                <td className="px-4 py-3">
-                                  <Badge variant={sc.variant} size="sm">{sc.label}</Badge>
-                                </td>
-                                <td className="px-4 py-3 hidden md:table-cell">
-                                  <p className="text-xs text-gray-500">{r.author.name}</p>
-                                </td>
-                                <td className="px-4 py-3 text-right">
-                                  <Link href={`/app/diario/${projectId}/${r.id}`}
-                                    className="text-xs font-medium text-[#F5A623] hover:text-[#d4891a]">
-                                    Ver →
-                                  </Link>
-                                </td>
-                              </tr>
-                            )
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
-                  ))}
-              </div>
+                                  </td>
+                                  <td className="px-4 py-3 hidden sm:table-cell">
+                                    <div className="flex items-center gap-1.5">
+                                      {r.weatherMorning && <span className="text-xs">{WEATHER_LABEL[r.weatherMorning]?.split(' ')[0]}</span>}
+                                      {r.totalRainMm > 0 && <span className="text-xs text-blue-600 font-medium">{Number(r.totalRainMm).toFixed(0)} mm</span>}
+                                      {isUnworkable && <span className="text-[10px] text-red-500 font-semibold">IMPRAT.</span>}
+                                    </div>
+                                  </td>
+                                  <td className="px-4 py-3">
+                                    <Badge variant={sc.variant} size="sm">{sc.label}</Badge>
+                                  </td>
+                                  <td className="px-4 py-3 hidden md:table-cell">
+                                    <p className="text-xs text-gray-500">{r.author.name}</p>
+                                  </td>
+                                  <td className="px-4 py-3 text-right">
+                                    <Link href={`/app/diario/${projectId}/${r.id}`}
+                                      className="text-xs font-medium text-[#F5A623] hover:text-[#d4891a]">
+                                      Ver →
+                                    </Link>
+                                  </td>
+                                </tr>
+                              )
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    ))}
+                </div>
+              )}
+
+              {/* ── Modo: CARD (grid 2 colunas) ─────────────────────────── */}
+              {viewMode === 'card' && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {reports
+                    .slice()
+                    .sort((a, b) => b.date.localeCompare(a.date))
+                    .map((r) => {
+                      const sc = STATUS_CFG[r.status] ?? STATUS_CFG.PENDING
+                      const isUnworkable = !r.workableMorning || !r.workableAfternoon || !r.workableNight
+                      return (
+                        <Link key={r.id} href={`/app/diario/${projectId}/${r.id}`}
+                          className="bg-white rounded-2xl border border-gray-200 shadow-sm p-4 hover:shadow-md transition-all hover:border-amber-200 flex flex-col" style={{ minHeight: 160, maxHeight: 200 }}>
+                          {/* Topo */}
+                          <div className="flex items-start justify-between mb-2">
+                            <div>
+                              <p className="text-sm font-bold text-gray-800">{r.reportNumber ?? '—'}</p>
+                              <p className="text-xs text-gray-400">{fmtDate(r.date)}</p>
+                            </div>
+                            <Badge variant={sc.variant} size="sm">{sc.label}</Badge>
+                          </div>
+                          {/* Clima */}
+                          <div className="flex items-center gap-2 mb-2">
+                            {r.weatherMorning && <span className="text-sm">{WEATHER_LABEL[r.weatherMorning]?.split(' ')[0]}</span>}
+                            {r.totalRainMm > 0 && (
+                              <span className="text-xs font-medium text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full">
+                                🌧 {Number(r.totalRainMm).toFixed(0)} mm
+                              </span>
+                            )}
+                            {isUnworkable && (
+                              <span className="text-xs font-semibold text-red-600 bg-red-50 px-2 py-0.5 rounded-full">
+                                ⛔ Impraticável
+                              </span>
+                            )}
+                          </div>
+                          {/* Resumo de atividades */}
+                          {r.generalActivities && (
+                            <p className="text-xs text-gray-500 line-clamp-2 flex-1">{r.generalActivities}</p>
+                          )}
+                          {/* Rodapé */}
+                          <div className="flex items-center justify-between mt-auto pt-2 border-t border-gray-50">
+                            <p className="text-[10px] text-gray-400 truncate max-w-[60%]">{r.author.name}</p>
+                            {r.isComplement && (
+                              <span className="text-[9px] bg-amber-50 text-amber-600 border border-amber-200 px-1.5 py-0.5 rounded-full font-semibold">
+                                Complemento
+                              </span>
+                            )}
+                          </div>
+                        </Link>
+                      )
+                    })}
+                </div>
+              )}
+
+              {/* ── Modo: COMPACTO (chips em linha única) ────────────────── */}
+              {viewMode === 'compacto' && (
+                <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
+                  {reports
+                    .slice()
+                    .sort((a, b) => b.date.localeCompare(a.date))
+                    .map((r, idx) => {
+                      const sc = STATUS_CFG[r.status] ?? STATUS_CFG.PENDING
+                      const isUnworkable = !r.workableMorning || !r.workableAfternoon || !r.workableNight
+                      return (
+                        <Link key={r.id} href={`/app/diario/${projectId}/${r.id}`}
+                          className={`flex items-center gap-3 px-4 py-2.5 hover:bg-gray-50 transition-colors ${idx !== 0 ? 'border-t border-gray-100' : ''}`}>
+                          {/* Número */}
+                          <span className="text-xs font-mono font-semibold text-gray-700 w-16 flex-shrink-0">
+                            {r.reportNumber ?? '—'}
+                          </span>
+                          {/* Data */}
+                          <span className="text-xs text-gray-400 w-20 flex-shrink-0">
+                            {new Date(r.date).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })}
+                          </span>
+                          {/* Clima + chuva */}
+                          <span className="text-xs text-gray-500 flex items-center gap-1 w-24 flex-shrink-0">
+                            {r.weatherMorning && WEATHER_LABEL[r.weatherMorning]?.split(' ')[0]}
+                            {r.totalRainMm > 0 && <span className="text-blue-500">{Number(r.totalRainMm).toFixed(0)}mm</span>}
+                          </span>
+                          {/* Status */}
+                          <Badge variant={sc.variant} size="sm">{sc.label}</Badge>
+                          {/* Tags extras */}
+                          <div className="flex items-center gap-1 flex-1">
+                            {isUnworkable && <span className="text-[9px] text-red-500 font-bold bg-red-50 px-1.5 py-0.5 rounded-full">⛔</span>}
+                            {r.isComplement && <span className="text-[9px] text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded-full">Compl.</span>}
+                            {(r.occurrences?.length ?? 0) > 0 && (
+                              <span className="text-[9px] text-orange-600 bg-orange-50 px-1.5 py-0.5 rounded-full">
+                                {r.occurrences.length} ocor.
+                              </span>
+                            )}
+                          </div>
+                          {/* Autor */}
+                          <span className="text-[10px] text-gray-400 hidden lg:inline truncate max-w-[100px]">{r.author.name}</span>
+                        </Link>
+                      )
+                    })}
+                </div>
+              )}
 
               {total > LIMIT && (
                 <div className="flex items-center justify-between mt-4">

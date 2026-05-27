@@ -346,8 +346,20 @@ export async function projectRoutes(app: FastifyInstance) {
           orderBy: { createdAt: 'desc' },
           take: 5,
         },
+        // Últimos 3 RDOs para exibir no card do Centro de Custo
+        diaryEntries: {
+          orderBy: { date: 'desc' },
+          take: 3,
+          select: {
+            id:           true,
+            reportNumber: true,
+            date:         true,
+            status:       true,
+            author: { select: { id: true, name: true } },
+          },
+        },
         _count: {
-          select: { financialTransactions: true, purchaseMaps: true, documents: true },
+          select: { financialTransactions: true, purchaseMaps: true, documents: true, diaryEntries: true },
         },
       },
     })
@@ -363,6 +375,12 @@ export async function projectRoutes(app: FastifyInstance) {
       interestAmount: Number(tx.interestAmount),
       retentionAmount:Number(tx.retentionAmount),
       netAmount:      Number(tx.netAmount),
+    }))
+
+    // Serializar diary entries (datas como ISO string)
+    serialised.diaryEntries = (project.diaryEntries ?? []).map((e: any) => ({
+      ...e,
+      date: e.date instanceof Date ? e.date.toISOString() : e.date,
     }))
 
     // ── Enriquecer etapas com realizado calculado via CostCenterAllocation ──

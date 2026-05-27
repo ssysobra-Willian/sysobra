@@ -534,6 +534,94 @@ export async function financialRoutes(app: FastifyInstance) {
     return reply.send({ transactions: (transactions as any[]).map(serialiseTx), total, page, limit, pages: Math.ceil(total / limit) })
   })
 
+  // ── GET /api/financial/transactions/summary ───────────────────────────────
+  // Totais corretos para um projeto: usa costCenterAllocation.amount para
+  // lançamentos rateados e netAmount para lançamentos com vínculo direto.
+  app.get('/transactions/summary', {
+    preHandler: [requirePermission('financeiro', 'view')],
+  }, async (request, reply) => {
+    const req = request as RequestWithMember
+    const { companyId } = req
+    const q = request.query as {
+      projectId?: string
+      startDate?: string
+      endDate?: string
+    }
+
+    if (!q.projectId) {
+      return reply.status(400).send({ error: 'projectId é obrigatório' })
+    }
+
+    const projectId = q.projectId
+    const where: any = { companyId, isActive: true }
+
+    if (q.startDate && q.endDate) {
+      where.referenceDate = { gte: new Date(q.startDate), lte: new Date(q.endDate) }
+    } else if (q.startDate) {
+      where.referenceDate = { gte: new Date(q.startDate) }
+    } else if (q.endDate) {
+      where.referenceDate = { lte: new Date(q.endDate) }
+    }
+
+    // Lançamentos diretos OU com rateio para esta obra
+    where.OR = [
+      { projectId },
+      { costCenterAllocations: { some: { projectId } } },
+    ]
+
+    const transactions = await (prisma as any).financialTransaction.findMany({
+      where,
+      select: {
+        type:    true,
+        isPaid:  true,
+        netAmount: true,
+        dueDate: true,
+        projectId: true,
+        // Alocações para ESTE projeto (pode ser 0 para lançamento direto)
+        costCenterAllocations: {
+          where: { projectId },
+          select: { amount: true },
+        },
+      },
+    })
+
+    let totalReceitas = 0, totalDespesas = 0, totalPago = 0, totalPendente = 0
+    let countTotal    = 0, countPago    = 0, countPendente = 0, countVencido = 0
+    const now = new Date()
+
+    for (const tx of transactions as any[]) {
+      // Valor efetivo para este projeto:
+      // rateado → soma das alocações desta obra
+      // direto  → netAmount completo
+      const hasAlloc = tx.costCenterAllocations.length > 0
+      const value    = hasAlloc
+        ? tx.costCenterAllocations.reduce((s: number, a: any) => s + toNum(a.amount), 0)
+        : toNum(tx.netAmount)
+
+      if (tx.type === 'INCOME')  totalReceitas += value
+      if (tx.type === 'EXPENSE') totalDespesas += value
+
+      countTotal++
+      if (tx.isPaid) {
+        totalPago += value; countPago++
+      } else {
+        totalPendente += value; countPendente++
+        if (tx.dueDate && new Date(tx.dueDate) < now) countVencido++
+      }
+    }
+
+    return reply.send({
+      totalReceitas: Math.round(totalReceitas * 100) / 100,
+      totalDespesas: Math.round(totalDespesas * 100) / 100,
+      totalPago:     Math.round(totalPago     * 100) / 100,
+      totalPendente: Math.round(totalPendente * 100) / 100,
+      countTotal,
+      countPago,
+      countPendente,
+      countVencido,
+    })
+  })
+
   // ── POST /api/financial/transactions ─────────────────────────────────────
   app.post('/transactions', {
     preHandler: [requirePermission('financeiro', 'create')],

@@ -99,7 +99,8 @@ interface Project {
   responsible: { id: string; name: string; avatarUrl: string | null } | null
   stages: Stage[]
   financialTransactions: FinTx[]
-  _count: { financialTransactions: number; purchaseMaps: number; documents: number }
+  diaryEntries: ProjectDiaryEntry[]
+  _count: { financialTransactions: number; purchaseMaps: number; documents: number; diaryEntries: number }
 }
 
 interface FinancialSummary {
@@ -136,6 +137,25 @@ interface AllocTx {
     stage:   { id: string; name: string } | null
     amount:  number
   }[]
+}
+
+interface AllocSummary {
+  totalReceitas: number
+  totalDespesas: number
+  totalPago:     number
+  totalPendente: number
+  countTotal:    number
+  countPago:     number
+  countPendente: number
+  countVencido:  number
+}
+
+interface ProjectDiaryEntry {
+  id:           string
+  reportNumber: string | null
+  date:         string
+  status:       string
+  author:       { id: string; name: string }
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -487,12 +507,6 @@ export default function ObraDetailPage() {
   const [progressVal,   setProgressVal]   = useState('')
   const [realizedVal,   setRealizedVal]   = useState('')
   const [savingProgress, setSavingProgress] = useState(false)
-  const [diaryData, setDiaryData] = useState<{
-    totalReports: number
-    lastReport: { date: string; reportNumber: string | null; status: string } | null
-    unworkableDays: number
-    totalRainMm: number
-  } | null>(null)
   const [rainRecords, setRainRecords] = useState<RainRecord[]>([])
   const [rainPeriod,  setRainPeriod]  = useState<30 | 60 | 90>(60)
   const [rainLoading, setRainLoading] = useState(false)
@@ -502,6 +516,7 @@ export default function ObraDetailPage() {
   const [allocTotal,    setAllocTotal]     = useState(0)
   const [allocPage,     setAllocPage]      = useState(1)
   const [allocLoading,  setAllocLoading]   = useState(false)
+  const [allocSummary,  setAllocSummary]   = useState<AllocSummary | null>(null)
   const [allocTypeFilter,   setAllocTypeFilter]   = useState('ALL')
   const [allocStatusFilter, setAllocStatusFilter] = useState('ALL')
   const [allocSearch,       setAllocSearch]       = useState('')
@@ -539,37 +554,24 @@ export default function ObraDetailPage() {
 
   useEffect(() => { loadProject() }, [loadProject])
 
-  // Carrega resumo do Diário de Obra para esta obra
-  useEffect(() => {
-    const token     = localStorage.getItem('token') || ''
-    const companyId = localStorage.getItem('companyId') || ''
-    if (!token || !id) return
-    fetch(`${API}/api/v1/diary/projects?search=${encodeURIComponent(id)}`, {
-      headers: { Authorization: `Bearer ${token}`, 'x-company-id': companyId },
-    })
-      .then((r) => r.json())
-      .then((d) => {
-        const proj = (d.projects ?? []).find((p: any) => p.id === id)
-        if (proj) {
-          setDiaryData({
-            totalReports:   proj.totalReports,
-            lastReport:     proj.lastReport,
-            unworkableDays: proj.unworkableDays,
-            totalRainMm:    proj.totalRainMm,
-          })
-        }
-      })
-      .catch(() => {/* silencioso */})
-  }, [id])
-
-  // Carrega lançamentos da aba Apropriações
+  // Carrega lançamentos + summary da aba Apropriações
   useEffect(() => {
     if (tab !== 'Apropriações') return
     const token     = localStorage.getItem('token') || ''
     const companyId = localStorage.getItem('companyId') || ''
     if (!token || !id) return
-    setAllocLoading(true)
 
+    // Summary (totais corretos usando allocatedValue) — carrega uma vez por projeto
+    if (!allocSummary) {
+      fetch(`${API}/api/v1/financial/transactions/summary?projectId=${id}`, {
+        headers: { Authorization: `Bearer ${token}`, 'x-company-id': companyId },
+      })
+        .then((r) => r.ok ? r.json() : null)
+        .then((d) => { if (d) setAllocSummary(d) })
+        .catch(() => {/* silencioso */})
+    }
+
+    setAllocLoading(true)
     const qs = new URLSearchParams({ projectId: id, page: String(allocPage), limit: String(ALLOC_LIMIT) })
     if (allocTypeFilter !== 'ALL')   qs.set('type',   allocTypeFilter)
     if (allocStatusFilter === 'PAID')    qs.set('isPaid', 'true')
@@ -591,7 +593,7 @@ export default function ObraDetailPage() {
       .then((d) => { setAllocTxs(d.transactions ?? []); setAllocTotal(d.total ?? 0) })
       .catch(() => { setAllocTxs([]); setAllocTotal(0) })
       .finally(() => setAllocLoading(false))
-  }, [tab, id, allocPage, allocTypeFilter, allocStatusFilter, allocSearch, allocPeriod])
+  }, [tab, id, allocPage, allocTypeFilter, allocStatusFilter, allocSearch, allocPeriod, allocSummary])
 
   // Carrega dados pluviométricos quando a aba for aberta
   useEffect(() => {
@@ -897,33 +899,35 @@ export default function ObraDetailPage() {
 
               {tab === 'Apropriações' && (
                 <div className="space-y-4">
-                  {/* Cards de resumo calculados das transações carregadas */}
-                  {(() => {
-                    const receitas  = allocTxs.filter(t => t.type === 'INCOME').reduce((s, t) => s + t.netAmount, 0)
-                    const despesas  = allocTxs.filter(t => t.type === 'EXPENSE').reduce((s, t) => s + t.netAmount, 0)
-                    const pago      = allocTxs.filter(t => t.isPaid).reduce((s, t) => s + t.netAmount, 0)
-                    const pendente  = allocTxs.filter(t => !t.isPaid).reduce((s, t) => s + t.netAmount, 0)
-                    return (
-                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                        <div className="bg-green-50 border border-green-100 rounded-xl p-3 text-center">
-                          <p className="text-[10px] font-semibold text-green-500 uppercase tracking-wide mb-1">Receitas</p>
-                          <p className="text-sm font-bold text-green-700">{formatCurrency(receitas)}</p>
-                        </div>
-                        <div className="bg-red-50 border border-red-100 rounded-xl p-3 text-center">
-                          <p className="text-[10px] font-semibold text-red-500 uppercase tracking-wide mb-1">Despesas</p>
-                          <p className="text-sm font-bold text-red-700">{formatCurrency(despesas)}</p>
-                        </div>
-                        <div className="bg-blue-50 border border-blue-100 rounded-xl p-3 text-center">
-                          <p className="text-[10px] font-semibold text-blue-500 uppercase tracking-wide mb-1">Pago</p>
-                          <p className="text-sm font-bold text-blue-700">{formatCurrency(pago)}</p>
-                        </div>
-                        <div className="bg-amber-50 border border-amber-100 rounded-xl p-3 text-center">
-                          <p className="text-[10px] font-semibold text-amber-500 uppercase tracking-wide mb-1">Pendente</p>
-                          <p className="text-sm font-bold text-amber-700">{formatCurrency(pendente)}</p>
-                        </div>
-                      </div>
-                    )
-                  })()}
+                  {/* Cards de resumo — usa totais do backend (allocatedValue correto) */}
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                    <div className="bg-green-50 border border-green-100 rounded-xl p-3 text-center">
+                      <p className="text-[10px] font-semibold text-green-500 uppercase tracking-wide mb-1">Receitas</p>
+                      <p className="text-sm font-bold text-green-700">
+                        {allocSummary ? formatCurrency(allocSummary.totalReceitas) : <span className="text-gray-300 animate-pulse">—</span>}
+                      </p>
+                    </div>
+                    <div className="bg-red-50 border border-red-100 rounded-xl p-3 text-center">
+                      <p className="text-[10px] font-semibold text-red-500 uppercase tracking-wide mb-1">Despesas</p>
+                      <p className="text-sm font-bold text-red-700">
+                        {allocSummary ? formatCurrency(allocSummary.totalDespesas) : <span className="text-gray-300 animate-pulse">—</span>}
+                      </p>
+                    </div>
+                    <div className="bg-blue-50 border border-blue-100 rounded-xl p-3 text-center">
+                      <p className="text-[10px] font-semibold text-blue-500 uppercase tracking-wide mb-1">Pago</p>
+                      <p className="text-sm font-bold text-blue-700">
+                        {allocSummary ? formatCurrency(allocSummary.totalPago) : <span className="text-gray-300 animate-pulse">—</span>}
+                      </p>
+                    </div>
+                    <div className={`rounded-xl p-3 text-center border ${allocSummary && allocSummary.countVencido > 0 ? 'bg-red-50 border-red-100' : 'bg-amber-50 border-amber-100'}`}>
+                      <p className={`text-[10px] font-semibold uppercase tracking-wide mb-1 ${allocSummary && allocSummary.countVencido > 0 ? 'text-red-500' : 'text-amber-500'}`}>
+                        Pendente{allocSummary && allocSummary.countVencido > 0 ? ` · ${allocSummary.countVencido} venc.` : ''}
+                      </p>
+                      <p className={`text-sm font-bold ${allocSummary && allocSummary.countVencido > 0 ? 'text-red-700' : 'text-amber-700'}`}>
+                        {allocSummary ? formatCurrency(allocSummary.totalPendente) : <span className="text-gray-300 animate-pulse">—</span>}
+                      </p>
+                    </div>
+                  </div>
 
                   {/* Filtros */}
                   <div className="flex flex-wrap gap-2 items-center">
@@ -1149,12 +1153,12 @@ export default function ObraDetailPage() {
                               />
                               <Tooltip
                                 contentStyle={{ fontSize: 11, borderRadius: 8, border: '1px solid #e5e7eb' }}
-                                formatter={(value: number, name: string) => [
+                                formatter={(value, name) => [
                                   `${Number(value).toFixed(1)} mm`,
                                   name === 'total' ? 'Total' :
                                   name === 'manha' ? 'Manhã' :
                                   name === 'tarde' ? 'Tarde' :
-                                  name === 'noite' ? 'Noite' : name,
+                                  name === 'noite' ? 'Noite' : String(name),
                                 ]}
                               />
                               <Bar dataKey="manha"  stackId="a" fill="#93c5fd" name="manha"  maxBarSize={20} />
@@ -1334,9 +1338,9 @@ export default function ObraDetailPage() {
             <div className="flex items-center justify-between mb-3">
               <div className="flex items-center gap-2">
                 <h4 className="text-sm font-semibold text-gray-700">📋 Diário de Obra</h4>
-                {(diaryData?.totalReports ?? 0) > 0 && (
+                {(project._count?.diaryEntries ?? 0) > 0 && (
                   <span className="text-[10px] font-bold bg-[#F5A623]/15 text-[#c57a00] px-1.5 py-0.5 rounded-full">
-                    {diaryData!.totalReports} RDO{diaryData!.totalReports !== 1 ? 's' : ''}
+                    {project._count.diaryEntries} RDO{project._count.diaryEntries !== 1 ? 's' : ''}
                   </span>
                 )}
               </div>
@@ -1348,54 +1352,45 @@ export default function ObraDetailPage() {
               </Link>
             </div>
 
-            {diaryData && diaryData.totalReports > 0 ? (
-              <div className="space-y-3">
-                {/* Último RDO */}
-                {diaryData.lastReport && (
-                  <Link href={`/app/diario/${id}`}
-                    className="flex items-start gap-2.5 p-2.5 rounded-lg border border-gray-100 hover:bg-gray-50 transition-colors">
+            {(project.diaryEntries?.length ?? 0) > 0 ? (
+              <div className="space-y-1.5">
+                {/* Lista dos últimos 3 RDOs */}
+                {(project.diaryEntries ?? []).map((entry) => (
+                  <Link
+                    key={entry.id}
+                    href={`/app/diario/${id}/${entry.id}`}
+                    className="flex items-center gap-2.5 p-2 rounded-lg border border-gray-100 hover:bg-gray-50 transition-colors"
+                  >
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-0.5">
-                        <p className="text-xs font-semibold text-gray-800">
-                          {diaryData.lastReport.reportNumber ?? 'RDO'}
+                      <div className="flex items-center gap-1.5 mb-0.5">
+                        <p className="text-xs font-semibold text-gray-800 truncate">
+                          {entry.reportNumber ?? 'RDO'}
                         </p>
                         <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full flex-shrink-0 ${
-                          diaryData.lastReport.status === 'APPROVED' ? 'bg-green-100 text-green-700' :
-                          diaryData.lastReport.status === 'REJECTED' ? 'bg-red-100 text-red-700'   :
-                          diaryData.lastReport.status === 'DRAFT'    ? 'bg-gray-100 text-gray-500'  :
+                          entry.status === 'APPROVED' ? 'bg-green-100 text-green-700' :
+                          entry.status === 'REJECTED' ? 'bg-red-100 text-red-700'    :
+                          entry.status === 'DRAFT'    ? 'bg-gray-100 text-gray-500'  :
                           'bg-amber-100 text-amber-700'
                         }`}>
-                          {diaryData.lastReport.status === 'APPROVED' ? 'Aprovado'      :
-                           diaryData.lastReport.status === 'REJECTED' ? 'Devolvido'     :
-                           diaryData.lastReport.status === 'DRAFT'    ? 'Rascunho'      : 'Aguard. aprov.'}
+                          {entry.status === 'APPROVED' ? '✓ Aprovado'     :
+                           entry.status === 'REJECTED' ? '✗ Devolvido'    :
+                           entry.status === 'DRAFT'    ? 'Rascunho'       : 'Ag. aprovação'}
                         </span>
                       </div>
-                      <p className="text-[10px] text-gray-400">
-                        {new Date(diaryData.lastReport.date).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short', year: 'numeric' })}
-                      </p>
+                      <div className="flex items-center gap-1.5">
+                        <p className="text-[10px] text-gray-400">
+                          {new Date(entry.date).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short', year: 'numeric' })}
+                        </p>
+                        <span className="text-[10px] text-gray-300">·</span>
+                        <p className="text-[10px] text-gray-400 truncate">{entry.author.name}</p>
+                      </div>
                     </div>
-                    <ExternalLink size={11} className="text-gray-300 flex-shrink-0 mt-1" />
+                    <ExternalLink size={10} className="text-gray-300 flex-shrink-0" />
                   </Link>
-                )}
-
-                {/* Mini pluviometria */}
-                <div className="grid grid-cols-2 gap-1.5">
-                  <div className="bg-blue-50 rounded-lg p-2 text-center">
-                    <p className="text-base font-bold text-blue-700">{(diaryData.totalRainMm ?? 0).toFixed(0)}</p>
-                    <p className="text-[9px] text-blue-400 font-medium">mm chuva</p>
-                  </div>
-                  <div className={`rounded-lg p-2 text-center ${diaryData.unworkableDays > 0 ? 'bg-red-50' : 'bg-green-50'}`}>
-                    <p className={`text-base font-bold ${diaryData.unworkableDays > 0 ? 'text-red-600' : 'text-green-600'}`}>
-                      {diaryData.unworkableDays ?? 0}
-                    </p>
-                    <p className={`text-[9px] font-medium ${diaryData.unworkableDays > 0 ? 'text-red-400' : 'text-green-400'}`}>
-                      impraticáveis
-                    </p>
-                  </div>
-                </div>
+                ))}
 
                 {/* Ações */}
-                <div className="flex gap-2 pt-1">
+                <div className="flex gap-2 pt-1.5">
                   <Link href={`/app/diario/${id}/novo`}
                     className="flex-1 text-center text-xs font-semibold py-1.5 px-3 bg-[#F5A623] text-white rounded-lg hover:bg-[#d4891a] transition-colors">
                     + Novo RDO
