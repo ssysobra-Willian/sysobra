@@ -913,6 +913,8 @@ model Employee {
   projectId        String?   @map("project_id")
   locationId       String?   @map("location_id")
   locationName     String?   @map("location_name")
+  locationType     String?   @map("location_type")    // "FIXED" | "PROJECT"
+  locationFixed    String?   @map("location_fixed")   // ex: "OFFICE", "VACATION"
   lastTransferDate DateTime? @map("last_transfer_date")
   bloodType        String?   @map("blood_type")
   emergencyContact String?   @map("emergency_contact")

@@ -289,8 +289,12 @@ export async function employeeRoutes(app: FastifyInstance) {
       type:          string
       role:          string
       department?:   string
-      salary?:       number
-      projectId?:    string
+      salary?:        number
+      projectId?:     string
+      locationId?:    string
+      locationName?:  string
+      locationType?:  string
+      locationFixed?: string
     }
 
     if (!body.name || !body.admissionDate || !body.type || !body.role) {
@@ -343,8 +347,12 @@ export async function employeeRoutes(app: FastifyInstance) {
         type:          body.type,
         role:          body.role.trim(),
         department:    body.department ?? null,
-        salary:        body.salary    ?? null,
-        projectId:     body.projectId ?? null,
+        salary:        body.salary       ?? null,
+        projectId:     body.projectId    ?? null,
+        locationId:    body.locationId   ?? null,
+        locationName:  body.locationName ?? null,
+        locationType:  body.locationType  ?? null,
+        locationFixed: body.locationFixed ?? null,
         status:        'ACTIVE',
         isActive:      true,
       },
@@ -445,6 +453,8 @@ export async function employeeRoutes(app: FastifyInstance) {
         projectId:     body.projectId     !== undefined ? (body.projectId || null) : undefined,
         locationId:    body.locationId   !== undefined ? (body.locationId   || null) : undefined,
         locationName:  body.locationName !== undefined ? (body.locationName || null) : undefined,
+        locationType:  body.locationType  !== undefined ? (body.locationType  || null) : undefined,
+        locationFixed: body.locationFixed !== undefined ? (body.locationFixed || null) : undefined,
       },
       include: { project: { select: { id: true, name: true, code: true } } },
     })
@@ -943,50 +953,143 @@ export async function employeeRoutes(app: FastifyInstance) {
   })
 
   // ══════════════════════════════════════════════════════════════════════════
+  // EQUIPE POR OBRA
+  // ══════════════════════════════════════════════════════════════════════════
+
+  /**
+   * GET /api/v1/employees/by-project/:projectId
+   * Retorna colaboradores alocados e não alocados nessa obra.
+   * Usado pelo RDO e pela aba Equipe do Centro de Custo.
+   */
+  app.get('/by-project/:projectId', async (request, reply) => {
+    const req       = request as RequestWithMember
+    const companyId = req.companyId!
+    const { projectId } = request.params as { projectId: string }
+
+    const [allocated, others, historyRaw] = await Promise.all([
+      // Colaboradores atualmente nessa obra
+      p.employee.findMany({
+        where:   { companyId, projectId, isActive: true, status: { in: ['ACTIVE', 'AWAY'] } },
+        select:  {
+          id: true, name: true, code: true, role: true, type: true, status: true,
+          photo: true, phone: true, admissionDate: true,
+          lastTransferDate: true,
+        },
+        orderBy: { name: 'asc' },
+      }),
+      // Demais colaboradores ativos (sem essa obra)
+      p.employee.findMany({
+        where: {
+          companyId, isActive: true, status: { in: ['ACTIVE', 'AWAY'] },
+          OR: [{ projectId: null }, { projectId: { not: projectId } }],
+        },
+        select: {
+          id: true, name: true, code: true, role: true, type: true, status: true,
+          photo: true, projectId: true,
+          project: { select: { id: true, name: true, code: true } },
+        },
+        orderBy: { name: 'asc' },
+      }),
+      // Histórico de quem já esteve nessa obra
+      p.employeeProjectHistory.findMany({
+        where:   { companyId, projectId },
+        include: { employee: { select: { id: true, name: true, code: true, role: true } } },
+        orderBy: { startDate: 'desc' },
+        take:    50,
+      }),
+    ])
+
+    return reply.send({ allocated, others, history: historyRaw })
+  })
+
+  // ══════════════════════════════════════════════════════════════════════════
   // FOLHA DE PAGAMENTO
   // ══════════════════════════════════════════════════════════════════════════
 
   const ENCARGOS_CLT = {
-    inss_empregado:   0.14,
-    fgts:             0.08,
-    inss_patronal:    0.20,
-    rat:              0.03,
-    terceiros:        0.058,
-    ferias_provisao:  0.1111,
-    decimo_provisao:  0.0833,
+    fgts:            0.08,
+    inss_patronal:   0.20,
+    rat:             0.03,
+    terceiros:       0.058,
+    ferias_provisao: 0.1111,
+    decimo_provisao: 0.0833,
   }
 
-  function calcPayrollEntry(emp: any, horasExtras: number) {
-    const salario        = toNum(emp.salary)
-    const valorHora      = (salario / 220) * 1.5
-    const valorHE        = horasExtras * valorHora
-    const salarioBruto   = salario + valorHE
+  /** INSS progressivo 2024 — tabela empregado */
+  function calcularINSS(salarioBruto: number): number {
+    const faixas = [
+      { limite: 1412.00,  aliquota: 0.075 },
+      { limite: 2666.68,  aliquota: 0.09  },
+      { limite: 4000.03,  aliquota: 0.12  },
+      { limite: 7786.02,  aliquota: 0.14  },
+    ]
+    let inss = 0; let anterior = 0
+    for (const faixa of faixas) {
+      const base = Math.min(salarioBruto, faixa.limite) - anterior
+      if (base <= 0) break
+      inss += base * faixa.aliquota
+      anterior = faixa.limite
+      if (salarioBruto <= faixa.limite) break
+    }
+    return parseFloat(inss.toFixed(2))
+  }
+
+  /** IRRF 2024 — deducao padrão (sem dependentes para simplificar) */
+  function calcularIRRF(baseCalculo: number): number {
+    if (baseCalculo <= 2259.20) return 0
+    if (baseCalculo <= 2826.65) return parseFloat((baseCalculo * 0.075 - 169.44).toFixed(2))
+    if (baseCalculo <= 3751.05) return parseFloat((baseCalculo * 0.15  - 381.44).toFixed(2))
+    if (baseCalculo <= 4664.68) return parseFloat((baseCalculo * 0.225 - 662.77).toFixed(2))
+    return parseFloat((baseCalculo * 0.275 - 896.00).toFixed(2))
+  }
+
+  function calcPayrollEntry(
+    emp: any,
+    horasExtras60: number,
+    horasExtras100: number,
+  ) {
+    const salario   = toNum(emp.salary)
+    const valorHora = salario / 220
+
+    const valorHE60  = horasExtras60  * valorHora * 1.60
+    const valorHE100 = horasExtras100 * valorHora * 2.00
+    const valorHETotal = valorHE60 + valorHE100
+
+    const salarioBruto = salario + valorHETotal
 
     if (emp.type === 'PJ' || emp.type === 'THIRD_PARTY') {
       return {
         employeeId: emp.id, name: emp.name, type: emp.type, role: emp.role,
         projectId:  emp.projectId,
         project:    emp.project,
-        salarioBase: salario, horasExtras, valorHorasExtras: 0,
-        salarioBruto: salario, inss: 0, salarioLiquido: salario,
+        salarioBase: salario,
+        horasExtras60: 0, horasExtras100: 0,
+        valorHorasExtras60: 0, valorHorasExtras100: 0, valorHorasExtras: 0,
+        salarioBruto: salario, inss: 0, irrf: 0, salarioLiquido: salario,
         fgts: 0, encargosPatronais: 0, custoTotal: salario,
       }
     }
 
     const totalEncPct = ENCARGOS_CLT.inss_patronal + ENCARGOS_CLT.rat + ENCARGOS_CLT.terceiros
                       + ENCARGOS_CLT.ferias_provisao + ENCARGOS_CLT.decimo_provisao
-    const inss             = salarioBruto * ENCARGOS_CLT.inss_empregado
-    const fgts             = salarioBruto * ENCARGOS_CLT.fgts
-    const encargosPatronais = salarioBruto * totalEncPct
-    const custoTotal       = salarioBruto + fgts + encargosPatronais
+    const inss             = calcularINSS(salarioBruto)
+    const baseIRRF         = Math.max(0, salarioBruto - inss)
+    const irrf             = calcularIRRF(baseIRRF)
+    const fgts             = parseFloat((salarioBruto * ENCARGOS_CLT.fgts).toFixed(2))
+    const encargosPatronais = parseFloat((salarioBruto * totalEncPct).toFixed(2))
+    const custoTotal       = parseFloat((salarioBruto + fgts + encargosPatronais).toFixed(2))
 
     return {
       employeeId: emp.id, name: emp.name, type: emp.type, role: emp.role,
       projectId:  emp.projectId,
       project:    emp.project,
-      salarioBase: salario, horasExtras, valorHorasExtras: valorHE,
-      salarioBruto, inss,
-      salarioLiquido: salarioBruto - inss,
+      salarioBase: salario,
+      horasExtras60,  valorHorasExtras60:  parseFloat(valorHE60.toFixed(2)),
+      horasExtras100, valorHorasExtras100: parseFloat(valorHE100.toFixed(2)),
+      valorHorasExtras: parseFloat(valorHETotal.toFixed(2)),
+      salarioBruto: parseFloat(salarioBruto.toFixed(2)),
+      inss, irrf,
+      salarioLiquido: parseFloat((salarioBruto - inss - irrf).toFixed(2)),
       fgts, encargosPatronais, custoTotal,
     }
   }
@@ -999,10 +1102,15 @@ export async function employeeRoutes(app: FastifyInstance) {
     const req       = request as RequestWithMember
     const companyId = req.companyId!
 
-    const q = request.query as { month?: string; year?: string; projectId?: string }
+    const q = request.query as {
+      month?: string; year?: string; projectId?: string
+      horasExtras60?: string; horasExtras100?: string
+    }
     const now   = new Date()
     const month = parseInt(q.month ?? String(now.getMonth() + 1), 10)
     const year  = parseInt(q.year  ?? String(now.getFullYear()),  10)
+    const he60  = parseFloat(q.horasExtras60  ?? '0') || 0
+    const he100 = parseFloat(q.horasExtras100 ?? '0') || 0
 
     const where: any = {
       companyId,
@@ -1018,15 +1126,24 @@ export async function employeeRoutes(app: FastifyInstance) {
       orderBy: { name: 'asc' },
     })
 
-    const entries = employees.map((emp: any) => calcPayrollEntry(emp, 0))
+    const entries = employees.map((emp: any) => calcPayrollEntry(emp, he60, he100))
 
     const totals = entries.reduce((acc: any, e: any) => ({
-      totalSalariosBrutos:  acc.totalSalariosBrutos  + e.salarioBruto,
-      totalSalariosLiquidos: acc.totalSalariosLiquidos + e.salarioLiquido,
-      totalFgts:            acc.totalFgts            + e.fgts,
-      totalEncargos:        acc.totalEncargos        + e.encargosPatronais,
-      totalCustoEmpresa:    acc.totalCustoEmpresa    + e.custoTotal,
-    }), { totalSalariosBrutos: 0, totalSalariosLiquidos: 0, totalFgts: 0, totalEncargos: 0, totalCustoEmpresa: 0 })
+      totalSalariosBrutos:   acc.totalSalariosBrutos   + e.salarioBruto,
+      totalSalariosLiquidos: acc.totalSalariosLiquidos  + e.salarioLiquido,
+      totalINSS:             acc.totalINSS              + e.inss,
+      totalIRRF:             acc.totalIRRF              + e.irrf,
+      totalFgts:             acc.totalFgts              + e.fgts,
+      totalEncargos:         acc.totalEncargos          + e.encargosPatronais,
+      totalCustoEmpresa:     acc.totalCustoEmpresa      + e.custoTotal,
+      totalHorasExtras60:    acc.totalHorasExtras60     + (e.horasExtras60  ?? 0),
+      totalHorasExtras100:   acc.totalHorasExtras100    + (e.horasExtras100 ?? 0),
+    }), {
+      totalSalariosBrutos: 0, totalSalariosLiquidos: 0,
+      totalINSS: 0, totalIRRF: 0,
+      totalFgts: 0, totalEncargos: 0, totalCustoEmpresa: 0,
+      totalHorasExtras60: 0, totalHorasExtras100: 0,
+    })
 
     return reply.send({
       month, year,
@@ -1050,15 +1167,20 @@ export async function employeeRoutes(app: FastifyInstance) {
       year:        number
       description: string
       entries: {
-        employeeId:          string
-        projectId?:          string | null
-        salarioBruto:        number
-        salarioLiquido:      number
-        horasExtras:         number
-        valorHorasExtras:    number
-        fgts:                number
-        encargosPatronais:   number
-        custoTotal:          number
+        employeeId:           string
+        projectId?:           string | null
+        salarioBruto:         number
+        salarioLiquido:       number
+        horasExtras60?:       number
+        horasExtras100?:      number
+        valorHorasExtras60?:  number
+        valorHorasExtras100?: number
+        valorHorasExtras?:    number
+        inss?:                number
+        irrf?:                number
+        fgts:                 number
+        encargosPatronais:    number
+        custoTotal:           number
       }[]
     }
 

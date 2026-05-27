@@ -8,7 +8,7 @@ import {
   DollarSign, AlertTriangle, Calendar, MapPin, User, CheckCircle2,
   Circle, Clock, Banknote, ShoppingCart, FileText, BarChart3,
   ExternalLink, RefreshCw, ClipboardList, ChevronDown, ChevronRight,
-  Layers, Plus,
+  Layers, Plus, Users, ArrowRightLeft, History,
 } from 'lucide-react'
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
@@ -65,6 +65,16 @@ interface FinTx {
   createdBy: { name: string; avatarUrl: string | null } | null
 }
 
+interface TeamMember {
+  id: string; name: string; code: string; role: string | null; type: string; status: string
+  photo: string | null; admissionDate: string | null; lastTransferDate: string | null
+}
+
+interface PastTeamEntry {
+  id: string; startDate: string; endDate: string | null; reason: string | null
+  employee: { id: string; name: string; code: string; role: string | null; photo: string | null }
+}
+
 interface Project {
   id: string
   code: string | null
@@ -104,6 +114,8 @@ interface Project {
   financialTransactions: FinTx[]
   diaryEntries: ProjectDiaryEntry[]
   _count: { financialTransactions: number; purchaseMaps: number; documents: number; diaryEntries: number }
+  currentTeam?: TeamMember[]
+  pastTeam?: PastTeamEntry[]
 }
 
 interface FinancialSummary {
@@ -481,6 +493,130 @@ function StageIcon({ status }: { status: string }) {
   return <Circle size={14} className="text-gray-300 flex-shrink-0" />
 }
 
+// ─── TeamTab ──────────────────────────────────────────────────────────────────
+
+function TeamTab({
+  projectId, currentTeam, pastTeam,
+}: {
+  projectId:   string
+  currentTeam: TeamMember[]
+  pastTeam:    PastTeamEntry[]
+}) {
+  const [showPast, setShowPast] = useState(false)
+
+  const fmtDate = (d: string | null | undefined) => {
+    if (!d) return '—'
+    return new Date(d).toLocaleDateString('pt-BR')
+  }
+
+  const typeLabel: Record<string, string> = {
+    CLT: 'CLT', PJ: 'PJ', TEMPORARY: 'Temporário', INTERN: 'Estagiário', THIRD_PARTY: 'Terceirizado',
+  }
+
+  const statusColor: Record<string, string> = {
+    ACTIVE: 'bg-green-100 text-green-700',
+    AWAY:   'bg-amber-100 text-amber-700',
+    DISMISSED: 'bg-red-100 text-red-700',
+  }
+  const statusLabel: Record<string, string> = {
+    ACTIVE: 'Ativo', AWAY: 'Afastado', DISMISSED: 'Desligado',
+  }
+
+  return (
+    <div className="py-4 space-y-6">
+      {/* Equipe atual */}
+      <div>
+        <div className="flex items-center gap-2 mb-4">
+          <Users size={15} className="text-[#F5A623]" />
+          <h3 className="text-sm font-semibold text-gray-700">
+            Equipe atual ({currentTeam.length})
+          </h3>
+          <Link href="/app/colaboradores" className="ml-auto text-xs text-[#F5A623] hover:underline">
+            Gerenciar colaboradores →
+          </Link>
+        </div>
+
+        {currentTeam.length === 0 ? (
+          <div className="text-center py-8 bg-gray-50 rounded-2xl border border-dashed border-gray-200">
+            <Users size={28} className="text-gray-300 mx-auto mb-2" />
+            <p className="text-sm text-gray-400">Nenhum colaborador alocado nesta obra</p>
+            <p className="text-xs text-gray-400 mt-1">
+              Transfira colaboradores via módulo de Colaboradores
+            </p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {currentTeam.map(m => (
+              <Link
+                key={m.id}
+                href={`/app/colaboradores/${m.id}`}
+                className="flex items-center gap-3 p-3 bg-white border border-gray-100 rounded-xl hover:border-orange-200 hover:shadow-sm transition-all group"
+              >
+                {/* Avatar */}
+                <div className="w-10 h-10 rounded-full overflow-hidden bg-gray-100 flex-shrink-0 flex items-center justify-center">
+                  {m.photo
+                    ? <img src={`${API}${m.photo.startsWith('/') ? '' : '/'}${m.photo}`} alt={m.name} className="w-full h-full object-cover" />
+                    : <User size={18} className="text-gray-300" />
+                  }
+                </div>
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-gray-800 truncate group-hover:text-[#F5A623]">{m.name}</p>
+                  <p className="text-xs text-gray-400 truncate">{m.role ?? 'Sem função'}</p>
+                  <div className="flex items-center gap-1.5 mt-0.5">
+                    <span className={`text-[9px] font-medium px-1.5 py-0.5 rounded-full ${statusColor[m.status] ?? 'bg-gray-100 text-gray-500'}`}>
+                      {statusLabel[m.status] ?? m.status}
+                    </span>
+                    <span className="text-[9px] text-gray-400">{typeLabel[m.type] ?? m.type}</span>
+                  </div>
+                </div>
+              </Link>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Histórico de equipe */}
+      {pastTeam.length > 0 && (
+        <div>
+          <button
+            onClick={() => setShowPast(s => !s)}
+            className="flex items-center gap-2 text-sm font-semibold text-gray-600 hover:text-gray-900 mb-3"
+          >
+            <History size={14} className="text-gray-400" />
+            Histórico de alocações ({pastTeam.length})
+            {showPast ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+          </button>
+
+          {showPast && (
+            <div className="space-y-2">
+              {pastTeam.map(h => (
+                <div key={h.id} className="flex items-center gap-3 py-2.5 px-3 bg-gray-50 rounded-xl border border-gray-100">
+                  <ArrowRightLeft size={13} className="text-gray-400 flex-shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-gray-700 truncate">
+                      {h.employee?.name ?? '—'}
+                    </p>
+                    <p className="text-xs text-gray-400">
+                      {h.employee?.role ?? 'Sem função'} · {fmtDate(h.startDate)} → {fmtDate(h.endDate ?? undefined)}
+                    </p>
+                    {h.reason && (
+                      <p className="text-xs text-gray-400 italic mt-0.5">"{h.reason}"</p>
+                    )}
+                  </div>
+                  <Link href={`/app/colaboradores/${h.employee?.id}`}
+                    className="text-xs text-[#F5A623] hover:underline flex-shrink-0">
+                    Ver
+                  </Link>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function progressBarColor(pct: number, status: string) {
   if (status === 'COMPLETED')  return 'bg-green-500'
   if (status === 'CANCELLED')  return 'bg-red-400'
@@ -491,7 +627,7 @@ function progressBarColor(pct: number, status: string) {
 
 // ─── Abas ─────────────────────────────────────────────────────────────────────
 
-const TABS = ['Resumo', 'Apropriações', 'Pluviometria', 'Compras', 'Medições', 'Documentos', 'Histórico'] as const
+const TABS = ['Resumo', 'Apropriações', 'Pluviometria', 'Compras', 'Medições', 'Equipe', 'Documentos', 'Histórico'] as const
 type Tab = typeof TABS[number]
 
 // ─── Componente principal ─────────────────────────────────────────────────────
@@ -1246,6 +1382,15 @@ export default function ObraDetailPage() {
                 <div className="py-8 text-center">
                   <p className="text-sm text-gray-400">Em desenvolvimento</p>
                 </div>
+              )}
+
+              {/* ── Aba Equipe ─────────────────────────────────────────────── */}
+              {tab === 'Equipe' && (
+                <TeamTab
+                  projectId={id}
+                  currentTeam={project?.currentTeam ?? []}
+                  pastTeam={project?.pastTeam ?? []}
+                />
               )}
 
               {tab === 'Histórico' && (

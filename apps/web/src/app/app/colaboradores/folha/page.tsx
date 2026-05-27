@@ -3,9 +3,9 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import Link from 'next/link'
 import {
-  ChevronLeft, Loader2, Calculator, DollarSign, Users,
-  AlertTriangle, CheckCircle, FileSpreadsheet, Download,
-  Filter, RefreshCcw, ArrowRight,
+  Loader2, Calculator, DollarSign, Users,
+  AlertTriangle, CheckCircle, FileSpreadsheet,
+  ArrowRight,
 } from 'lucide-react'
 import { Breadcrumb } from '@/components/ui/Breadcrumb'
 
@@ -14,21 +14,25 @@ const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
 interface PayrollEntry {
-  employeeId:        string
-  name:              string
-  type:              string
-  role:              string | null
-  projectId:         string | null
-  project:           { id: string; name: string; code: string | null } | null
-  salarioBase:       number
-  horasExtras:       number
-  valorHorasExtras:  number
-  salarioBruto:      number
-  inss:              number
-  salarioLiquido:    number
-  fgts:              number
-  encargosPatronais: number
-  custoTotal:        number
+  employeeId:          string
+  name:                string
+  type:                string
+  role:                string | null
+  projectId:           string | null
+  project:             { id: string; name: string; code: string | null } | null
+  salarioBase:         number
+  horasExtras60:       number
+  horasExtras100:      number
+  valorHorasExtras60:  number
+  valorHorasExtras100: number
+  valorHorasExtras:    number
+  salarioBruto:        number
+  inss:                number
+  irrf:                number
+  salarioLiquido:      number
+  fgts:                number
+  encargosPatronais:   number
+  custoTotal:          number
 }
 
 interface ProjectSummary {
@@ -50,23 +54,80 @@ function fmtMoney(v: number) {
   return v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 }
 
-function calcEntry(base: PayrollEntry, horasExtras: number, projectId: string | null): PayrollEntry {
-  const salario     = base.salarioBase
-  const valorHora   = (salario / 220) * 1.5
-  const valorHE     = horasExtras * valorHora
-  const salarioBruto = salario + valorHE
+/** INSS progressivo 2024 — tabela empregado */
+function calcularINSS(salarioBruto: number): number {
+  const faixas = [
+    { limite: 1412.00,  aliquota: 0.075 },
+    { limite: 2666.68,  aliquota: 0.09  },
+    { limite: 4000.03,  aliquota: 0.12  },
+    { limite: 7786.02,  aliquota: 0.14  },
+  ]
+  let inss = 0; let anterior = 0
+  for (const faixa of faixas) {
+    const base = Math.min(salarioBruto, faixa.limite) - anterior
+    if (base <= 0) break
+    inss += base * faixa.aliquota
+    anterior = faixa.limite
+    if (salarioBruto <= faixa.limite) break
+  }
+  return parseFloat(inss.toFixed(2))
+}
+
+/** IRRF 2024 — dedução padrão (sem dependentes) */
+function calcularIRRF(baseCalculo: number): number {
+  if (baseCalculo <= 2259.20) return 0
+  if (baseCalculo <= 2826.65) return parseFloat((baseCalculo * 0.075 - 169.44).toFixed(2))
+  if (baseCalculo <= 3751.05) return parseFloat((baseCalculo * 0.15  - 381.44).toFixed(2))
+  if (baseCalculo <= 4664.68) return parseFloat((baseCalculo * 0.225 - 662.77).toFixed(2))
+  return parseFloat((baseCalculo * 0.275 - 896.00).toFixed(2))
+}
+
+/**
+ * Recalcula uma entrada com horas extras 60%/100% + INSS progressivo + IRRF 2024.
+ */
+function calcEntry(
+  base: PayrollEntry,
+  he60:      number,
+  he100:     number,
+  projectId: string | null,
+): PayrollEntry {
+  const salario   = base.salarioBase
+  const valorHora = salario / 220
+
+  const valorHE60  = parseFloat((he60  * valorHora * 1.60).toFixed(2))
+  const valorHE100 = parseFloat((he100 * valorHora * 2.00).toFixed(2))
+  const valorHETotal = parseFloat((valorHE60 + valorHE100).toFixed(2))
+  const salarioBruto = parseFloat((salario + valorHETotal).toFixed(2))
 
   if (base.type === 'PJ' || base.type === 'THIRD_PARTY') {
-    return { ...base, horasExtras, valorHorasExtras: 0, salarioBruto: salario, inss: 0, salarioLiquido: salario, fgts: 0, encargosPatronais: 0, custoTotal: salario, projectId }
+    return {
+      ...base,
+      horasExtras60: he60, horasExtras100: he100,
+      valorHorasExtras60: 0, valorHorasExtras100: 0, valorHorasExtras: 0,
+      salarioBruto: salario, inss: 0, irrf: 0, salarioLiquido: salario,
+      fgts: 0, encargosPatronais: 0, custoTotal: salario,
+      projectId,
+    }
   }
 
-  const encTot = 0.20 + 0.03 + 0.058 + 0.1111 + 0.0833
-  const inss              = salarioBruto * 0.14
-  const fgts              = salarioBruto * 0.08
-  const encargosPatronais = salarioBruto * encTot
-  const custoTotal        = salarioBruto + fgts + encargosPatronais
+  const encTotPct  = 0.20 + 0.03 + 0.058 + 0.1111 + 0.0833
+  const inss       = calcularINSS(salarioBruto)
+  const baseIRRF   = Math.max(0, salarioBruto - inss)
+  const irrf       = calcularIRRF(baseIRRF)
+  const fgts       = parseFloat((salarioBruto * 0.08).toFixed(2))
+  const encargosPatronais = parseFloat((salarioBruto * encTotPct).toFixed(2))
+  const custoTotal = parseFloat((salarioBruto + fgts + encargosPatronais).toFixed(2))
 
-  return { ...base, horasExtras, valorHorasExtras: valorHE, salarioBruto, inss, salarioLiquido: salarioBruto - inss, fgts, encargosPatronais, custoTotal, projectId }
+  return {
+    ...base,
+    horasExtras60: he60, horasExtras100: he100,
+    valorHorasExtras60: valorHE60, valorHorasExtras100: valorHE100,
+    valorHorasExtras: valorHETotal,
+    salarioBruto, inss, irrf,
+    salarioLiquido: parseFloat((salarioBruto - inss - irrf).toFixed(2)),
+    fgts, encargosPatronais, custoTotal,
+    projectId,
+  }
 }
 
 const MONTH_NAMES = ['','Janeiro','Fevereiro','Março','Abril','Maio','Junho',
@@ -80,19 +141,21 @@ const TYPE_LABELS: Record<string, string> = {
 
 export default function FolhaPagamentoPage() {
   const now = new Date()
-  const [month,     setMonth]     = useState(now.getMonth() + 1)
-  const [year,      setYear]      = useState(now.getFullYear())
-  const [entries,   setEntries]   = useState<PayrollEntry[]>([])
-  const [loading,   setLoading]   = useState(false)
-  const [launching, setLaunching] = useState(false)
-  const [error,     setError]     = useState('')
-  const [success,   setSuccess]   = useState('')
-  const [projects,  setProjects]  = useState<{ id: string; name: string; code: string | null }[]>([])
+  const [month,      setMonth]      = useState(now.getMonth() + 1)
+  const [year,       setYear]       = useState(now.getFullYear())
+  const [entries,    setEntries]    = useState<PayrollEntry[]>([])
+  const [loading,    setLoading]    = useState(false)
+  const [launching,  setLaunching]  = useState(false)
+  const [error,      setError]      = useState('')
+  const [success,    setSuccess]    = useState('')
+  const [projects,   setProjects]   = useState<{ id: string; name: string; code: string | null }[]>([])
   const [calculated, setCalculated] = useState(false)
   const [confirm,    setConfirm]    = useState(false)
 
-  // Estado local das linhas (horas extras + alocação por obra)
-  const [overrides, setOverrides] = useState<Record<string, { horasExtras: number; projectId: string | null }>>({})
+  // Overrides por colaborador: horas extras 60%/100% e alocação
+  const [overrides, setOverrides] = useState<Record<string, {
+    he60: number; he100: number; projectId: string | null
+  }>>({})
 
   // Carregar obras
   useEffect(() => {
@@ -112,7 +175,17 @@ export default function FolhaPagamentoPage() {
       )
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Erro ao calcular')
-      setEntries(data.entries ?? [])
+      // Normalizar entradas vindas do backend (pode ter estrutura antiga)
+      const raw: PayrollEntry[] = (data.entries ?? []).map((e: any) => ({
+        ...e,
+        horasExtras60:       e.horasExtras60       ?? 0,
+        horasExtras100:      e.horasExtras100      ?? 0,
+        valorHorasExtras60:  e.valorHorasExtras60  ?? 0,
+        valorHorasExtras100: e.valorHorasExtras100 ?? 0,
+        valorHorasExtras:    e.valorHorasExtras    ?? 0,
+        irrf:                e.irrf                ?? 0,
+      }))
+      setEntries(raw)
       setOverrides({})
       setCalculated(true)
     } catch (e: any) {
@@ -122,23 +195,32 @@ export default function FolhaPagamentoPage() {
     }
   }, [month, year])
 
-  // Linha calculada com overrides
+  // Linhas com overrides aplicados
   const computedEntries = useMemo(() => {
     return entries.map(e => {
       const ov = overrides[e.employeeId]
-      return calcEntry(e, ov?.horasExtras ?? 0, ov?.projectId !== undefined ? ov.projectId : e.projectId)
+      const he60  = ov?.he60  ?? e.horasExtras60  ?? 0
+      const he100 = ov?.he100 ?? e.horasExtras100 ?? 0
+      const pid   = ov?.projectId !== undefined ? ov.projectId : e.projectId
+      return calcEntry(e, he60, he100, pid)
     })
   }, [entries, overrides])
 
   // Totais gerais
   const totals = useMemo(() => computedEntries.reduce((acc, e) => ({
-    salarioBrutos:   acc.salarioBrutos   + e.salarioBruto,
-    salariosLiquidos: acc.salariosLiquidos + e.salarioLiquido,
-    fgts:            acc.fgts            + e.fgts,
-    encargos:        acc.encargos        + e.encargosPatronais,
-    custoTotal:      acc.custoTotal      + e.custoTotal,
-    horasExtrasValor: acc.horasExtrasValor + e.valorHorasExtras,
-  }), { salarioBrutos: 0, salariosLiquidos: 0, fgts: 0, encargos: 0, custoTotal: 0, horasExtrasValor: 0 }), [computedEntries])
+    salariosBrutos:    acc.salariosBrutos    + e.salarioBruto,
+    salariosLiquidos:  acc.salariosLiquidos  + e.salarioLiquido,
+    inss:              acc.inss              + e.inss,
+    irrf:              acc.irrf              + e.irrf,
+    fgts:              acc.fgts              + e.fgts,
+    encargos:          acc.encargos          + e.encargosPatronais,
+    custoTotal:        acc.custoTotal        + e.custoTotal,
+    he60Valor:         acc.he60Valor         + e.valorHorasExtras60,
+    he100Valor:        acc.he100Valor        + e.valorHorasExtras100,
+  }), {
+    salariosBrutos: 0, salariosLiquidos: 0, inss: 0, irrf: 0,
+    fgts: 0, encargos: 0, custoTotal: 0, he60Valor: 0, he100Valor: 0,
+  }), [computedEntries])
 
   // Resumo por obra
   const byProject = useMemo((): ProjectSummary[] => {
@@ -164,15 +246,20 @@ export default function FolhaPagamentoPage() {
           month, year,
           description: `Folha de pagamento ${MONTH_NAMES[month]}/${year}`,
           entries: computedEntries.map(e => ({
-            employeeId:        e.employeeId,
-            projectId:         e.projectId,
-            salarioBruto:      e.salarioBruto,
-            salarioLiquido:    e.salarioLiquido,
-            horasExtras:       e.horasExtras,
-            valorHorasExtras:  e.valorHorasExtras,
-            fgts:              e.fgts,
-            encargosPatronais: e.encargosPatronais,
-            custoTotal:        e.custoTotal,
+            employeeId:           e.employeeId,
+            projectId:            e.projectId,
+            salarioBruto:         e.salarioBruto,
+            salarioLiquido:       e.salarioLiquido,
+            horasExtras60:        e.horasExtras60,
+            horasExtras100:       e.horasExtras100,
+            valorHorasExtras60:   e.valorHorasExtras60,
+            valorHorasExtras100:  e.valorHorasExtras100,
+            valorHorasExtras:     e.valorHorasExtras,
+            inss:                 e.inss,
+            irrf:                 e.irrf,
+            fgts:                 e.fgts,
+            encargosPatronais:    e.encargosPatronais,
+            custoTotal:           e.custoTotal,
           })),
         }),
       })
@@ -189,12 +276,26 @@ export default function FolhaPagamentoPage() {
 
   // Exportar CSV
   const handleExportCsv = useCallback(() => {
-    const header = ['Colaborador','Tipo','Função','Obra','Sal. Base','H. Extra','Sal. Bruto','INSS','Sal. Líquido','FGTS','Encargos','Custo Total']
+    const header = [
+      'Colaborador','Tipo','Função','Obra',
+      'Sal. Base','H.Extra 60%','Valor HE 60%','H.Extra 100%','Valor HE 100%',
+      'Sal. Bruto','INSS','IRRF','Sal. Líquido','FGTS','Encargos','Custo Total',
+    ]
     const rows = computedEntries.map(e => [
-      e.name, TYPE_LABELS[e.type] ?? e.type, e.role ?? '', e.project?.name ?? 'Administrativo',
-      e.salarioBase.toFixed(2), e.horasExtras.toString(), e.salarioBruto.toFixed(2),
-      e.inss.toFixed(2), e.salarioLiquido.toFixed(2), e.fgts.toFixed(2),
-      e.encargosPatronais.toFixed(2), e.custoTotal.toFixed(2),
+      e.name, TYPE_LABELS[e.type] ?? e.type, e.role ?? '',
+      e.project?.name ?? 'Administrativo',
+      e.salarioBase.toFixed(2),
+      e.horasExtras60.toString(),
+      e.valorHorasExtras60.toFixed(2),
+      e.horasExtras100.toString(),
+      e.valorHorasExtras100.toFixed(2),
+      e.salarioBruto.toFixed(2),
+      e.inss.toFixed(2),
+      e.irrf.toFixed(2),
+      e.salarioLiquido.toFixed(2),
+      e.fgts.toFixed(2),
+      e.encargosPatronais.toFixed(2),
+      e.custoTotal.toFixed(2),
     ])
     const csv = [header, ...rows].map(r => r.map(v => `"${v}"`).join(';')).join('\n')
     const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' })
@@ -204,13 +305,15 @@ export default function FolhaPagamentoPage() {
     a.click(); URL.revokeObjectURL(url)
   }, [computedEntries, month, year])
 
-  const setOverride = (employeeId: string, field: 'horasExtras' | 'projectId', value: number | string | null) => {
+  const setOv = (employeeId: string, field: 'he60' | 'he100' | 'projectId', value: number | string | null) => {
+    const base = entries.find(e => e.employeeId === employeeId)
     setOverrides(prev => ({
       ...prev,
       [employeeId]: {
-        horasExtras: prev[employeeId]?.horasExtras ?? 0,
-        projectId:   prev[employeeId]?.projectId   !== undefined ? prev[employeeId].projectId : entries.find(e => e.employeeId === employeeId)?.projectId ?? null,
-        ...{ [field]: value },
+        he60:      prev[employeeId]?.he60      ?? base?.horasExtras60  ?? 0,
+        he100:     prev[employeeId]?.he100     ?? base?.horasExtras100 ?? 0,
+        projectId: prev[employeeId]?.projectId !== undefined ? prev[employeeId].projectId : (base?.projectId ?? null),
+        [field]: value,
       },
     }))
   }
@@ -218,7 +321,7 @@ export default function FolhaPagamentoPage() {
   const years = Array.from({ length: 5 }, (_, i) => now.getFullYear() - i)
 
   return (
-    <div className="max-w-6xl mx-auto space-y-6">
+    <div className="max-w-[1200px] mx-auto space-y-6">
       <Breadcrumb items={[
         { label: 'Dashboard',     href: '/app/dashboard' },
         { label: 'Colaboradores', href: '/app/colaboradores' },
@@ -275,16 +378,28 @@ export default function FolhaPagamentoPage() {
           {/* Cards de totais */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             {[
-              { label: 'Salários líquidos',   value: fmtMoney(totals.salariosLiquidos), color: 'text-green-700',  bg: 'bg-green-50',  border: 'border-green-100' },
-              { label: 'FGTS (empregador)',    value: fmtMoney(totals.fgts),            color: 'text-blue-700',   bg: 'bg-blue-50',   border: 'border-blue-100' },
-              { label: 'Encargos patronais',   value: fmtMoney(totals.encargos),        color: 'text-amber-700',  bg: 'bg-amber-50',  border: 'border-amber-100' },
-              { label: 'Custo total empresa',  value: fmtMoney(totals.custoTotal),      color: 'text-red-700',    bg: 'bg-red-50',    border: 'border-red-100' },
+              { label: 'Salários brutos',    value: fmtMoney(totals.salariosBrutos),    color: 'text-gray-700',   bg: 'bg-gray-50',   border: 'border-gray-100' },
+              { label: 'INSS + IRRF desc.',  value: fmtMoney(totals.inss + totals.irrf), color: 'text-red-600',    bg: 'bg-red-50',    border: 'border-red-100' },
+              { label: 'Salários líquidos',  value: fmtMoney(totals.salariosLiquidos),  color: 'text-green-700',  bg: 'bg-green-50',  border: 'border-green-100' },
+              { label: 'Custo total empresa', value: fmtMoney(totals.custoTotal),        color: 'text-orange-700', bg: 'bg-orange-50', border: 'border-orange-100' },
             ].map(c => (
               <div key={c.label} className={`${c.bg} border ${c.border} rounded-2xl px-4 py-3`}>
                 <p className="text-[10px] text-gray-500 uppercase font-semibold tracking-wide mb-1">{c.label}</p>
                 <p className={`text-base font-bold ${c.color}`}>{c.value}</p>
               </div>
             ))}
+          </div>
+
+          {/* Legenda horas extras */}
+          <div className="flex items-center gap-4 text-xs text-gray-500 px-1">
+            <span className="flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-amber-400 inline-block" />
+              HE 60% — dias úteis (CLT Art. 59)
+            </span>
+            <span className="flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-red-400 inline-block" />
+              HE 100% — domingos/feriados (CLT Art. 73)
+            </span>
           </div>
 
           {/* Tabela de colaboradores */}
@@ -305,29 +420,32 @@ export default function FolhaPagamentoPage() {
               <table className="w-full text-sm">
                 <thead className="bg-gray-50 text-[10px] text-gray-500 uppercase tracking-wide">
                   <tr>
-                    <th className="px-4 py-3 text-left font-semibold">Colaborador</th>
+                    <th className="px-4 py-3 text-left font-semibold sticky left-0 bg-gray-50">Colaborador</th>
                     <th className="px-3 py-3 text-left font-semibold">Tipo</th>
-                    <th className="px-3 py-3 text-left font-semibold min-w-[160px]">Obra / Local</th>
+                    <th className="px-3 py-3 text-left font-semibold min-w-[140px]">Obra / Local</th>
                     <th className="px-3 py-3 text-right font-semibold">Sal. base</th>
-                    <th className="px-3 py-3 text-center font-semibold min-w-[80px]">H. Extra</th>
+                    <th className="px-3 py-3 text-center font-semibold min-w-[60px] text-amber-600">HE 60%</th>
+                    <th className="px-3 py-3 text-center font-semibold min-w-[60px] text-red-500">HE 100%</th>
                     <th className="px-3 py-3 text-right font-semibold">Sal. bruto</th>
-                    <th className="px-3 py-3 text-right font-semibold">INSS</th>
-                    <th className="px-3 py-3 text-right font-semibold">Sal. líquido</th>
-                    <th className="px-3 py-3 text-right font-semibold">FGTS</th>
-                    <th className="px-3 py-3 text-right font-semibold text-red-600">Custo total</th>
+                    <th className="px-3 py-3 text-right font-semibold text-red-500">INSS</th>
+                    <th className="px-3 py-3 text-right font-semibold text-red-500">IRRF</th>
+                    <th className="px-3 py-3 text-right font-semibold text-green-600">Sal. líquido</th>
+                    <th className="px-3 py-3 text-right font-semibold text-blue-600">FGTS</th>
+                    <th className="px-3 py-3 text-right font-semibold text-orange-700">Custo total</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-50">
                   {computedEntries.map(e => {
                     const isPj = e.type === 'PJ' || e.type === 'THIRD_PARTY'
+                    const ov   = overrides[e.employeeId]
                     return (
                       <tr key={e.employeeId} className={`hover:bg-gray-50 transition-colors ${isPj ? 'bg-purple-50/30' : ''}`}>
-                        <td className="px-4 py-3">
-                          <p className="font-medium text-gray-800">{e.name}</p>
+                        <td className="px-4 py-3 sticky left-0 bg-inherit">
+                          <p className="font-medium text-gray-800 whitespace-nowrap">{e.name}</p>
                           {e.role && <p className="text-xs text-gray-400">{e.role}</p>}
                         </td>
                         <td className="px-3 py-3">
-                          <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full ${
+                          <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full whitespace-nowrap ${
                             isPj ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'
                           }`}>
                             {TYPE_LABELS[e.type] ?? e.type}
@@ -335,8 +453,8 @@ export default function FolhaPagamentoPage() {
                         </td>
                         <td className="px-3 py-3">
                           <select
-                            value={overrides[e.employeeId]?.projectId !== undefined ? (overrides[e.employeeId].projectId ?? '') : (e.projectId ?? '')}
-                            onChange={ev => setOverride(e.employeeId, 'projectId', ev.target.value || null)}
+                            value={ov?.projectId !== undefined ? (ov.projectId ?? '') : (e.projectId ?? '')}
+                            onChange={ev => setOv(e.employeeId, 'projectId', ev.target.value || null)}
                             className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-orange-300 bg-white"
                           >
                             <option value="">Administrativo</option>
@@ -347,35 +465,60 @@ export default function FolhaPagamentoPage() {
                             ))}
                           </select>
                         </td>
-                        <td className="px-3 py-3 text-right text-gray-700">{fmtMoney(e.salarioBase)}</td>
+                        <td className="px-3 py-3 text-right text-gray-700 whitespace-nowrap">{fmtMoney(e.salarioBase)}</td>
+                        {/* HE 60% */}
                         <td className="px-3 py-3 text-center">
                           <input
-                            type="number" min="0" max="300"
-                            value={overrides[e.employeeId]?.horasExtras ?? 0}
-                            onChange={ev => setOverride(e.employeeId, 'horasExtras', parseFloat(ev.target.value) || 0)}
-                            className="w-16 border border-gray-200 rounded-lg px-2 py-1.5 text-xs text-center focus:outline-none focus:ring-1 focus:ring-orange-300"
+                            type="number" min="0" max="300" step="0.5"
+                            value={ov?.he60 ?? e.horasExtras60 ?? 0}
+                            onChange={ev => setOv(e.employeeId, 'he60', parseFloat(ev.target.value) || 0)}
+                            className="w-14 border border-amber-200 rounded-lg px-1.5 py-1.5 text-xs text-center focus:outline-none focus:ring-1 focus:ring-amber-300"
                           />
+                          {e.valorHorasExtras60 > 0 && (
+                            <p className="text-[9px] text-amber-600 mt-0.5">{fmtMoney(e.valorHorasExtras60)}</p>
+                          )}
                         </td>
-                        <td className="px-3 py-3 text-right text-gray-700">{fmtMoney(e.salarioBruto)}</td>
-                        <td className="px-3 py-3 text-right text-red-500 text-xs">{isPj ? '—' : fmtMoney(e.inss)}</td>
-                        <td className="px-3 py-3 text-right font-medium text-green-700">{fmtMoney(e.salarioLiquido)}</td>
-                        <td className="px-3 py-3 text-right text-blue-600 text-xs">{isPj ? '—' : fmtMoney(e.fgts)}</td>
-                        <td className="px-3 py-3 text-right font-bold text-red-700">{fmtMoney(e.custoTotal)}</td>
+                        {/* HE 100% */}
+                        <td className="px-3 py-3 text-center">
+                          <input
+                            type="number" min="0" max="300" step="0.5"
+                            value={ov?.he100 ?? e.horasExtras100 ?? 0}
+                            onChange={ev => setOv(e.employeeId, 'he100', parseFloat(ev.target.value) || 0)}
+                            className="w-14 border border-red-200 rounded-lg px-1.5 py-1.5 text-xs text-center focus:outline-none focus:ring-1 focus:ring-red-300"
+                          />
+                          {e.valorHorasExtras100 > 0 && (
+                            <p className="text-[9px] text-red-500 mt-0.5">{fmtMoney(e.valorHorasExtras100)}</p>
+                          )}
+                        </td>
+                        <td className="px-3 py-3 text-right text-gray-700 whitespace-nowrap">{fmtMoney(e.salarioBruto)}</td>
+                        <td className="px-3 py-3 text-right text-red-500 text-xs whitespace-nowrap">{isPj ? '—' : fmtMoney(e.inss)}</td>
+                        <td className="px-3 py-3 text-right text-red-500 text-xs whitespace-nowrap">{isPj ? '—' : fmtMoney(e.irrf)}</td>
+                        <td className="px-3 py-3 text-right font-medium text-green-700 whitespace-nowrap">{fmtMoney(e.salarioLiquido)}</td>
+                        <td className="px-3 py-3 text-right text-blue-600 text-xs whitespace-nowrap">{isPj ? '—' : fmtMoney(e.fgts)}</td>
+                        <td className="px-3 py-3 text-right font-bold text-orange-700 whitespace-nowrap">{fmtMoney(e.custoTotal)}</td>
                       </tr>
                     )
                   })}
                 </tbody>
                 {/* Rodapé com totais */}
-                <tfoot className="bg-gray-50 font-semibold text-sm border-t border-gray-200">
+                <tfoot className="bg-gray-50 font-semibold text-sm border-t-2 border-gray-200">
                   <tr>
-                    <td colSpan={3} className="px-4 py-3 text-gray-600">Total ({computedEntries.length} colaboradores)</td>
-                    <td className="px-3 py-3 text-right text-gray-700">{fmtMoney(computedEntries.reduce((s, e) => s + e.salarioBase, 0))}</td>
-                    <td className="px-3 py-3 text-center text-gray-400">—</td>
-                    <td className="px-3 py-3 text-right text-gray-700">{fmtMoney(totals.salarioBrutos)}</td>
-                    <td className="px-3 py-3 text-right text-red-500">{fmtMoney(computedEntries.reduce((s, e) => s + e.inss, 0))}</td>
-                    <td className="px-3 py-3 text-right text-green-700">{fmtMoney(totals.salariosLiquidos)}</td>
-                    <td className="px-3 py-3 text-right text-blue-600">{fmtMoney(totals.fgts)}</td>
-                    <td className="px-3 py-3 text-right text-red-700">{fmtMoney(totals.custoTotal)}</td>
+                    <td colSpan={3} className="px-4 py-3 text-gray-600">Total ({computedEntries.length})</td>
+                    <td className="px-3 py-3 text-right text-gray-700 whitespace-nowrap">
+                      {fmtMoney(computedEntries.reduce((s, e) => s + e.salarioBase, 0))}
+                    </td>
+                    <td className="px-3 py-3 text-center text-amber-600 text-xs whitespace-nowrap">
+                      {fmtMoney(totals.he60Valor)}
+                    </td>
+                    <td className="px-3 py-3 text-center text-red-500 text-xs whitespace-nowrap">
+                      {fmtMoney(totals.he100Valor)}
+                    </td>
+                    <td className="px-3 py-3 text-right text-gray-700 whitespace-nowrap">{fmtMoney(totals.salariosBrutos)}</td>
+                    <td className="px-3 py-3 text-right text-red-500 whitespace-nowrap">{fmtMoney(totals.inss)}</td>
+                    <td className="px-3 py-3 text-right text-red-500 whitespace-nowrap">{fmtMoney(totals.irrf)}</td>
+                    <td className="px-3 py-3 text-right text-green-700 whitespace-nowrap">{fmtMoney(totals.salariosLiquidos)}</td>
+                    <td className="px-3 py-3 text-right text-blue-600 whitespace-nowrap">{fmtMoney(totals.fgts)}</td>
+                    <td className="px-3 py-3 text-right text-orange-700 whitespace-nowrap">{fmtMoney(totals.custoTotal)}</td>
                   </tr>
                 </tfoot>
               </table>
@@ -389,7 +532,8 @@ export default function FolhaPagamentoPage() {
             </p>
             <div className="space-y-2">
               {byProject.map(p => (
-                <div key={p.projectId ?? 'null'} className="flex items-center justify-between py-2.5 border-b border-gray-50 last:border-0">
+                <div key={p.projectId ?? 'null'}
+                  className="flex items-center justify-between py-2.5 border-b border-gray-50 last:border-0">
                   <div>
                     <p className="text-sm font-medium text-gray-800">{p.projectName}</p>
                     <p className="text-xs text-gray-400">{p.count} colaborador{p.count !== 1 ? 'es' : ''}</p>
@@ -399,8 +543,34 @@ export default function FolhaPagamentoPage() {
               ))}
               <div className="flex items-center justify-between pt-2 mt-1 border-t-2 border-gray-200">
                 <p className="text-sm font-bold text-gray-900">Total geral</p>
-                <p className="text-base font-bold text-red-700">{fmtMoney(totals.custoTotal)}</p>
+                <p className="text-base font-bold text-orange-700">{fmtMoney(totals.custoTotal)}</p>
               </div>
+            </div>
+          </div>
+
+          {/* Encargos detalhados */}
+          <div className="bg-gray-50 border border-gray-200 rounded-2xl p-4 text-xs text-gray-500 grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div>
+              <p className="font-semibold text-gray-600 mb-1">Descontos colaborador</p>
+              <p>INSS progressivo: {fmtMoney(totals.inss)}</p>
+              <p>IRRF: {fmtMoney(totals.irrf)}</p>
+            </div>
+            <div>
+              <p className="font-semibold text-gray-600 mb-1">Encargos empregador</p>
+              <p>FGTS (8%): {fmtMoney(totals.fgts)}</p>
+              <p>INSS pat. + RAT + 3ºs: {fmtMoney(totals.encargos)}</p>
+            </div>
+            <div>
+              <p className="font-semibold text-gray-600 mb-1">Horas extras</p>
+              <p>60% (úteis): {fmtMoney(totals.he60Valor)}</p>
+              <p>100% (dom./feriados): {fmtMoney(totals.he100Valor)}</p>
+            </div>
+            <div>
+              <p className="font-semibold text-gray-600 mb-1">Tabela INSS 2024</p>
+              <p>até R$ 1.412: 7,5%</p>
+              <p>até R$ 2.667: 9%</p>
+              <p>até R$ 4.000: 12%</p>
+              <p>até R$ 7.786: 14%</p>
             </div>
           </div>
 

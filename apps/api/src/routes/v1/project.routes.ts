@@ -453,6 +453,28 @@ export async function projectRoutes(app: FastifyInstance) {
       })
     } catch { /* silencioso: enriquecimento não bloqueia resposta */ }
 
+    // ── Equipe atual e histórico de colaboradores ───────────────────────────
+    try {
+      const [currentTeam, pastTeam] = await Promise.all([
+        p.employee.findMany({
+          where:   { companyId, projectId: id, isActive: true },
+          select: {
+            id: true, name: true, code: true, role: true, type: true, status: true,
+            photo: true, admissionDate: true, lastTransferDate: true,
+          },
+          orderBy: { name: 'asc' },
+        }),
+        p.employeeProjectHistory.findMany({
+          where:   { companyId, projectId: id },
+          include: { employee: { select: { id: true, name: true, code: true, role: true, photo: true } } },
+          orderBy: { startDate: 'desc' },
+          take: 50,
+        }),
+      ])
+      serialised.currentTeam = currentTeam
+      serialised.pastTeam    = pastTeam
+    } catch { /* silencioso */ }
+
     return reply.send({ project: serialised })
   })
 

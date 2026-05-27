@@ -29,7 +29,10 @@ export interface EmployeeFormData {
   role:          string
   department:    string
   salary:        string
-  locationId:    string  // 'OFFICE' | 'PROJECT_{id}' | etc.
+  // localização em cascata
+  locationType:  string  // 'FIXED' | 'PROJECT' | ''
+  locationFixed: string  // ex: 'OFFICE', 'VACATION' (quando FIXED)
+  projectId:     string  // id da obra (quando PROJECT)
 }
 
 interface Project {
@@ -91,16 +94,12 @@ function maskCep(v: string): string {
   return d.replace(/(\d{5})(\d{0,3})/, '$1-$2').replace(/-$/, '')
 }
 
-/** Converte locationId para projectId se for PROJECT_ */
-function extractProjectId(locationId: string): string | undefined {
-  if (locationId.startsWith('PROJECT_')) return locationId.replace('PROJECT_', '')
-  return undefined
-}
 
 const EMPTY: EmployeeFormData = {
   name: '', cpf: '', rg: '', ctps: '', pis: '', birthDate: '', admissionDate: '',
   email: '', phone: '', address: '', city: '', state: '', zipCode: '', photo: '',
-  type: 'CLT', role: '', department: '', salary: '', locationId: '',
+  type: 'CLT', role: '', department: '', salary: '',
+  locationType: '', locationFixed: '', projectId: '',
 }
 
 // ─── Componente ───────────────────────────────────────────────────────────────
@@ -140,9 +139,19 @@ export function EmployeeFormModal({ isOpen, onClose, onSuccess, editId, projects
       fetch(`${API}/api/v1/employees/${editId}`, {
         headers: { Authorization: `Bearer ${token}`, 'x-company-id': companyId },
       }).then(r => r.json()).then(emp => {
-        // Reconstituir locationId
-        let locationId = emp.locationId ?? ''
-        if (!locationId && emp.projectId) locationId = `PROJECT_${emp.projectId}`
+        // Reconstituir locationType / locationFixed / projectId
+        let locationType  = emp.locationType  ?? ''
+        let locationFixed = emp.locationFixed ?? ''
+        let projectId     = emp.projectId     ?? ''
+        // compatibilidade: se salvo no formato antigo, inferir
+        if (!locationType) {
+          if (projectId) {
+            locationType = 'PROJECT'
+          } else if (emp.locationId && !emp.locationId.startsWith('PROJECT_')) {
+            locationType  = 'FIXED'
+            locationFixed = emp.locationId
+          }
+        }
         setForm({
           name:          emp.name          ?? '',
           cpf:           emp.cpf           ? maskCpf(emp.cpf) : '',
@@ -162,7 +171,9 @@ export function EmployeeFormModal({ isOpen, onClose, onSuccess, editId, projects
           role:          emp.role          ?? '',
           department:    emp.department    ?? '',
           salary:        emp.salary        ? String(emp.salary) : '',
-          locationId,
+          locationType,
+          locationFixed,
+          projectId,
         })
       }).finally(() => setLoadingInit(false))
     }
@@ -222,15 +233,24 @@ export function EmployeeFormModal({ isOpen, onClose, onSuccess, editId, projects
     setLoading(true)
     setError('')
     try {
-      const projectId    = extractProjectId(form.locationId)
-      const locationName = (() => {
-        if (!form.locationId) return undefined
-        if (form.locationId.startsWith('PROJECT_')) {
-          const p = projects.find(x => x.id === projectId)
-          return p ? p.name : undefined
-        }
-        return FIXED_LOCATIONS.find(l => l.value === form.locationId)?.label
-      })()
+      // Derivar locationId, locationName, projectId a partir dos campos em cascata
+      let derivedProjectId:    string | null | undefined = undefined
+      let derivedLocationId:   string | null | undefined = undefined
+      let derivedLocationName: string | undefined        = undefined
+
+      if (form.locationType === 'PROJECT' && form.projectId) {
+        derivedProjectId    = form.projectId
+        derivedLocationId   = null
+        derivedLocationName = projects.find(p => p.id === form.projectId)?.name
+      } else if (form.locationType === 'FIXED' && form.locationFixed) {
+        derivedProjectId    = null
+        derivedLocationId   = form.locationFixed
+        derivedLocationName = FIXED_LOCATIONS.find(l => l.value === form.locationFixed)?.label
+      } else if (form.locationType === '') {
+        // Sem local selecionado — limpar
+        derivedProjectId  = null
+        derivedLocationId = null
+      }
 
       const url    = isEdit ? `${API}/api/v1/employees/${editId}` : `${API}/api/v1/employees`
       const method = isEdit ? 'PUT' : 'POST'
@@ -256,9 +276,11 @@ export function EmployeeFormModal({ isOpen, onClose, onSuccess, editId, projects
           role:          form.role.trim(),
           department:    form.department    || undefined,
           salary:        form.salary        ? parseFloat(form.salary.replace(',', '.')) : undefined,
-          projectId:     projectId ?? (form.locationId ? null : undefined),
-          locationId:    form.locationId    || undefined,
-          locationName:  locationName       || undefined,
+          projectId:     derivedProjectId,
+          locationId:    derivedLocationId,
+          locationName:  derivedLocationName,
+          locationType:  form.locationType  || null,
+          locationFixed: form.locationFixed || null,
         }),
       })
       const data = await res.json()
@@ -550,33 +572,51 @@ export function EmployeeFormModal({ isOpen, onClose, onSuccess, editId, projects
                     />
                   </div>
 
-                  {/* FIX 2 — Local atual: locais fixos + obras */}
-                  <div>
+                  {/* FIX 1 — Local atual em cascata: tipo → detalhe */}
+                  <div className="sm:col-span-2">
                     <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
                       <MapPin size={11} className="inline mr-1" />
                       Local atual
                     </label>
-                    <select
-                      value={form.locationId}
-                      onChange={e => set('locationId', e.target.value)}
-                      className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-300 bg-white"
-                    >
-                      <option value="">Selecione o local...</option>
-                      <optgroup label="Locais fixos">
-                        {FIXED_LOCATIONS.map(l => (
-                          <option key={l.value} value={l.value}>{l.label}</option>
-                        ))}
-                      </optgroup>
-                      {projects.length > 0 && (
-                        <optgroup label="Obras">
+                    <div className="flex gap-2">
+                      {/* Passo 1: tipo */}
+                      <select
+                        value={form.locationType}
+                        onChange={e => setForm(f => ({ ...f, locationType: e.target.value, locationFixed: '', projectId: '' }))}
+                        className="w-40 flex-shrink-0 border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-300 bg-white"
+                      >
+                        <option value="">Sem local</option>
+                        <option value="FIXED">Local fixo</option>
+                        <option value="PROJECT">Obra</option>
+                      </select>
+                      {/* Passo 2: detalhe */}
+                      {form.locationType === 'FIXED' && (
+                        <select
+                          value={form.locationFixed}
+                          onChange={e => set('locationFixed', e.target.value)}
+                          className="flex-1 border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-300 bg-white"
+                        >
+                          <option value="">Selecione...</option>
+                          {FIXED_LOCATIONS.map(l => (
+                            <option key={l.value} value={l.value}>{l.label}</option>
+                          ))}
+                        </select>
+                      )}
+                      {form.locationType === 'PROJECT' && (
+                        <select
+                          value={form.projectId}
+                          onChange={e => set('projectId', e.target.value)}
+                          className="flex-1 border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-300 bg-white"
+                        >
+                          <option value="">Selecione a obra...</option>
                           {projects.map(p => (
-                            <option key={p.id} value={`PROJECT_${p.id}`}>
+                            <option key={p.id} value={p.id}>
                               {p.code ? `${p.code} — ` : ''}{p.name}
                             </option>
                           ))}
-                        </optgroup>
+                        </select>
                       )}
-                    </select>
+                    </div>
                   </div>
                 </div>
               </section>
