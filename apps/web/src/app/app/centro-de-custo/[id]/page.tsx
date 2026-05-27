@@ -1124,75 +1124,90 @@ export default function ObraDetailPage() {
 
           {/* Diário de Obra */}
           <div className="bg-white rounded-xl border border-gray-200 p-4">
+            {/* Header */}
             <div className="flex items-center justify-between mb-3">
-              <h4 className="text-sm font-semibold text-gray-700 flex items-center gap-1.5">
-                📋 Diário de Obra
-              </h4>
+              <div className="flex items-center gap-2">
+                <h4 className="text-sm font-semibold text-gray-700">📋 Diário de Obra</h4>
+                {(diaryData?.totalReports ?? 0) > 0 && (
+                  <span className="text-[10px] font-bold bg-[#F5A623]/15 text-[#c57a00] px-1.5 py-0.5 rounded-full">
+                    {diaryData!.totalReports} RDO{diaryData!.totalReports !== 1 ? 's' : ''}
+                  </span>
+                )}
+              </div>
               <Link
                 href={`/app/diario/${id}`}
                 className="text-[11px] text-[#F5A623] hover:text-[#d4891a] font-medium flex items-center gap-1"
               >
-                Ver RDOs <ExternalLink size={10} />
+                Ver todos <ExternalLink size={10} />
               </Link>
             </div>
-            {diaryData ? (
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs text-gray-500">Total de relatórios</span>
-                  <span className="text-sm font-semibold text-gray-800">{diaryData.totalReports}</span>
-                </div>
+
+            {diaryData && diaryData.totalReports > 0 ? (
+              <div className="space-y-3">
+                {/* Último RDO */}
                 {diaryData.lastReport && (
-                  <div className="flex items-start justify-between gap-2">
-                    <span className="text-xs text-gray-500">Último RDO</span>
-                    <div className="text-right">
-                      <p className="text-xs font-medium text-gray-700">
-                        {diaryData.lastReport.reportNumber ?? '—'} — {new Date(diaryData.lastReport.date).toLocaleDateString('pt-BR')}
+                  <Link href={`/app/diario/${id}`}
+                    className="flex items-start gap-2.5 p-2.5 rounded-lg border border-gray-100 hover:bg-gray-50 transition-colors">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-0.5">
+                        <p className="text-xs font-semibold text-gray-800">
+                          {diaryData.lastReport.reportNumber ?? 'RDO'}
+                        </p>
+                        <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full flex-shrink-0 ${
+                          diaryData.lastReport.status === 'APPROVED' ? 'bg-green-100 text-green-700' :
+                          diaryData.lastReport.status === 'REJECTED' ? 'bg-red-100 text-red-700'   :
+                          diaryData.lastReport.status === 'DRAFT'    ? 'bg-gray-100 text-gray-500'  :
+                          'bg-amber-100 text-amber-700'
+                        }`}>
+                          {diaryData.lastReport.status === 'APPROVED' ? 'Aprovado'      :
+                           diaryData.lastReport.status === 'REJECTED' ? 'Devolvido'     :
+                           diaryData.lastReport.status === 'DRAFT'    ? 'Rascunho'      : 'Aguard. aprov.'}
+                        </span>
+                      </div>
+                      <p className="text-[10px] text-gray-400">
+                        {new Date(diaryData.lastReport.date).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short', year: 'numeric' })}
                       </p>
-                      <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${
-                        diaryData.lastReport.status === 'APPROVED' ? 'bg-green-100 text-green-700' :
-                        diaryData.lastReport.status === 'REJECTED' ? 'bg-red-100 text-red-700' :
-                        diaryData.lastReport.status === 'DRAFT'    ? 'bg-gray-100 text-gray-600' :
-                        'bg-amber-100 text-amber-700'
-                      }`}>
-                        {diaryData.lastReport.status === 'APPROVED' ? 'Aprovado' :
-                         diaryData.lastReport.status === 'REJECTED' ? 'Devolvido' :
-                         diaryData.lastReport.status === 'DRAFT'    ? 'Rascunho' : 'Aguard. aprov.'}
-                      </span>
                     </div>
-                  </div>
+                    <ExternalLink size={11} className="text-gray-300 flex-shrink-0 mt-1" />
+                  </Link>
                 )}
-                {/* Mini resumo pluviométrico */}
-                <div className="flex items-center justify-between">
-                  <span className="text-xs text-gray-500">🌧 Chuva acumulada</span>
-                  <span className="text-xs font-medium text-gray-700">{diaryData.totalRainMm.toFixed(0)} mm</span>
+
+                {/* Mini pluviometria */}
+                <div className="grid grid-cols-2 gap-1.5">
+                  <div className="bg-blue-50 rounded-lg p-2 text-center">
+                    <p className="text-base font-bold text-blue-700">{(diaryData.totalRainMm ?? 0).toFixed(0)}</p>
+                    <p className="text-[9px] text-blue-400 font-medium">mm chuva</p>
+                  </div>
+                  <div className={`rounded-lg p-2 text-center ${diaryData.unworkableDays > 0 ? 'bg-red-50' : 'bg-green-50'}`}>
+                    <p className={`text-base font-bold ${diaryData.unworkableDays > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                      {diaryData.unworkableDays ?? 0}
+                    </p>
+                    <p className={`text-[9px] font-medium ${diaryData.unworkableDays > 0 ? 'text-red-400' : 'text-green-400'}`}>
+                      impraticáveis
+                    </p>
+                  </div>
                 </div>
-                {diaryData.unworkableDays > 0 && (
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs text-red-500">⛔ Dias impraticáveis</span>
-                    <span className="text-xs font-semibold text-red-600">{diaryData.unworkableDays} dias</span>
-                  </div>
-                )}
-                {/* Link para pluviometria completa */}
-                <Link href={`/app/diario/${id}`}
-                  className="flex items-center gap-1 text-[11px] text-blue-500 hover:text-blue-700 font-medium mt-1">
-                  <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-                  </svg>
-                  Ver gráfico pluviométrico completo →
-                </Link>
-                <Link href={`/app/diario/${id}/novo`} className="block mt-2">
-                  <button className="w-full text-xs font-semibold py-1.5 px-3 bg-[#F5A623] text-white rounded-lg hover:bg-[#d4891a] transition-colors">
+
+                {/* Ações */}
+                <div className="flex gap-2 pt-1">
+                  <Link href={`/app/diario/${id}/novo`}
+                    className="flex-1 text-center text-xs font-semibold py-1.5 px-3 bg-[#F5A623] text-white rounded-lg hover:bg-[#d4891a] transition-colors">
                     + Novo RDO
-                  </button>
-                </Link>
+                  </Link>
+                  <Link href={`/app/diario/${id}`}
+                    className="text-xs font-medium py-1.5 px-3 border border-gray-200 text-gray-600 rounded-lg hover:bg-gray-50 transition-colors whitespace-nowrap">
+                    Ver todos
+                  </Link>
+                </div>
               </div>
             ) : (
-              <div className="text-center py-3">
-                <p className="text-xs text-gray-400 mb-2">Nenhum RDO registrado</p>
-                <Link href={`/app/diario/${id}/novo`}>
-                  <button className="text-xs font-semibold py-1.5 px-3 bg-[#F5A623] text-white rounded-lg hover:bg-[#d4891a] transition-colors">
-                    + Novo RDO
-                  </button>
+              <div className="text-center py-4">
+                <p className="text-2xl mb-2">📋</p>
+                <p className="text-xs font-medium text-gray-500 mb-0.5">Nenhum RDO registrado</p>
+                <p className="text-[10px] text-gray-400 mb-3">Comece criando o primeiro relatório diário</p>
+                <Link href={`/app/diario/${id}/novo`}
+                  className="inline-block text-xs font-semibold py-1.5 px-4 bg-[#F5A623] text-white rounded-lg hover:bg-[#d4891a] transition-colors">
+                  + Criar primeiro RDO
                 </Link>
               </div>
             )}

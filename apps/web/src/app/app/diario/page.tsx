@@ -233,15 +233,14 @@ export default function DiarioPage() {
                 Novo RDO
               </button>
             )}
-            <Link href="/app/diario/configuracoes">
-              <button className="text-xs text-gray-500 hover:text-gray-700 flex items-center gap-1.5 border border-gray-200 rounded-lg px-3 py-2 hover:bg-gray-50 transition-colors">
+            <Link href="/app/diario/configuracoes"
+              className="text-xs text-gray-500 hover:text-gray-700 flex items-center gap-1.5 border border-gray-200 rounded-lg px-3 py-2 hover:bg-gray-50 transition-colors">
                 <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
                     d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                 </svg>
                 Configurações
-              </button>
             </Link>
           </div>
         }
@@ -395,16 +394,14 @@ function ProjectCard({ project: proj, canCreate }: { project: DiaryProject; canC
 
           {/* Botões */}
           <div className="flex gap-1 flex-shrink-0">
-            <Link href={`/app/diario/${proj.id}`}>
-              <button className="text-[11px] font-medium px-2.5 py-1.5 border border-gray-200 rounded-lg hover:bg-gray-50 hover:border-gray-300 transition-colors whitespace-nowrap">
-                RDOs
-              </button>
+            <Link href={`/app/diario/${proj.id}`}
+              className="text-[11px] font-medium px-2.5 py-1.5 border border-gray-200 rounded-lg hover:bg-gray-50 hover:border-gray-300 transition-colors whitespace-nowrap">
+              RDOs
             </Link>
             {canCreate && (
-              <Link href={`/app/diario/${proj.id}/novo`}>
-                <button className="text-[11px] font-semibold px-2.5 py-1.5 bg-[#F5A623] text-white rounded-lg hover:bg-[#d4891a] transition-colors whitespace-nowrap">
-                  + Novo
-                </button>
+              <Link href={`/app/diario/${proj.id}/novo`}
+                className="text-[11px] font-semibold px-2.5 py-1.5 bg-[#F5A623] text-white rounded-lg hover:bg-[#d4891a] transition-colors whitespace-nowrap">
+                + Novo
               </Link>
             )}
           </div>
