@@ -1,144 +1,101 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
-import { useRouter } from 'next/navigation'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import {
-  Package, Plus, Search, Filter, X, ChevronDown, ChevronUp,
-  AlertTriangle, ArrowDownToLine, ArrowUpFromLine, RefreshCw,
-  Hammer, ShieldCheck, Shirt, Layers, BarChart2, Clock,
-  Warehouse, Loader2, CheckCircle2, XCircle, RotateCcw,
-  Edit2, ClipboardList, Users, FileText, CheckCircle,
+  Package, Wrench, ShieldCheck, Shirt, Layers, FileText, Search, Plus,
+  AlertTriangle, TrendingUp, TrendingDown, BarChart2, Clock, RefreshCw,
+  Filter, ChevronDown, ChevronUp, MoreHorizontal, Eye, Edit2, Trash2,
+  ArrowDownToLine, ArrowUpFromLine, RotateCcw, XCircle, Loader2,
+  CheckCircle2, Calendar, MapPin, Tag, Users, SlidersHorizontal, X,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { formatCurrency } from '@/lib/format'
+
+// ── Sub-components ─────────────────────────────────────────────────────────────
+import { ItemDrawer,      type ItemDetail  } from './components/ItemDrawer'
+import { ToolDrawer,      type ToolItem    } from './components/ToolDrawer'
+import { CustodyModal    } from './components/CustodyModal'
+import { MaintenanceModal} from './components/MaintenanceModal'
+import { ReceiptViewer   } from './components/ReceiptViewer'
+import { ItemFormModal   } from './components/ItemFormModal'
+import { ToolFormModal   } from './components/ToolFormModal'
 import { BasketModal, type BasketPayload } from '@/components/deposit/BasketModal'
 
-const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
-function token() { return typeof window !== 'undefined' ? (localStorage.getItem('token') ?? '') : '' }
-function companyIdHeader() { return typeof window !== 'undefined' ? (localStorage.getItem('companyId') ?? '') : '' }
+// ─── API ─────────────────────────────────────────────────────────────────────
 
-async function apiFetch(path: string, options: RequestInit = {}) {
+const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
+function token()     { return typeof window !== 'undefined' ? (localStorage.getItem('token')     ?? '') : '' }
+function companyH()  { return typeof window !== 'undefined' ? (localStorage.getItem('companyId') ?? '') : '' }
+
+async function apiFetch(path: string, opts: RequestInit = {}) {
   return fetch(`${API}${path}`, {
-    ...options,
+    ...opts,
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${token()}`,
-      'x-company-id': companyIdHeader(),
-      ...(options.headers ?? {}),
+      Authorization:  `Bearer ${token()}`,
+      'x-company-id': companyH(),
+      ...(opts.headers ?? {}),
     },
   })
 }
 
-// ─── types ───────────────────────────────────────────────────────────────────
+// ─── Types ────────────────────────────────────────────────────────────────────
 
-interface SupplierLotSummary {
-  id:            string
-  lotNumber?:    string | null
-  invoiceNumber?: string | null
-  quantity:      number
-  unitCost?:     number | null
-  expiryDate?:   string | null
-  supplier?:     { id: string; name: string } | null
+interface SummaryFull {
+  totalItems:          number
+  totalValue:          number
+  lowStockCount:       number
+  inMaintenanceCount:  number
+  exitsThisMonth:      number
+  entriesThisMonth:    number
+  overdueReturns:      number
+  overdueMaintenance:  number
 }
 
 interface StockItem {
-  id: string
-  name: string
-  description?: string | null
-  category?: string | null
-  unit: string
-  quantity: number
-  minQuantity: number
-  maxQuantity?: number | null
-  unitCost?: number | null
-  averageCost?: number | null
-  location?: string | null
-  locationFull?: string | null
-  code?: string | null
-  imageUrl?: string | null
-  brand?: string | null
-  model?: string | null
-  serialNumber?: string | null
-  isConsumable: boolean
-  requiresCustody: boolean
-  isEpi: boolean
-  isUniform: boolean
-  isActive: boolean
-  isUnderWarranty?: boolean
-  nextMaintenance?: string | null
-  currentProject?: { id: string; name: string } | null
-  supplierLots?: SupplierLotSummary[]
-  _count?: { movements: number; custodies: number; epiDeliveries: number }
+  id:             string
+  code?:          string | null
+  name:           string
+  description?:   string | null
+  category?:      string | null
+  unit:           string
+  quantity:       number
+  minQuantity:    number
+  maxQuantity?:   number | null
+  unitCost?:      number | null
+  averageCost?:   number | null
+  location?:      string | null
+  locationFull?:  string | null
+  imageUrl?:      string | null
+  brand?:         string | null
+  model?:         string | null
+  serialNumber?:  string | null
+  isConsumable:   boolean
+  requiresCustody:boolean
+  isEpi:          boolean
+  isUniform:      boolean
+  isActive:       boolean
+  isUnderWarranty?:  boolean
+  warrantyExpiry?:   string | null
+  lastMaintenance?:  string | null
+  nextMaintenance?:  string | null
+  currentProject?:   { id: string; name: string } | null
+  supplierLots?:     any[]
+  _count?:           { movements: number; custodies: number; epiDeliveries: number }
 }
 
 interface StockMovement {
-  id: string
-  type: string
-  quantity: number
+  id:        string
+  type:      string
+  quantity:  number
   unitCost?: number | null
-  reason?: string | null
-  notes?: string | null
+  reason?:   string | null
+  notes?:    string | null
   createdAt: string
   stockItem: { id: string; name: string; unit: string }
-  project?: { id: string; name: string } | null
+  project?:  { id: string; name: string } | null
   employee?: { id: string; name: string } | null
-  responsible?: { id: string; name: string } | null
 }
-
-interface ToolCustody {
-  id: string
-  quantity: number
-  checkedOutAt: string
-  dueDate?: string | null
-  returnedAt?: string | null
-  condition?: string | null
-  stockItem: { id: string; name: string; unit: string; brand?: string | null; serialNumber?: string | null }
-  employee: { id: string; name: string; position?: string | null }
-  project?: { id: string; name: string } | null
-}
-
-interface Summary {
-  totalItems: number
-  lowStockCount: number
-  lowStockItems: { id: string; name: string; quantity: number; minQuantity: number; unit: string }[]
-  totalMovementsToday: number
-  openCustodies: number
-  openBaskets: number
-  estimatedTotalValue: number
-}
-
-interface Employee {
-  id: string
-  name: string
-  position?: string | null
-}
-
-interface Project {
-  id: string
-  name: string
-}
-
-// ─── constants ───────────────────────────────────────────────────────────────
-
-const MOVEMENT_TYPES = [
-  { value: 'IN',          label: 'Entrada',     icon: ArrowDownToLine, color: 'text-green-600' },
-  { value: 'OUT',         label: 'Saída',       icon: ArrowUpFromLine, color: 'text-red-500' },
-  { value: 'RETURN',      label: 'Devolução',   icon: RotateCcw,       color: 'text-blue-500' },
-  { value: 'LOSS',        label: 'Perda',       icon: XCircle,         color: 'text-orange-500' },
-  { value: 'ADJUSTMENT',  label: 'Ajuste',      icon: RefreshCw,       color: 'text-purple-500' },
-  { value: 'TRANSFER',    label: 'Transferência', icon: Layers,        color: 'text-indigo-500' },
-  { value: 'EPI_DELIVERY',label: 'Entrega EPI', icon: ShieldCheck,    color: 'text-teal-500' },
-]
-
-const TABS = [
-  { id: 'items',      label: 'Itens',       icon: Package },
-  { id: 'movements',  label: 'Movimentos',  icon: Clock },
-  { id: 'custodies',  label: 'Custódia',    icon: Hammer },
-  { id: 'epis',       label: 'EPIs',        icon: ShieldCheck },
-  { id: 'baskets',    label: 'Romaneios',   icon: FileText },
-]
-
-// ─── Basket types ─────────────────────────────────────────────────────────────
 
 interface StockBasket {
   id:          string
@@ -154,1586 +111,1103 @@ interface StockBasket {
   _count?:     { movements: number }
 }
 
-// ─── helpers ─────────────────────────────────────────────────────────────────
+interface Employee { id: string; name: string; position?: string | null }
+interface Project  { id: string; name: string }
 
-function movTypeInfo(type: string) {
-  return MOVEMENT_TYPES.find((m) => m.value === type) ?? MOVEMENT_TYPES[0]
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function formatDateBR(iso?: string | null) {
+  if (!iso) return '—'
+  return new Date(iso).toLocaleDateString('pt-BR')
 }
 
-function qtyColor(item: StockItem) {
-  if (item.minQuantity > 0 && item.quantity <= 0) return 'text-red-600 font-bold'
-  if (item.minQuantity > 0 && item.quantity <= item.minQuantity) return 'text-orange-500 font-semibold'
-  return 'text-green-600 font-semibold'
+function daysFromNow(iso?: string | null) {
+  if (!iso) return null
+  return Math.ceil((new Date(iso).getTime() - Date.now()) / 86400000)
 }
 
-function formatDate(d: string) {
-  return new Date(d).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' })
-}
-
-// ─── sub-components ──────────────────────────────────────────────────────────
-
-function Badge({ children, className }: { children: React.ReactNode; className?: string }) {
+function StockProgress({ qty, min, max }: { qty: number; min: number; max?: number | null }) {
+  const cap = max || Math.max(min * 3, qty * 1.5, 10)
+  const pct = Math.min(100, (qty / cap) * 100)
+  const isLow  = qty <= min
+  const isOver = max ? qty > max : false
+  const color  = isLow ? 'bg-red-500' : isOver ? 'bg-blue-400' : 'bg-green-500'
   return (
-    <span className={cn('inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium', className)}>
-      {children}
-    </span>
-  )
-}
-
-function ItemTypeBadges({ item }: { item: StockItem }) {
-  return (
-    <div className="flex flex-wrap gap-1 mt-1">
-      {item.isEpi      && <Badge className="bg-teal-100 text-teal-700"><ShieldCheck size={10} />EPI</Badge>}
-      {item.isUniform  && <Badge className="bg-blue-100 text-blue-700"><Shirt size={10} />Uniforme</Badge>}
-      {item.requiresCustody && <Badge className="bg-amber-100 text-amber-700"><Hammer size={10} />Ferramenta</Badge>}
-      {item.isConsumable && !item.isEpi && !item.isUniform && !item.requiresCustody
-        && <Badge className="bg-gray-100 text-gray-600"><Package size={10} />Consumível</Badge>}
+    <div className="flex items-center gap-1.5 min-w-0">
+      <span className={cn('text-sm font-semibold tabular-nums flex-shrink-0', isLow ? 'text-red-600' : 'text-gray-800')}>
+        {qty}
+      </span>
+      <div className="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden min-w-[40px]">
+        <div className={cn('h-full rounded-full', color)} style={{ width: `${pct}%` }} />
+      </div>
+      {isLow && <AlertTriangle size={12} className="text-red-500 flex-shrink-0" />}
     </div>
   )
 }
 
-// ─── bottom sheet for new movement ───────────────────────────────────────────
-
-interface MovementSheetProps {
-  open: boolean
-  onClose: () => void
-  onSuccess: () => void
-  preselectedItem?: StockItem | null
-  items: StockItem[]
-  employees: Employee[]
-  projects: Project[]
+const MOV_TYPE: Record<string, { label: string; color: string }> = {
+  IN:           { label: 'Entrada',    color: 'text-green-600 bg-green-50' },
+  OUT:          { label: 'Saída',      color: 'text-red-600 bg-red-50'     },
+  RETURN:       { label: 'Devolução',  color: 'text-blue-600 bg-blue-50'   },
+  EPI_DELIVERY: { label: 'EPI',        color: 'text-orange-600 bg-orange-50'},
+  LOSS:         { label: 'Perda',      color: 'text-red-800 bg-red-100'    },
+  ADJUSTMENT:   { label: 'Ajuste',     color: 'text-gray-600 bg-gray-100'  },
+  TRANSFER:     { label: 'Transfer.',  color: 'text-purple-600 bg-purple-50'},
 }
 
-function MovementSheet({ open, onClose, onSuccess, preselectedItem, items, employees, projects }: MovementSheetProps) {
-  const [form, setForm] = useState({
-    stockItemId:       preselectedItem?.id ?? '',
-    type:              'IN' as string,
-    quantity:          '',
-    unitCost:          '',
-    projectId:         '',
-    employeeId:        '',
-    reason:            '',
-    notes:             '',
-    registerCostEntry: false,
-  })
-  const [saving, setSaving] = useState(false)
-  const [error, setError]   = useState('')
-
-  useEffect(() => {
-    if (open) {
-      setForm((f) => ({ ...f, stockItemId: preselectedItem?.id ?? '' }))
-      setError('')
-    }
-  }, [open, preselectedItem])
-
-  const set = (k: string, v: string | boolean) => setForm((f) => ({ ...f, [k]: v }))
-
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault()
-    if (!form.stockItemId || !form.quantity) {
-      setError('Preencha item e quantidade')
-      return
-    }
-    setSaving(true)
-    setError('')
-    try {
-      const res = await apiFetch('/api/v1/deposit/movements', {
-        method: 'POST',
-        body: JSON.stringify({
-          stockItemId:       form.stockItemId,
-          type:              form.type,
-          quantity:          Number(form.quantity),
-          unitCost:          form.unitCost ? Number(form.unitCost) : undefined,
-          projectId:         form.projectId || undefined,
-          employeeId:        form.employeeId || undefined,
-          reason:            form.reason || undefined,
-          notes:             form.notes || undefined,
-          registerCostEntry: form.registerCostEntry,
-        }),
-      })
-      if (!res.ok) {
-        const d = await res.json()
-        throw new Error(d.error ?? 'Erro ao registrar')
-      }
-      onSuccess()
-      onClose()
-    } catch (err: any) {
-      setError(err.message)
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  const selectedItem = items.find((i) => i.id === form.stockItemId)
-  const isExit = ['OUT', 'LOSS', 'EPI_DELIVERY', 'TRANSFER'].includes(form.type)
-  const isEntry = ['IN', 'RETURN'].includes(form.type)
-
-  return (
-    <>
-      {open && (
-        <div className="fixed inset-0 z-40 bg-black/40" onClick={onClose} />
-      )}
-      <div
-        className={cn(
-          'fixed bottom-0 left-0 right-0 z-50 bg-white rounded-t-2xl shadow-2xl transition-transform duration-300',
-          open ? 'translate-y-0' : 'translate-y-full'
-        )}
-        style={{ maxHeight: '90vh', overflowY: 'auto' }}
-      >
-        <div className="flex items-center justify-between px-4 pt-4 pb-2 border-b">
-          <h2 className="text-base font-semibold text-gray-900">Registrar Movimento</h2>
-          <button onClick={onClose} className="p-2 rounded-full hover:bg-gray-100">
-            <X size={18} />
-          </button>
-        </div>
-
-        <form onSubmit={handleSubmit} className="p-4 space-y-4">
-          {/* Tipo */}
-          <div>
-            <label className="block text-xs font-medium text-gray-500 mb-1">Tipo de movimento</label>
-            <div className="grid grid-cols-2 gap-2">
-              {MOVEMENT_TYPES.map((mt) => (
-                <button
-                  key={mt.value}
-                  type="button"
-                  onClick={() => set('type', mt.value)}
-                  className={cn(
-                    'flex items-center gap-2 p-2.5 rounded-xl border text-sm font-medium transition-all',
-                    form.type === mt.value
-                      ? 'border-indigo-500 bg-indigo-50 text-indigo-700'
-                      : 'border-gray-200 text-gray-600 hover:border-gray-300'
-                  )}
-                >
-                  <mt.icon size={16} className={form.type === mt.value ? 'text-indigo-500' : mt.color} />
-                  {mt.label}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Item */}
-          <div>
-            <label className="block text-xs font-medium text-gray-500 mb-1">Item *</label>
-            <select
-              value={form.stockItemId}
-              onChange={(e) => set('stockItemId', e.target.value)}
-              className="w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
-            >
-              <option value="">Selecione o item…</option>
-              {items.map((i) => (
-                <option key={i.id} value={i.id}>{i.name} {i.code ? `(${i.code})` : ''}</option>
-              ))}
-            </select>
-            {selectedItem && (
-              <p className="text-xs text-gray-500 mt-1">
-                Estoque atual: <strong className={qtyColor(selectedItem)}>{selectedItem.quantity} {selectedItem.unit}</strong>
-                {selectedItem.averageCost ? ` · Custo médio: ${formatCurrency(selectedItem.averageCost)}` : ''}
-              </p>
-            )}
-          </div>
-
-          {/* Quantidade + Custo */}
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-medium text-gray-500 mb-1">Quantidade *</label>
-              <input
-                type="number"
-                step="0.001"
-                min="0.001"
-                value={form.quantity}
-                onChange={(e) => set('quantity', e.target.value)}
-                placeholder={form.type === 'ADJUSTMENT' ? 'Novo total' : 'Qtd'}
-                className="w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
-              />
-            </div>
-            {isEntry && (
-              <div>
-                <label className="block text-xs font-medium text-gray-500 mb-1">Custo unitário (R$)</label>
-                <input
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  value={form.unitCost}
-                  onChange={(e) => set('unitCost', e.target.value)}
-                  placeholder="0,00"
-                  className="w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
-                />
-              </div>
-            )}
-          </div>
-
-          {/* Colaborador (para saídas) */}
-          {(isExit || form.type === 'EPI_DELIVERY') && (
-            <div>
-              <label className="block text-xs font-medium text-gray-500 mb-1">Colaborador</label>
-              <select
-                value={form.employeeId}
-                onChange={(e) => set('employeeId', e.target.value)}
-                className="w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
-              >
-                <option value="">Selecione…</option>
-                {employees.map((e) => (
-                  <option key={e.id} value={e.id}>{e.name}</option>
-                ))}
-              </select>
-            </div>
-          )}
-
-          {/* Obra */}
-          <div>
-            <label className="block text-xs font-medium text-gray-500 mb-1">Obra / Projeto</label>
-            <select
-              value={form.projectId}
-              onChange={(e) => set('projectId', e.target.value)}
-              className="w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
-            >
-              <option value="">Sem obra específica</option>
-              {projects.map((p) => (
-                <option key={p.id} value={p.id}>{p.name}</option>
-              ))}
-            </select>
-          </div>
-
-          {/* Reclassificação (saída para obra) */}
-          {form.type === 'OUT' && form.projectId && (
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={form.registerCostEntry}
-                onChange={(e) => set('registerCostEntry', e.target.checked)}
-                className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-400"
-              />
-              <span className="text-sm text-gray-700">Reclassificar custo para a obra</span>
-            </label>
-          )}
-
-          {/* Motivo + Obs */}
-          <div>
-            <label className="block text-xs font-medium text-gray-500 mb-1">Motivo / Razão</label>
-            <input
-              type="text"
-              value={form.reason}
-              onChange={(e) => set('reason', e.target.value)}
-              placeholder="Ex: Compra, obra 01, ajuste de inventário..."
-              className="w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
-            />
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-gray-500 mb-1">Observações</label>
-            <textarea
-              rows={2}
-              value={form.notes}
-              onChange={(e) => set('notes', e.target.value)}
-              className="w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 resize-none"
-            />
-          </div>
-
-          {error && (
-            <div className="flex items-center gap-2 bg-red-50 border border-red-200 rounded-xl px-3 py-2 text-sm text-red-600">
-              <AlertTriangle size={15} /> {error}
-            </div>
-          )}
-
-          <button
-            type="submit"
-            disabled={saving}
-            className="w-full rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white py-3 text-sm font-semibold transition disabled:opacity-60"
-          >
-            {saving ? <Loader2 size={18} className="animate-spin mx-auto" /> : 'Registrar Movimento'}
-          </button>
-        </form>
-      </div>
-    </>
-  )
+const BASKET_STATUS: Record<string, { label: string; color: string }> = {
+  DRAFT:   { label: 'Rascunho', color: 'bg-gray-100 text-gray-600'    },
+  PENDING: { label: 'Pendente', color: 'bg-yellow-100 text-yellow-700' },
+  SIGNED:  { label: 'Assinado', color: 'bg-green-100 text-green-700'   },
+  CLOSED:  { label: 'Fechado',  color: 'bg-blue-100 text-blue-700'     },
 }
 
-// ─── bottom sheet for new item ────────────────────────────────────────────────
+// ─── Metric Card ──────────────────────────────────────────────────────────────
 
-interface ItemSheetProps {
-  open: boolean
-  onClose: () => void
-  onSuccess: () => void
-  editItem?: StockItem | null
-}
-
-function ItemSheet({ open, onClose, onSuccess, editItem }: ItemSheetProps) {
-  const [form, setForm] = useState({
-    name: '', description: '', category: '', unit: 'un', code: '',
-    brand: '', model: '', serialNumber: '', location: '',
-    minQuantity: '', maxQuantity: '',
-    isConsumable: true, requiresCustody: false, isEpi: false, isUniform: false,
-  })
-  const [saving, setSaving] = useState(false)
-  const [error, setError]   = useState('')
-
-  useEffect(() => {
-    if (open && editItem) {
-      setForm({
-        name:            editItem.name,
-        description:     editItem.description ?? '',
-        category:        editItem.category ?? '',
-        unit:            editItem.unit,
-        code:            editItem.code ?? '',
-        brand:           editItem.brand ?? '',
-        model:           editItem.model ?? '',
-        serialNumber:    editItem.serialNumber ?? '',
-        location:        editItem.location ?? '',
-        minQuantity:     editItem.minQuantity > 0 ? String(editItem.minQuantity) : '',
-        maxQuantity:     editItem.maxQuantity ? String(editItem.maxQuantity) : '',
-        isConsumable:    editItem.isConsumable,
-        requiresCustody: editItem.requiresCustody,
-        isEpi:           editItem.isEpi,
-        isUniform:       editItem.isUniform,
-      })
-    } else if (open && !editItem) {
-      setForm({
-        name: '', description: '', category: '', unit: 'un', code: '',
-        brand: '', model: '', serialNumber: '', location: '',
-        minQuantity: '', maxQuantity: '',
-        isConsumable: true, requiresCustody: false, isEpi: false, isUniform: false,
-      })
-    }
-    setError('')
-  }, [open, editItem])
-
-  const set = (k: string, v: string | boolean) => setForm((f) => ({ ...f, [k]: v }))
-
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault()
-    if (!form.name.trim()) { setError('Nome obrigatório'); return }
-    setSaving(true)
-    setError('')
-    try {
-      const url    = editItem ? `/api/v1/deposit/items/${editItem.id}` : '/api/v1/deposit/items'
-      const method = editItem ? 'PUT' : 'POST'
-      const res    = await apiFetch(url, {
-        method,
-        body: JSON.stringify({
-          name:            form.name.trim(),
-          description:     form.description || undefined,
-          category:        form.category || undefined,
-          unit:            form.unit,
-          code:            form.code || undefined,
-          brand:           form.brand || undefined,
-          model:           form.model || undefined,
-          serialNumber:    form.serialNumber || undefined,
-          location:        form.location || undefined,
-          minQuantity:     form.minQuantity ? Number(form.minQuantity) : 0,
-          maxQuantity:     form.maxQuantity ? Number(form.maxQuantity) : undefined,
-          isConsumable:    form.isConsumable,
-          requiresCustody: form.requiresCustody,
-          isEpi:           form.isEpi,
-          isUniform:       form.isUniform,
-        }),
-      })
-      if (!res.ok) {
-        const d = await res.json()
-        throw new Error(d.error ?? 'Erro ao salvar')
-      }
-      onSuccess()
-      onClose()
-    } catch (err: any) {
-      setError(err.message)
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  return (
-    <>
-      {open && <div className="fixed inset-0 z-40 bg-black/40" onClick={onClose} />}
-      <div
-        className={cn(
-          'fixed bottom-0 left-0 right-0 z-50 bg-white rounded-t-2xl shadow-2xl transition-transform duration-300',
-          open ? 'translate-y-0' : 'translate-y-full'
-        )}
-        style={{ maxHeight: '92vh', overflowY: 'auto' }}
-      >
-        <div className="flex items-center justify-between px-4 pt-4 pb-2 border-b">
-          <h2 className="text-base font-semibold text-gray-900">
-            {editItem ? 'Editar Item' : 'Novo Item no Depósito'}
-          </h2>
-          <button onClick={onClose} className="p-2 rounded-full hover:bg-gray-100"><X size={18} /></button>
-        </div>
-
-        <form onSubmit={handleSubmit} className="p-4 space-y-4">
-          {/* Classificação */}
-          <div>
-            <label className="block text-xs font-medium text-gray-500 mb-2">Classificação</label>
-            <div className="grid grid-cols-2 gap-2">
-              {[
-                { key: 'isConsumable',    label: 'Consumível',   icon: Package,     color: 'bg-gray-100 text-gray-700' },
-                { key: 'requiresCustody', label: 'Ferramenta',   icon: Hammer,      color: 'bg-amber-100 text-amber-700' },
-                { key: 'isEpi',           label: 'EPI',          icon: ShieldCheck, color: 'bg-teal-100 text-teal-700' },
-                { key: 'isUniform',       label: 'Uniforme',     icon: Shirt,       color: 'bg-blue-100 text-blue-700' },
-              ].map(({ key, label, icon: Icon, color }) => (
-                <button
-                  key={key}
-                  type="button"
-                  onClick={() => set(key, !(form as any)[key])}
-                  className={cn(
-                    'flex items-center gap-2 p-2.5 rounded-xl border text-sm font-medium transition-all',
-                    (form as any)[key]
-                      ? `border-transparent ${color}`
-                      : 'border-gray-200 text-gray-400 hover:border-gray-300'
-                  )}
-                >
-                  <Icon size={15} /> {label}
-                  {(form as any)[key] && <CheckCircle2 size={12} className="ml-auto" />}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Nome + Código */}
-          <div className="grid grid-cols-3 gap-3">
-            <div className="col-span-2">
-              <label className="block text-xs font-medium text-gray-500 mb-1">Nome *</label>
-              <input
-                value={form.name}
-                onChange={(e) => set('name', e.target.value)}
-                placeholder="Nome do item"
-                className="w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-500 mb-1">Código</label>
-              <input
-                value={form.code}
-                onChange={(e) => set('code', e.target.value)}
-                placeholder="MAT-001"
-                className="w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
-              />
-            </div>
-          </div>
-
-          {/* Categoria + Unidade */}
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-medium text-gray-500 mb-1">Categoria</label>
-              <input
-                value={form.category}
-                onChange={(e) => set('category', e.target.value)}
-                placeholder="Ex: Ferragem, EPI..."
-                className="w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-500 mb-1">Unidade</label>
-              <select
-                value={form.unit}
-                onChange={(e) => set('unit', e.target.value)}
-                className="w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
-              >
-                {['un','m','m²','m³','kg','L','cx','pc','par','rolo','sc','tb','vb'].map((u) => (
-                  <option key={u} value={u}>{u}</option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          {/* Marca / Modelo / N° Série (ferramentas) */}
-          {form.requiresCustody && (
-            <div className="grid grid-cols-3 gap-3">
-              <div>
-                <label className="block text-xs font-medium text-gray-500 mb-1">Marca</label>
-                <input value={form.brand} onChange={(e) => set('brand', e.target.value)} placeholder="Bosch..." className="w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400" />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-500 mb-1">Modelo</label>
-                <input value={form.model} onChange={(e) => set('model', e.target.value)} placeholder="GBH 2-26" className="w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400" />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-500 mb-1">N° Série</label>
-                <input value={form.serialNumber} onChange={(e) => set('serialNumber', e.target.value)} placeholder="SN123" className="w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400" />
-              </div>
-            </div>
-          )}
-
-          {/* Estoque mínimo / máximo */}
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-medium text-gray-500 mb-1">Estoque mínimo</label>
-              <input
-                type="number" step="0.001" min="0"
-                value={form.minQuantity}
-                onChange={(e) => set('minQuantity', e.target.value)}
-                placeholder="0"
-                className="w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-500 mb-1">Estoque máximo</label>
-              <input
-                type="number" step="0.001" min="0"
-                value={form.maxQuantity}
-                onChange={(e) => set('maxQuantity', e.target.value)}
-                placeholder="Opcional"
-                className="w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
-              />
-            </div>
-          </div>
-
-          {/* Localização */}
-          <div>
-            <label className="block text-xs font-medium text-gray-500 mb-1">Localização no depósito</label>
-            <input
-              value={form.location}
-              onChange={(e) => set('location', e.target.value)}
-              placeholder="Ex: Prateleira A2, Setor EPI..."
-              className="w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
-            />
-          </div>
-
-          {/* Descrição */}
-          <div>
-            <label className="block text-xs font-medium text-gray-500 mb-1">Descrição</label>
-            <textarea
-              rows={2}
-              value={form.description}
-              onChange={(e) => set('description', e.target.value)}
-              placeholder="Detalhes adicionais…"
-              className="w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 resize-none"
-            />
-          </div>
-
-          {error && (
-            <div className="flex items-center gap-2 bg-red-50 border border-red-200 rounded-xl px-3 py-2 text-sm text-red-600">
-              <AlertTriangle size={15} /> {error}
-            </div>
-          )}
-
-          <button
-            type="submit"
-            disabled={saving}
-            className="w-full rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white py-3 text-sm font-semibold transition disabled:opacity-60"
-          >
-            {saving ? <Loader2 size={18} className="animate-spin mx-auto" /> : (editItem ? 'Salvar Alterações' : 'Criar Item')}
-          </button>
-        </form>
-      </div>
-    </>
-  )
-}
-
-// ─── custody return sheet ─────────────────────────────────────────────────────
-
-function CustodyReturnSheet({
-  open, custody, onClose, onSuccess,
-}: {
-  open: boolean
-  custody: ToolCustody | null
-  onClose: () => void
-  onSuccess: () => void
+function MetricCard({ label, value, sub, icon, color, alert }: {
+  label: string; value: string | number; sub?: string
+  icon: React.ReactNode; color: string; alert?: boolean
 }) {
-  const [condition, setCondition] = useState('')
-  const [notes, setNotes]         = useState('')
-  const [saving, setSaving]       = useState(false)
-  const [error, setError]         = useState('')
-
-  useEffect(() => {
-    if (open) { setCondition(''); setNotes(''); setError('') }
-  }, [open])
-
-  async function handleReturn() {
-    if (!custody) return
-    setSaving(true)
-    setError('')
-    try {
-      const res = await apiFetch(`/api/v1/deposit/custodies/${custody.id}/return`, {
-        method: 'PUT',
-        body: JSON.stringify({ conditionOnReturn: condition || undefined, notes: notes || undefined }),
-      })
-      if (!res.ok) {
-        const d = await res.json()
-        throw new Error(d.error ?? 'Erro ao devolver')
-      }
-      onSuccess()
-      onClose()
-    } catch (err: any) {
-      setError(err.message)
-    } finally {
-      setSaving(false)
-    }
-  }
-
   return (
-    <>
-      {open && <div className="fixed inset-0 z-40 bg-black/40" onClick={onClose} />}
-      <div
-        className={cn(
-          'fixed bottom-0 left-0 right-0 z-50 bg-white rounded-t-2xl shadow-2xl transition-transform duration-300',
-          open ? 'translate-y-0' : 'translate-y-full'
-        )}
-        style={{ maxHeight: '80vh', overflowY: 'auto' }}
-      >
-        <div className="flex items-center justify-between px-4 pt-4 pb-2 border-b">
-          <h2 className="text-base font-semibold text-gray-900">Devolver Ferramenta</h2>
-          <button onClick={onClose} className="p-2 rounded-full hover:bg-gray-100"><X size={18} /></button>
-        </div>
-
-        {custody && (
-          <div className="p-4 space-y-4">
-            <div className="bg-amber-50 rounded-xl p-3 text-sm">
-              <p className="font-semibold text-amber-800">{custody.stockItem.name}</p>
-              <p className="text-amber-600">{custody.employee.name} · {custody.quantity} {custody.stockItem.unit}</p>
-              {custody.project && <p className="text-amber-600">Obra: {custody.project.name}</p>}
-              <p className="text-amber-500 text-xs mt-1">Saída: {formatDate(custody.checkedOutAt)}</p>
-            </div>
-
-            <div>
-              <label className="block text-xs font-medium text-gray-500 mb-1">Estado na devolução</label>
-              <select
-                value={condition}
-                onChange={(e) => setCondition(e.target.value)}
-                className="w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
-              >
-                <option value="">Selecione…</option>
-                <option value="Bom">Bom</option>
-                <option value="Com desgaste">Com desgaste</option>
-                <option value="Danificado">Danificado</option>
-                <option value="Necessita manutenção">Necessita manutenção</option>
-                <option value="Perdido">Perdido</option>
-              </select>
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-500 mb-1">Observações</label>
-              <textarea
-                rows={2}
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-                className="w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 resize-none"
-              />
-            </div>
-
-            {error && (
-              <div className="flex items-center gap-2 bg-red-50 border border-red-200 rounded-xl px-3 py-2 text-sm text-red-600">
-                <AlertTriangle size={15} /> {error}
-              </div>
-            )}
-
-            <button
-              onClick={handleReturn}
-              disabled={saving}
-              className="w-full rounded-xl bg-green-600 hover:bg-green-700 text-white py-3 text-sm font-semibold transition disabled:opacity-60"
-            >
-              {saving ? <Loader2 size={18} className="animate-spin mx-auto" /> : 'Confirmar Devolução'}
-            </button>
-          </div>
-        )}
+    <div className={cn(
+      'bg-white rounded-xl border p-3 flex items-center gap-3 shadow-sm min-w-0',
+      alert ? 'border-red-200' : 'border-gray-100',
+    )}>
+      <div className={cn('w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0', color)}>
+        {icon}
       </div>
-    </>
+      <div className="min-w-0 flex-1">
+        <p className="text-xs text-gray-400 leading-none truncate">{label}</p>
+        <p className={cn('text-xl font-bold leading-tight mt-0.5', alert ? 'text-red-600' : 'text-gray-800')}>
+          {value}
+        </p>
+        {sub && <p className="text-xs text-gray-400 leading-none mt-0.5 truncate">{sub}</p>}
+      </div>
+    </div>
   )
 }
 
-// ─── main page ────────────────────────────────────────────────────────────────
+// ─── Action Menu ─────────────────────────────────────────────────────────────
 
-export default function DepositoPage() {
-  const router = useRouter()
-
-  // tabs
-  const [activeTab, setActiveTab] = useState<'items' | 'movements' | 'custodies' | 'epis' | 'baskets'>('items')
-
-  // items
-  const [items, setItems]               = useState<StockItem[]>([])
-  const [itemsTotal, setItemsTotal]     = useState(0)
-  const [itemsPage, setItemsPage]       = useState(1)
-  const [itemsLoading, setItemsLoading] = useState(false)
-
-  // movements
-  const [movements, setMovements]             = useState<StockMovement[]>([])
-  const [movementsTotal, setMovementsTotal]   = useState(0)
-  const [movementsPage, setMovementsPage]     = useState(1)
-  const [movementsLoading, setMovementsLoading] = useState(false)
-
-  // custodies
-  const [custodies, setCustodies]           = useState<ToolCustody[]>([])
-  const [custodiesTotal, setCustodiesTotal] = useState(0)
-  const [custodiesLoading, setCustodiesLoading] = useState(false)
-
-  // summary
-  const [summary, setSummary]   = useState<Summary | null>(null)
-
-  // filters
-  const [search, setSearch]             = useState('')
-  const [filterType, setFilterType]     = useState('')
-  const [filterLowStock, setFilterLowStock] = useState(false)
-  const [showFilters, setShowFilters]   = useState(false)
-  const [filterCustodyProject, setFilterCustodyProject] = useState('')
-
-  // baskets
-  const [baskets, setBaskets]             = useState<StockBasket[]>([])
-  const [basketsTotal, setBasketsTotal]   = useState(0)
-  const [basketsLoading, setBasketsLoading] = useState(false)
-  const [basketModalOpen, setBasketModalOpen] = useState(false)
-
-  // sheets
-  const [movSheetOpen, setMovSheetOpen]   = useState(false)
-  const [itemSheetOpen, setItemSheetOpen] = useState(false)
-  const [editItem, setEditItem]           = useState<StockItem | null>(null)
-  const [preselectedItem, setPreselectedItem] = useState<StockItem | null>(null)
-  const [returnSheetOpen, setReturnSheetOpen] = useState(false)
-  const [returnCustody, setReturnCustody]     = useState<ToolCustody | null>(null)
-
-  // aux data
-  const [employees, setEmployees] = useState<Employee[]>([])
-  const [projects, setProjects]   = useState<Project[]>([])
-
-  // fab expanded
-  const [fabOpen, setFabOpen] = useState(false)
-
-  // ── loaders ────────────────────────────────────────────────────────────────
-
-  const loadItems = useCallback(async (page = 1) => {
-    setItemsLoading(true)
-    try {
-      const params = new URLSearchParams({ page: String(page), limit: '30' })
-      if (search)           params.set('q', search)
-      if (filterType)       params.set('type', filterType)
-      if (filterLowStock)   params.set('lowStock', 'true')
-      const res  = await apiFetch(`/api/v1/deposit/items?${params}`)
-      const data = await res.json()
-      setItems(data.items ?? [])
-      setItemsTotal(data.total ?? 0)
-      setItemsPage(page)
-    } finally {
-      setItemsLoading(false)
-    }
-  }, [search, filterType, filterLowStock])
-
-  const loadMovements = useCallback(async (page = 1) => {
-    setMovementsLoading(true)
-    try {
-      const res  = await apiFetch(`/api/v1/deposit/movements?page=${page}&limit=30`)
-      const data = await res.json()
-      setMovements(data.movements ?? [])
-      setMovementsTotal(data.total ?? 0)
-      setMovementsPage(page)
-    } finally {
-      setMovementsLoading(false)
-    }
-  }, [])
-
-  const loadCustodies = useCallback(async () => {
-    setCustodiesLoading(true)
-    try {
-      const params = new URLSearchParams({ open: 'true', limit: '50' })
-      if (filterCustodyProject) params.set('projectId', filterCustodyProject)
-      const res  = await apiFetch(`/api/v1/deposit/custodies?${params}`)
-      const data = await res.json()
-      setCustodies(data.custodies ?? [])
-      setCustodiesTotal(data.total ?? 0)
-    } finally {
-      setCustodiesLoading(false)
-    }
-  }, [filterCustodyProject])
-
-  const loadBaskets = useCallback(async () => {
-    setBasketsLoading(true)
-    try {
-      const res  = await apiFetch('/api/v1/deposit/baskets?limit=30')
-      const data = await res.json()
-      setBaskets(data.baskets ?? [])
-      setBasketsTotal(data.total ?? 0)
-    } finally {
-      setBasketsLoading(false)
-    }
-  }, [])
-
-  const loadSummary = useCallback(async () => {
-    try {
-      const res  = await apiFetch('/api/v1/deposit/summary')
-      const data = await res.json()
-      setSummary(data)
-    } catch {}
-  }, [])
-
-  const loadAux = useCallback(async () => {
-    try {
-      const [eRes, pRes] = await Promise.all([
-        apiFetch('/api/v1/employees?limit=200&status=ACTIVE'),
-        apiFetch('/api/v1/projects?limit=100'),
-      ])
-      const eData = await eRes.json()
-      const pData = await pRes.json()
-      setEmployees(eData.employees ?? eData ?? [])
-      setProjects(pData.projects ?? pData ?? [])
-    } catch {}
-  }, [])
-
+function ActionMenu({ onView, onEdit, onDelete, onCustody, onBasket }: {
+  onView?:    () => void
+  onEdit?:    () => void
+  onDelete?:  () => void
+  onCustody?: () => void
+  onBasket?:  () => void
+}) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
   useEffect(() => {
-    loadSummary()
-    loadAux()
-  }, [loadSummary, loadAux])
+    const h = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false) }
+    document.addEventListener('mousedown', h)
+    return () => document.removeEventListener('mousedown', h)
+  }, [])
+  return (
+    <div ref={ref} className="relative">
+      <button
+        onClick={e => { e.stopPropagation(); setOpen(o => !o) }}
+        className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-gray-100 transition"
+      >
+        <MoreHorizontal size={15} className="text-gray-500" />
+      </button>
+      {open && (
+        <div className="absolute right-0 top-8 z-30 bg-white border border-gray-200 rounded-xl shadow-lg min-w-[140px] py-1 overflow-hidden">
+          {onView    && <button onClick={() => { onView();    setOpen(false) }} className="w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-gray-50 text-gray-700"><Eye size={13}/>Detalhes</button>}
+          {onEdit    && <button onClick={() => { onEdit();    setOpen(false) }} className="w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-gray-50 text-gray-700"><Edit2 size={13}/>Editar</button>}
+          {onCustody && <button onClick={() => { onCustody();setOpen(false) }} className="w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-gray-50 text-orange-600"><Package size={13}/>Cautela</button>}
+          {onBasket  && <button onClick={() => { onBasket(); setOpen(false) }} className="w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-gray-50 text-blue-600"><FileText size={13}/>Romaneio</button>}
+          {onDelete  && <button onClick={() => { onDelete(); setOpen(false) }} className="w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-red-50 text-red-600"><Trash2 size={13}/>Remover</button>}
+        </div>
+      )}
+    </div>
+  )
+}
 
-  useEffect(() => {
-    if (activeTab === 'items')     loadItems(1)
-    if (activeTab === 'movements') loadMovements(1)
-    if (activeTab === 'custodies') loadCustodies()
-    if (activeTab === 'baskets')   loadBaskets()
-  }, [activeTab, loadItems, loadMovements, loadCustodies, loadBaskets])
+// ─── Materials Table ──────────────────────────────────────────────────────────
 
-  useEffect(() => {
-    if (activeTab === 'custodies') loadCustodies()
-  }, [filterCustodyProject])
+function MaterialsTable({ items, onView, onEdit, onCustody, onBasket }: {
+  items:     StockItem[]
+  onView:    (item: StockItem) => void
+  onEdit?:   (item: StockItem) => void
+  onCustody: (item: StockItem) => void
+  onBasket:  (item: StockItem) => void
+}) {
+  const [sort,  setSort]  = useState<{ col: string; dir: 'asc' | 'desc' }>({ col: 'name', dir: 'asc' })
+  const [query, setQuery] = useState('')
 
-  useEffect(() => {
-    if (activeTab === 'items') loadItems(1)
-  }, [search, filterType, filterLowStock])
+  const toggleSort = (col: string) =>
+    setSort(s => s.col === col ? { col, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { col, dir: 'asc' })
 
-  function openMovSheet(item?: StockItem) {
-    setPreselectedItem(item ?? null)
-    setMovSheetOpen(true)
-    setFabOpen(false)
-  }
-
-  function openItemSheet(item?: StockItem) {
-    setEditItem(item ?? null)
-    setItemSheetOpen(true)
-    setFabOpen(false)
-  }
-
-  function openReturnSheet(custody: ToolCustody) {
-    setReturnCustody(custody)
-    setReturnSheetOpen(true)
-  }
-
-  function refreshAll() {
-    loadSummary()
-    if (activeTab === 'items')     loadItems(1)
-    if (activeTab === 'movements') loadMovements(1)
-    if (activeTab === 'custodies') loadCustodies()
-    if (activeTab === 'baskets')   loadBaskets()
-  }
-
-  async function handleBasketConfirm(data: BasketPayload) {
-    const res = await apiFetch('/api/v1/deposit/baskets', {
-      method: 'POST',
-      body: JSON.stringify({
-        type:       data.type,
-        projectId:  data.projectId,
-        employeeId: data.employeeId,
-        destinatary: data.destinatary,
-        notes:      data.notes,
-        items:      data.items,
-      }),
+  const filtered = items
+    .filter(i => !query || i.name.toLowerCase().includes(query.toLowerCase()) ||
+      i.code?.toLowerCase().includes(query.toLowerCase()) ||
+      i.brand?.toLowerCase().includes(query.toLowerCase()))
+    .sort((a, b) => {
+      const dir = sort.dir === 'asc' ? 1 : -1
+      if (sort.col === 'name')     return a.name.localeCompare(b.name) * dir
+      if (sort.col === 'quantity') return (a.quantity - b.quantity) * dir
+      if (sort.col === 'value')    return (((a.averageCost || a.unitCost || 0) * a.quantity) - ((b.averageCost || b.unitCost || 0) * b.quantity)) * dir
+      return 0
     })
-    if (!res.ok) {
-      const d = await res.json()
-      throw new Error(d.error ?? 'Erro ao criar romaneio')
-    }
-    const basket = await res.json()
 
-    // Se há assinaturas, enviá-las
-    if (data.senderSignature || data.receiverSignature) {
-      const signRes = await apiFetch(`/api/v1/deposit/baskets/${basket.id}/sign`, {
-        method: 'PATCH',
-        body: JSON.stringify({
-          senderSignature:   data.senderSignature,
-          receiverSignature: data.receiverSignature,
-        }),
-      })
-      if (!signRes.ok) {
-        // Não lança erro, romaneio criado mas assinatura falhou
-        console.warn('Falha ao salvar assinaturas')
-      }
-    }
-
-    setBasketModalOpen(false)
-    refreshAll()
+  function SortIcon({ col }: { col: string }) {
+    if (sort.col !== col) return <ChevronDown size={11} className="text-gray-300" />
+    return sort.dir === 'asc'
+      ? <ChevronUp size={11} className="text-[#F5A623]" />
+      : <ChevronDown size={11} className="text-[#F5A623]" />
   }
-
-  // ── render ─────────────────────────────────────────────────────────────────
 
   return (
-    <div className="min-h-screen bg-gray-50 pb-32">
-      {/* ── Header ─────────────────────────────────────────────────────────── */}
-      <div className="bg-white border-b sticky top-0 z-20">
-        <div className="flex items-center gap-3 px-4 pt-4 pb-2">
-          <Warehouse size={22} className="text-indigo-600 shrink-0" />
-          <h1 className="text-lg font-bold text-gray-900 flex-1">Depósito</h1>
-          <button
-            onClick={refreshAll}
-            className="p-2 rounded-full hover:bg-gray-100 text-gray-500"
-            title="Atualizar"
-          >
-            <RefreshCw size={18} />
-          </button>
-        </div>
-
-        {/* Summary chips */}
-        {summary && (
-          <div className="flex gap-2 px-4 pb-3 overflow-x-auto no-scrollbar">
-            <div className="flex items-center gap-1.5 bg-indigo-50 rounded-full px-3 py-1.5 text-xs font-medium text-indigo-700 whitespace-nowrap shrink-0">
-              <Package size={12} /> {summary.totalItems} itens
-            </div>
-            {summary.lowStockCount > 0 && (
-              <div className="flex items-center gap-1.5 bg-orange-50 rounded-full px-3 py-1.5 text-xs font-medium text-orange-600 whitespace-nowrap shrink-0">
-                <AlertTriangle size={12} /> {summary.lowStockCount} baixo estoque
-              </div>
-            )}
-            <div className="flex items-center gap-1.5 bg-amber-50 rounded-full px-3 py-1.5 text-xs font-medium text-amber-700 whitespace-nowrap shrink-0">
-              <Hammer size={12} /> {summary.openCustodies} em custódia
-            </div>
-            <div className="flex items-center gap-1.5 bg-green-50 rounded-full px-3 py-1.5 text-xs font-medium text-green-700 whitespace-nowrap shrink-0">
-              <BarChart2 size={12} /> {formatCurrency(summary.estimatedTotalValue)}
-            </div>
-            {(summary.openBaskets ?? 0) > 0 && (
-              <button
-                onClick={() => setActiveTab('baskets')}
-                className="flex items-center gap-1.5 bg-amber-100 rounded-full px-3 py-1.5 text-xs font-medium text-amber-800 whitespace-nowrap shrink-0"
-              >
-                <FileText size={12} /> {summary.openBaskets} romaneio{summary.openBaskets !== 1 ? 's' : ''} pendente{summary.openBaskets !== 1 ? 's' : ''}
-              </button>
-            )}
-          </div>
-        )}
-
-        {/* Tabs */}
-        <div className="flex border-t">
-          {TABS.map((tab) => (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id as any)}
-              className={cn(
-                'flex-1 flex flex-col items-center gap-1 py-2.5 text-xs font-medium border-b-2 transition-colors',
-                activeTab === tab.id
-                  ? 'border-indigo-600 text-indigo-600'
-                  : 'border-transparent text-gray-500'
-              )}
-            >
-              <tab.icon size={16} />
-              {tab.label}
+    <div>
+      {/* Search */}
+      <div className="flex items-center gap-2 mb-4">
+        <div className="relative flex-1 max-w-xs">
+          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+          <input
+            type="text"
+            value={query}
+            onChange={e => setQuery(e.target.value)}
+            placeholder="Buscar material, cód., marca..."
+            className="w-full pl-9 pr-3 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-[#F5A623]"
+          />
+          {query && (
+            <button onClick={() => setQuery('')} className="absolute right-2 top-1/2 -translate-y-1/2">
+              <X size={13} className="text-gray-400" />
             </button>
-          ))}
+          )}
         </div>
+        <span className="text-xs text-gray-400 ml-auto">{filtered.length} item{filtered.length !== 1 ? 's' : ''}</span>
       </div>
 
-      {/* ── Search + Filter ─────────────────────────────────────────────────── */}
-      {activeTab === 'items' && (
-        <div className="px-4 pt-3 space-y-2">
-          <div className="flex gap-2">
-            <div className="relative flex-1">
-              <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-              <input
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Buscar item, código…"
-                className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-gray-200 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-400"
-              />
-              {search && (
-                <button onClick={() => setSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400">
-                  <X size={14} />
-                </button>
-              )}
-            </div>
-            <button
-              onClick={() => setShowFilters(!showFilters)}
-              className={cn(
-                'flex items-center gap-1.5 px-3 py-2.5 rounded-xl border text-sm font-medium transition-all',
-                (filterType || filterLowStock)
-                  ? 'border-indigo-500 bg-indigo-50 text-indigo-700'
-                  : 'border-gray-200 text-gray-600 bg-white'
-              )}
-            >
-              <Filter size={16} />
-              {showFilters ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-            </button>
-          </div>
-
-          {showFilters && (
-            <div className="bg-white rounded-xl border border-gray-200 p-3 space-y-3">
-              <div>
-                <label className="text-xs font-medium text-gray-500 mb-1 block">Tipo de item</label>
-                <div className="flex flex-wrap gap-2">
-                  {[
-                    { value: '',           label: 'Todos' },
-                    { value: 'consumable', label: 'Consumível' },
-                    { value: 'tool',       label: 'Ferramenta' },
-                    { value: 'epi',        label: 'EPI' },
-                    { value: 'uniform',    label: 'Uniforme' },
-                  ].map((opt) => (
-                    <button
-                      key={opt.value}
-                      onClick={() => setFilterType(opt.value)}
-                      className={cn(
-                        'px-3 py-1.5 rounded-full text-xs font-medium border transition-all',
-                        filterType === opt.value
-                          ? 'border-indigo-500 bg-indigo-50 text-indigo-700'
-                          : 'border-gray-200 text-gray-600'
-                      )}
-                    >
-                      {opt.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={filterLowStock}
-                  onChange={(e) => setFilterLowStock(e.target.checked)}
-                  className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-400"
-                />
-                <span className="text-sm text-gray-700 flex items-center gap-1">
-                  <AlertTriangle size={13} className="text-orange-500" />
-                  Somente estoque baixo
-                </span>
-              </label>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* ── Tab: Items ──────────────────────────────────────────────────────── */}
-      {activeTab === 'items' && (
-        <div className="px-4 pt-3 space-y-3">
-          {itemsLoading && items.length === 0 && (
-            <div className="flex justify-center py-12">
-              <Loader2 size={28} className="animate-spin text-indigo-500" />
-            </div>
-          )}
-
-          {!itemsLoading && items.length === 0 && (
-            <div className="text-center py-16">
-              <Warehouse size={48} className="mx-auto text-gray-300 mb-3" />
-              <p className="text-gray-500 text-sm">Nenhum item encontrado</p>
-              <button
-                onClick={() => openItemSheet()}
-                className="mt-3 text-indigo-600 text-sm font-medium"
-              >
-                + Adicionar primeiro item
-              </button>
-            </div>
-          )}
-
-          {items.map((item) => {
-            const isLow = item.minQuantity > 0 && item.quantity <= item.minQuantity
-            const isZero = item.quantity <= 0
-            return (
-              <div
-                key={item.id}
-                className={cn(
-                  'bg-white rounded-2xl border p-4 transition-all',
-                  isZero ? 'border-red-200' : isLow ? 'border-orange-200' : 'border-gray-100'
-                )}
-              >
-                <div className="flex items-start gap-3">
-                  {/* icon / image */}
-                  <div className={cn(
-                    'w-12 h-12 rounded-xl flex items-center justify-center shrink-0',
-                    item.isEpi     ? 'bg-teal-100'   :
-                    item.isUniform ? 'bg-blue-100'   :
-                    item.requiresCustody ? 'bg-amber-100' :
-                    'bg-gray-100'
-                  )}>
-                    {item.isEpi     ? <ShieldCheck size={22} className="text-teal-600" />   :
-                     item.isUniform ? <Shirt size={22} className="text-blue-600" />         :
-                     item.requiresCustody ? <Hammer size={22} className="text-amber-600" /> :
-                     <Package size={22} className="text-gray-500" />}
-                  </div>
-
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-start justify-between gap-2">
-                      <div>
-                        <p className="font-semibold text-gray-900 text-sm leading-tight">{item.name}</p>
-                        {item.code && <p className="text-xs text-gray-400">#{item.code}</p>}
-                      </div>
-                      <div className="text-right shrink-0">
-                        <p className={cn('text-lg font-bold', qtyColor(item))}>
-                          {item.quantity}
-                        </p>
-                        <p className="text-xs text-gray-400">{item.unit}</p>
-                      </div>
-                    </div>
-
-                    <ItemTypeBadges item={item} />
-
-                    <div className="flex items-center gap-3 mt-2 text-xs text-gray-500">
-                      {item.category && <span>{item.category}</span>}
-                      {item.location && <span>📍 {item.location}</span>}
-                      {item.averageCost && <span>{formatCurrency(item.averageCost)}/{item.unit}</span>}
-                    </div>
-
-                    {isLow && !isZero && (
-                      <div className="flex items-center gap-1 mt-2 text-xs text-orange-600 bg-orange-50 rounded-lg px-2 py-1">
-                        <AlertTriangle size={11} /> Abaixo do mínimo ({item.minQuantity} {item.unit})
-                      </div>
-                    )}
-                    {isZero && (
-                      <div className="flex items-center gap-1 mt-2 text-xs text-red-600 bg-red-50 rounded-lg px-2 py-1">
-                        <XCircle size={11} /> Sem estoque
-                      </div>
-                    )}
-
-                    {/* Localização e indicadores extra */}
-                    <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1 text-xs text-gray-500">
-                      {(item.locationFull ?? item.location) && (
-                        <span>📦 {item.locationFull ?? item.location}</span>
-                      )}
-                      {item.isUnderWarranty && (
-                        <span className="text-green-600">✅ Em garantia</span>
-                      )}
-                      {item.nextMaintenance && new Date(item.nextMaintenance) <= new Date(Date.now() + 30 * 86400000) && (
-                        <span className="text-amber-600">🔩 Manutenção em breve</span>
-                      )}
-                    </div>
-
-                    {/* Lotes de fornecedor — expansível */}
-                    {item.supplierLots && item.supplierLots.length > 0 && (
-                      <details className="mt-2">
-                        <summary className="text-xs text-indigo-600 font-medium cursor-pointer select-none hover:text-indigo-800">
-                          🚛 {item.supplierLots.length} lote{item.supplierLots.length !== 1 ? 's' : ''} de fornecedor
-                        </summary>
-                        <div className="mt-1.5 space-y-1">
-                          {item.supplierLots.map((lot) => (
-                            <div key={lot.id} className="flex items-center justify-between px-3 py-1.5 bg-gray-50 rounded-lg border border-gray-100 text-xs">
-                              <span className="text-gray-700">
-                                <strong>{lot.supplier?.name ?? 'Fornecedor não informado'}</strong>
-                                {lot.lotNumber    && ` · Lote: ${lot.lotNumber}`}
-                                {lot.invoiceNumber && ` · NF: ${lot.invoiceNumber}`}
-                                {lot.expiryDate   && ` · Val: ${new Date(lot.expiryDate).toLocaleDateString('pt-BR')}`}
-                              </span>
-                              <span className="font-semibold text-gray-800 ml-2 shrink-0">
-                                {Number(lot.quantity)} {item.unit}
-                                {lot.unitCost ? (
-                                  <span className="text-gray-500 font-normal ml-1.5">
-                                    R$ {Number(lot.unitCost).toFixed(2)}/un
-                                  </span>
-                                ) : null}
-                              </span>
-                            </div>
-                          ))}
-                          <div className="flex justify-between px-3 py-1.5 font-semibold text-xs border-t border-gray-200 mt-1">
-                            <span>Total em estoque</span>
-                            <span>
-                              {item.quantity} {item.unit}
-                              {item.averageCost ? ` · ${formatCurrency(item.averageCost)}/un` : ''}
-                            </span>
-                          </div>
+      {/* Table — desktop */}
+      <div className="hidden md:block overflow-x-auto rounded-xl border border-gray-100">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="bg-gray-50 border-b border-gray-100">
+              {[
+                { col: null,       label: 'Cód.',       w: 'w-16'  },
+                { col: 'name',     label: 'Descrição',  w: ''      },
+                { col: null,       label: 'Un.',        w: 'w-14'  },
+                { col: 'quantity', label: 'Estoque',    w: 'w-32'  },
+                { col: null,       label: 'Localização',w: 'w-28'  },
+                { col: null,       label: 'Vl.Unit',    w: 'w-20'  },
+                { col: 'value',    label: 'Vl.Total',   w: 'w-24'  },
+                { col: null,       label: '',           w: 'w-8'   },
+              ].map((h, i) => (
+                <th
+                  key={i}
+                  className={cn(
+                    'px-3 py-2.5 text-left text-xs font-semibold text-gray-500 whitespace-nowrap',
+                    h.w,
+                    h.col && 'cursor-pointer select-none hover:text-gray-700',
+                  )}
+                  onClick={h.col ? () => toggleSort(h.col!) : undefined}
+                >
+                  <span className="flex items-center gap-1">
+                    {h.label}
+                    {h.col && <SortIcon col={h.col} />}
+                  </span>
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-50">
+            {filtered.length === 0 ? (
+              <tr>
+                <td colSpan={8} className="px-4 py-10 text-center text-sm text-gray-400">
+                  Nenhum item encontrado
+                </td>
+              </tr>
+            ) : filtered.map(item => {
+              const cost      = item.averageCost || item.unitCost || 0
+              const totalVal  = cost * item.quantity
+              const isLow     = item.quantity <= item.minQuantity
+              const imgSrc    = item.imageUrl
+                ? (item.imageUrl.startsWith('http') ? item.imageUrl : `${API}/${item.imageUrl}`)
+                : null
+              return (
+                <tr
+                  key={item.id}
+                  className="hover:bg-gray-50/70 transition-colors cursor-pointer group"
+                  onClick={() => onView(item)}
+                >
+                  <td className="px-3 py-2.5">
+                    <span className="text-xs font-mono text-gray-400">{item.code ?? '—'}</span>
+                  </td>
+                  <td className="px-3 py-2.5">
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      {imgSrc ? (
+                        <img src={imgSrc} alt="" className="w-7 h-7 rounded-lg object-cover flex-shrink-0" />
+                      ) : (
+                        <div className="w-7 h-7 rounded-lg bg-gray-100 flex items-center justify-center flex-shrink-0">
+                          <Package size={13} className="text-gray-400" />
                         </div>
-                      </details>
-                    )}
-
-                    {/* Actions */}
-                    <div className="flex gap-2 mt-3">
-                      <button
-                        onClick={() => openMovSheet(item)}
-                        className="flex-1 flex items-center justify-center gap-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-xl py-2 text-xs font-medium transition"
-                      >
-                        <Plus size={14} /> Movimento
-                      </button>
-                      <button
-                        onClick={() => router.push(`/app/deposito/${item.id}`)}
-                        className="flex-1 flex items-center justify-center gap-1.5 bg-gray-50 hover:bg-gray-100 text-gray-600 rounded-xl py-2 text-xs font-medium transition"
-                      >
-                        <ClipboardList size={14} /> Detalhes
-                      </button>
-                      <button
-                        onClick={() => openItemSheet(item)}
-                        className="p-2 bg-gray-50 hover:bg-gray-100 text-gray-500 rounded-xl transition"
-                      >
-                        <Edit2 size={14} />
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )
-          })}
-
-          {/* Pagination */}
-          {itemsTotal > 30 && (
-            <div className="flex items-center justify-between py-2 text-sm text-gray-500">
-              <button
-                onClick={() => loadItems(itemsPage - 1)}
-                disabled={itemsPage === 1 || itemsLoading}
-                className="px-4 py-2 rounded-xl bg-white border disabled:opacity-40"
-              >
-                Anterior
-              </button>
-              <span>{itemsPage} de {Math.ceil(itemsTotal / 30)}</span>
-              <button
-                onClick={() => loadItems(itemsPage + 1)}
-                disabled={itemsPage >= Math.ceil(itemsTotal / 30) || itemsLoading}
-                className="px-4 py-2 rounded-xl bg-white border disabled:opacity-40"
-              >
-                Próxima
-              </button>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* ── Tab: Movements ──────────────────────────────────────────────────── */}
-      {activeTab === 'movements' && (
-        <div className="px-4 pt-3 space-y-2">
-          {movementsLoading && (
-            <div className="flex justify-center py-12">
-              <Loader2 size={28} className="animate-spin text-indigo-500" />
-            </div>
-          )}
-          {!movementsLoading && movements.length === 0 && (
-            <div className="text-center py-16 text-gray-400">
-              <Clock size={40} className="mx-auto mb-2 opacity-40" />
-              <p className="text-sm">Nenhum movimento registrado</p>
-            </div>
-          )}
-          {movements.map((mov) => {
-            const info = movTypeInfo(mov.type)
-            return (
-              <div key={mov.id} className="bg-white rounded-2xl border border-gray-100 p-4">
-                <div className="flex items-start gap-3">
-                  <div className={cn('w-10 h-10 rounded-xl flex items-center justify-center shrink-0 bg-gray-50')}>
-                    <info.icon size={18} className={info.color} />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-start justify-between gap-2">
-                      <div>
-                        <p className="font-semibold text-gray-900 text-sm">{mov.stockItem.name}</p>
-                        <p className={cn('text-xs font-medium', info.color)}>{info.label}</p>
-                      </div>
-                      <div className="text-right shrink-0">
-                        <p className={cn(
-                          'font-bold text-base',
-                          ['IN','RETURN'].includes(mov.type) ? 'text-green-600' : 'text-red-500'
-                        )}>
-                          {['IN','RETURN'].includes(mov.type) ? '+' : '-'}{mov.quantity} {mov.stockItem.unit}
-                        </p>
-                        {mov.unitCost && (
-                          <p className="text-xs text-gray-400">{formatCurrency(mov.unitCost)}/{mov.stockItem.unit}</p>
+                      )}
+                      <div className="min-w-0">
+                        <p className="font-medium text-gray-800 truncate">{item.name}</p>
+                        {(item.brand || item.model) && (
+                          <p className="text-xs text-gray-400 truncate">
+                            {[item.brand, item.model].filter(Boolean).join(' · ')}
+                          </p>
                         )}
                       </div>
                     </div>
-                    <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1.5 text-xs text-gray-500">
-                      {mov.project  && <span>🏗 {mov.project.name}</span>}
-                      {mov.employee && <span>👤 {mov.employee.name}</span>}
-                      {mov.reason   && <span>📝 {mov.reason}</span>}
-                    </div>
-                    <p className="text-xs text-gray-400 mt-1">{formatDate(mov.createdAt)}</p>
-                  </div>
-                </div>
-              </div>
-            )
-          })}
-
-          {movementsTotal > 30 && (
-            <div className="flex items-center justify-between py-2 text-sm text-gray-500">
-              <button
-                onClick={() => loadMovements(movementsPage - 1)}
-                disabled={movementsPage === 1 || movementsLoading}
-                className="px-4 py-2 rounded-xl bg-white border disabled:opacity-40"
-              >
-                Anterior
-              </button>
-              <span>{movementsPage} de {Math.ceil(movementsTotal / 30)}</span>
-              <button
-                onClick={() => loadMovements(movementsPage + 1)}
-                disabled={movementsPage >= Math.ceil(movementsTotal / 30) || movementsLoading}
-                className="px-4 py-2 rounded-xl bg-white border disabled:opacity-40"
-              >
-                Próxima
-              </button>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* ── Tab: Custodies ──────────────────────────────────────────────────── */}
-      {activeTab === 'custodies' && (
-        <div className="px-4 pt-3 space-y-3">
-          {/* Filtro por obra */}
-          {projects.length > 0 && (
-            <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1">
-              <button
-                onClick={() => setFilterCustodyProject('')}
-                className={cn(
-                  'flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-medium border transition-all',
-                  !filterCustodyProject ? 'border-amber-500 bg-amber-50 text-amber-700' : 'border-gray-200 text-gray-500'
-                )}
-              >
-                Todas
-              </button>
-              {projects.map(p => (
-                <button
-                  key={p.id}
-                  onClick={() => setFilterCustodyProject(filterCustodyProject === p.id ? '' : p.id)}
-                  className={cn(
-                    'flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-medium border transition-all',
-                    filterCustodyProject === p.id ? 'border-amber-500 bg-amber-50 text-amber-700' : 'border-gray-200 text-gray-500'
-                  )}
-                >
-                  {p.name}
-                </button>
-              ))}
-            </div>
-          )}
-
-          {custodiesLoading && (
-            <div className="flex justify-center py-12">
-              <Loader2 size={28} className="animate-spin text-indigo-500" />
-            </div>
-          )}
-          {!custodiesLoading && custodies.length === 0 && (
-            <div className="text-center py-16 text-gray-400">
-              <Hammer size={40} className="mx-auto mb-2 opacity-40" />
-              <p className="text-sm">Nenhuma ferramenta em custódia</p>
-            </div>
-          )}
-          {custodies.map((cust) => {
-            const isOverdue = cust.dueDate && !cust.returnedAt && new Date(cust.dueDate) < new Date()
-            return (
-              <div
-                key={cust.id}
-                className={cn(
-                  'bg-white rounded-2xl border p-4',
-                  isOverdue ? 'border-red-200' : 'border-amber-100'
-                )}
-              >
-                <div className="flex items-start gap-3">
-                  <div className="w-11 h-11 rounded-xl bg-amber-50 flex items-center justify-center shrink-0">
-                    <Hammer size={20} className="text-amber-600" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="font-semibold text-gray-900 text-sm">{cust.stockItem.name}</p>
-                    {cust.stockItem.brand && (
-                      <p className="text-xs text-gray-400">{cust.stockItem.brand} {cust.stockItem.serialNumber ? `· SN: ${cust.stockItem.serialNumber}` : ''}</p>
-                    )}
-                    <div className="flex items-center gap-2 mt-1">
-                      <Badge className="bg-gray-100 text-gray-600">
-                        <Users size={10} /> {cust.employee.name}
-                      </Badge>
-                      <Badge className="bg-indigo-50 text-indigo-600">
-                        {cust.quantity} {cust.stockItem.unit}
-                      </Badge>
-                    </div>
-                    {cust.project && (
-                      <p className="text-xs text-gray-500 mt-1">🏗 {cust.project.name}</p>
-                    )}
-                    <div className="flex items-center justify-between mt-1 text-xs text-gray-400">
-                      <span>Saída: {formatDate(cust.checkedOutAt)}</span>
-                      {cust.dueDate && (
-                        <span className={isOverdue ? 'text-red-500 font-medium' : ''}>
-                          {isOverdue ? '⚠️ ' : ''}Prev.: {formatDate(cust.dueDate)}
-                        </span>
-                      )}
-                    </div>
-                    {cust.condition && (
-                      <p className="text-xs text-gray-400 mt-0.5">Estado: {cust.condition}</p>
-                    )}
-                    <button
-                      onClick={() => openReturnSheet(cust)}
-                      className="mt-3 w-full flex items-center justify-center gap-2 bg-green-50 hover:bg-green-100 text-green-700 rounded-xl py-2.5 text-sm font-medium transition"
-                    >
-                      <RotateCcw size={15} /> Registrar Devolução
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )
-          })}
-          <p className="text-center text-xs text-gray-400 py-2">
-            {custodiesTotal} item{custodiesTotal !== 1 ? 's' : ''} em custódia aberta
-          </p>
-        </div>
-      )}
-
-      {/* ── Tab: EPIs ───────────────────────────────────────────────────────── */}
-      {activeTab === 'epis' && (
-        <div className="px-4 pt-3">
-          <div className="bg-white rounded-2xl border border-teal-100 p-8 text-center">
-            <ShieldCheck size={40} className="mx-auto text-teal-400 mb-3" />
-            <p className="text-gray-600 font-medium text-sm">Entregas de EPI/Uniforme</p>
-            <p className="text-xs text-gray-400 mt-1">
-              Registre entregas pelo botão + ao acessar o item
-            </p>
-            <div className="mt-4 space-y-2">
-              {items.filter((i) => i.isEpi || i.isUniform).map((item) => (
-                <div key={item.id} className="flex items-center justify-between bg-teal-50 rounded-xl p-3">
-                  <div className="flex items-center gap-2">
-                    {item.isEpi ? <ShieldCheck size={16} className="text-teal-600" /> : <Shirt size={16} className="text-blue-600" />}
-                    <span className="text-sm font-medium text-gray-800">{item.name}</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className={cn('text-sm font-bold', qtyColor(item))}>
-                      {item.quantity} {item.unit}
+                  </td>
+                  <td className="px-3 py-2.5">
+                    <span className="text-xs text-gray-500">{item.unit}</span>
+                  </td>
+                  <td className="px-3 py-2.5">
+                    <StockProgress qty={item.quantity} min={item.minQuantity} max={item.maxQuantity} />
+                  </td>
+                  <td className="px-3 py-2.5">
+                    <span className="text-xs text-gray-500 truncate block max-w-[100px]">
+                      {item.location ?? '—'}
                     </span>
-                    <button
-                      onClick={() => openMovSheet(item)}
-                      className="p-1.5 bg-teal-100 hover:bg-teal-200 text-teal-700 rounded-lg transition"
-                    >
-                      <Plus size={14} />
-                    </button>
+                  </td>
+                  <td className="px-3 py-2.5">
+                    <span className="text-xs text-gray-600">{cost > 0 ? formatCurrency(cost) : '—'}</span>
+                  </td>
+                  <td className="px-3 py-2.5">
+                    <span className={cn('text-sm font-semibold', totalVal > 0 ? 'text-gray-800' : 'text-gray-400')}>
+                      {totalVal > 0 ? formatCurrency(totalVal) : '—'}
+                    </span>
+                  </td>
+                  <td className="px-3 py-2.5" onClick={e => e.stopPropagation()}>
+                    <ActionMenu
+                      onView={() => onView(item)}
+                      onEdit={onEdit ? () => onEdit(item) : undefined}
+                      onCustody={item.requiresCustody ? () => onCustody(item) : undefined}
+                      onBasket={() => onBasket(item)}
+                    />
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Cards — mobile */}
+      <div className="md:hidden space-y-2">
+        {filtered.map(item => {
+          const cost     = item.averageCost || item.unitCost || 0
+          const isLow    = item.quantity <= item.minQuantity
+          const imgSrc   = item.imageUrl
+            ? (item.imageUrl.startsWith('http') ? item.imageUrl : `${API}/${item.imageUrl}`)
+            : null
+          return (
+            <div
+              key={item.id}
+              className="bg-white border border-gray-100 rounded-xl p-3 flex items-center gap-3 shadow-sm"
+              onClick={() => onView(item)}
+            >
+              {imgSrc ? (
+                <img src={imgSrc} alt="" className="w-12 h-12 rounded-xl object-cover flex-shrink-0" />
+              ) : (
+                <div className="w-12 h-12 rounded-xl bg-gray-100 flex items-center justify-center flex-shrink-0">
+                  <Package size={20} className="text-gray-300" />
+                </div>
+              )}
+              <div className="flex-1 min-w-0">
+                <div className="flex items-start justify-between gap-1">
+                  <p className="font-medium text-gray-800 text-sm truncate">{item.name}</p>
+                  {isLow && <AlertTriangle size={13} className="text-red-500 flex-shrink-0 mt-0.5" />}
+                </div>
+                <div className="flex items-center gap-2 mt-1">
+                  <span className={cn('text-sm font-bold', isLow ? 'text-red-600' : 'text-gray-700')}>
+                    {item.quantity} {item.unit}
+                  </span>
+                  {cost > 0 && (
+                    <span className="text-xs text-gray-400">· {formatCurrency(cost * item.quantity)}</span>
+                  )}
+                </div>
+                {item.location && (
+                  <p className="text-xs text-gray-400 mt-0.5 truncate">📍 {item.location}</p>
+                )}
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+// ─── Tools Table ─────────────────────────────────────────────────────────────
+
+function ToolsTable({ items, onView, onEdit, onCustody, onMaintenance }: {
+  items:          StockItem[]
+  onView:         (item: StockItem) => void
+  onEdit?:        (item: StockItem) => void
+  onCustody:      (item: StockItem) => void
+  onMaintenance:  (item: StockItem) => void
+}) {
+  const [query, setQuery] = useState('')
+  const filtered = items.filter(i =>
+    !query ||
+    i.name.toLowerCase().includes(query.toLowerCase()) ||
+    i.serialNumber?.toLowerCase().includes(query.toLowerCase()) ||
+    i.brand?.toLowerCase().includes(query.toLowerCase()),
+  )
+
+  function warrantyBadge(item: StockItem) {
+    if (!item.isUnderWarranty) return <span className="text-xs text-gray-400">—</span>
+    const days = daysFromNow(item.warrantyExpiry)
+    if (days === null) return (
+      <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-green-100 text-green-700">Ativa</span>
+    )
+    if (days < 0) return (
+      <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-red-100 text-red-700">Vencida</span>
+    )
+    if (days <= 30) return (
+      <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-yellow-100 text-yellow-700">
+        {days}d
+      </span>
+    )
+    return <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-green-100 text-green-700">Ativa</span>
+  }
+
+  function maintenanceBadge(item: StockItem) {
+    if (!item.nextMaintenance) return <span className="text-xs text-gray-400">—</span>
+    const days = daysFromNow(item.nextMaintenance)!
+    if (days < 0) return (
+      <div className="flex items-center gap-1">
+        <AlertTriangle size={12} className="text-red-500" />
+        <span className="text-xs font-medium text-red-600">{formatDateBR(item.nextMaintenance)}</span>
+      </div>
+    )
+    if (days <= 7) return (
+      <div className="flex items-center gap-1">
+        <Clock size={12} className="text-yellow-500" />
+        <span className="text-xs font-medium text-yellow-700">{formatDateBR(item.nextMaintenance)}</span>
+      </div>
+    )
+    return <span className="text-xs text-gray-600">{formatDateBR(item.nextMaintenance)}</span>
+  }
+
+  function locationBadge(item: StockItem) {
+    if (item.currentProject) return (
+      <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-orange-100 text-orange-700 truncate max-w-[100px] block">
+        🏗️ {item.currentProject.name}
+      </span>
+    )
+    if (item.location) return (
+      <span className="text-xs text-gray-600 truncate block max-w-[100px]">{item.location}</span>
+    )
+    return <span className="text-xs text-gray-400">Depósito</span>
+  }
+
+  return (
+    <div>
+      <div className="flex items-center gap-2 mb-4">
+        <div className="relative flex-1 max-w-xs">
+          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+          <input
+            type="text"
+            value={query}
+            onChange={e => setQuery(e.target.value)}
+            placeholder="Buscar ferramenta, nº série..."
+            className="w-full pl-9 pr-3 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-[#F5A623]"
+          />
+          {query && <button onClick={() => setQuery('')} className="absolute right-2 top-1/2 -translate-y-1/2"><X size={13} className="text-gray-400" /></button>}
+        </div>
+        <span className="text-xs text-gray-400 ml-auto">{filtered.length} ferramenta{filtered.length !== 1 ? 's' : ''}</span>
+      </div>
+
+      {/* Desktop table */}
+      <div className="hidden md:block overflow-x-auto rounded-xl border border-gray-100">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="bg-gray-50 border-b border-gray-100 text-xs font-semibold text-gray-500">
+              <th className="px-3 py-2.5 text-left w-16">Cód.</th>
+              <th className="px-3 py-2.5 text-left">Ferramenta</th>
+              <th className="px-3 py-2.5 text-left w-28">Nº Série</th>
+              <th className="px-3 py-2.5 text-left w-28">Localização</th>
+              <th className="px-3 py-2.5 text-left w-20">Garantia</th>
+              <th className="px-3 py-2.5 text-left w-32">Próx. Manutenção</th>
+              <th className="px-3 py-2.5 w-8"></th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-50">
+            {filtered.length === 0 ? (
+              <tr><td colSpan={7} className="px-4 py-10 text-center text-sm text-gray-400">Nenhuma ferramenta encontrada</td></tr>
+            ) : filtered.map(item => (
+              <tr
+                key={item.id}
+                className="hover:bg-gray-50/70 transition-colors cursor-pointer"
+                onClick={() => onView(item)}
+              >
+                <td className="px-3 py-2.5">
+                  <span className="text-xs font-mono text-gray-400">{item.code ?? '—'}</span>
+                </td>
+                <td className="px-3 py-2.5">
+                  <div>
+                    <p className="font-medium text-gray-800">{item.name}</p>
+                    {(item.brand || item.model) && (
+                      <p className="text-xs text-gray-400">{[item.brand, item.model].filter(Boolean).join(' · ')}</p>
+                    )}
+                  </div>
+                </td>
+                <td className="px-3 py-2.5">
+                  <span className="text-xs font-mono text-gray-500">{item.serialNumber ?? '—'}</span>
+                </td>
+                <td className="px-3 py-2.5">{locationBadge(item)}</td>
+                <td className="px-3 py-2.5">{warrantyBadge(item)}</td>
+                <td className="px-3 py-2.5">{maintenanceBadge(item)}</td>
+                <td className="px-3 py-2.5" onClick={e => e.stopPropagation()}>
+                  <ActionMenu
+                    onView={() => onView(item)}
+                    onEdit={onEdit ? () => onEdit(item) : undefined}
+                    onCustody={() => onCustody(item)}
+                  />
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Mobile cards */}
+      <div className="md:hidden space-y-2">
+        {filtered.map(item => {
+          const overdueM = item.nextMaintenance && daysFromNow(item.nextMaintenance)! < 0
+          return (
+            <div
+              key={item.id}
+              className={cn('bg-white border rounded-xl p-3 shadow-sm cursor-pointer', overdueM ? 'border-red-200' : 'border-gray-100')}
+              onClick={() => onView(item)}
+            >
+              <div className="flex items-start justify-between gap-2 mb-2">
+                <div>
+                  <p className="font-medium text-gray-800 text-sm">{item.name}</p>
+                  {item.serialNumber && <p className="text-xs text-gray-400 font-mono">Série: {item.serialNumber}</p>}
+                </div>
+                {warrantyBadge(item)}
+              </div>
+              <div className="flex items-center gap-3 text-xs">
+                {locationBadge(item)}
+                {item.nextMaintenance && maintenanceBadge(item)}
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+// ─── Movements Tab ────────────────────────────────────────────────────────────
+
+function MovementsTab({ onViewReceipt }: { onViewReceipt: (basketId: string) => void }) {
+  const [movements, setMovements] = useState<StockMovement[]>([])
+  const [loading,   setLoading]   = useState(true)
+  const [page,      setPage]      = useState(1)
+  const [total,     setTotal]     = useState(0)
+  const [typeFilter,setTypeFilter]= useState('')
+  const LIMIT = 20
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    const qs = new URLSearchParams({ page: String(page), limit: String(LIMIT) })
+    if (typeFilter) qs.set('type', typeFilter)
+    try {
+      const res = await apiFetch(`/api/v1/deposit/movements?${qs}`)
+      if (res.ok) {
+        const d = await res.json()
+        setMovements(d.movements ?? [])
+        setTotal(d.total ?? 0)
+      }
+    } catch { /* silencioso */ }
+    finally { setLoading(false) }
+  }, [page, typeFilter])
+
+  useEffect(() => { load() }, [load])
+
+  const totalPages = Math.ceil(total / LIMIT)
+
+  return (
+    <div className="space-y-4">
+      {/* Filtros */}
+      <div className="flex gap-2 flex-wrap">
+        {[{ value: '', label: 'Todos' }, ...Object.entries(MOV_TYPE).map(([k, v]) => ({ value: k, label: v.label }))].map(t => (
+          <button
+            key={t.value}
+            onClick={() => { setTypeFilter(t.value); setPage(1) }}
+            className={cn(
+              'px-3 py-1.5 rounded-full text-xs font-medium border transition',
+              typeFilter === t.value
+                ? 'bg-[#F5A623] border-[#F5A623] text-white'
+                : 'border-gray-200 text-gray-500 hover:border-gray-300',
+            )}
+          >{t.label}</button>
+        ))}
+        <span className="ml-auto text-xs text-gray-400 self-center">{total} registros</span>
+      </div>
+
+      {/* Lista */}
+      {loading ? (
+        <div className="flex justify-center py-12">
+          <Loader2 size={24} className="animate-spin text-[#F5A623]" />
+        </div>
+      ) : movements.length === 0 ? (
+        <div className="py-10 text-center text-sm text-gray-400">Nenhuma movimentação encontrada</div>
+      ) : (
+        <div className="rounded-xl border border-gray-100 overflow-hidden">
+          <table className="w-full text-sm hidden md:table">
+            <thead>
+              <tr className="bg-gray-50 border-b border-gray-100 text-xs font-semibold text-gray-500">
+                <th className="px-4 py-2.5 text-left">Data</th>
+                <th className="px-4 py-2.5 text-left">Tipo</th>
+                <th className="px-4 py-2.5 text-left">Item</th>
+                <th className="px-4 py-2.5 text-left">Qtd.</th>
+                <th className="px-4 py-2.5 text-left">Obra</th>
+                <th className="px-4 py-2.5 text-left">Colaborador</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-50">
+              {movements.map(m => {
+                const tc = MOV_TYPE[m.type] ?? MOV_TYPE.ADJUSTMENT
+                return (
+                  <tr key={m.id} className="hover:bg-gray-50/50 transition">
+                    <td className="px-4 py-2.5 text-xs text-gray-500 whitespace-nowrap">
+                      {new Date(m.createdAt).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                    </td>
+                    <td className="px-4 py-2.5">
+                      <span className={cn('text-xs font-medium px-2 py-0.5 rounded-full', tc.color)}>{tc.label}</span>
+                    </td>
+                    <td className="px-4 py-2.5 font-medium text-gray-800 truncate max-w-[160px]">{m.stockItem.name}</td>
+                    <td className="px-4 py-2.5 tabular-nums">
+                      {['IN','RETURN'].includes(m.type) ? '+' : '−'}{m.quantity} {m.stockItem.unit}
+                    </td>
+                    <td className="px-4 py-2.5 text-xs text-gray-500 truncate max-w-[100px]">{m.project?.name ?? '—'}</td>
+                    <td className="px-4 py-2.5 text-xs text-gray-500 truncate max-w-[100px]">{m.employee?.name ?? '—'}</td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+
+          {/* Mobile */}
+          <div className="md:hidden divide-y divide-gray-50">
+            {movements.map(m => {
+              const tc = MOV_TYPE[m.type] ?? MOV_TYPE.ADJUSTMENT
+              return (
+                <div key={m.id} className="px-4 py-3 flex items-center gap-3">
+                  <span className={cn('text-xs font-medium px-2 py-0.5 rounded-full flex-shrink-0', tc.color)}>{tc.label}</span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-gray-800 truncate">{m.stockItem.name}</p>
+                    <p className="text-xs text-gray-400">{new Date(m.createdAt).toLocaleDateString('pt-BR')} · {m.project?.name}</p>
+                  </div>
+                  <span className="text-sm font-semibold text-gray-700 flex-shrink-0">{m.quantity}</span>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Paginação */}
+      {totalPages > 1 && (
+        <div className="flex items-center justify-center gap-2">
+          <button disabled={page <= 1 || loading} onClick={() => setPage(p => p - 1)}
+            className="px-3 py-1.5 text-xs border border-gray-200 rounded-lg disabled:opacity-40">← Anterior</button>
+          <span className="text-xs text-gray-500">Pág. {page}/{totalPages}</span>
+          <button disabled={page >= totalPages || loading} onClick={() => setPage(p => p + 1)}
+            className="px-3 py-1.5 text-xs border border-gray-200 rounded-lg disabled:opacity-40">Próxima →</button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── Baskets Tab (Ordens/Romaneios) ─────────────────────────────────────────
+
+function BasketsTab({ onViewReceipt }: { onViewReceipt: (basketId: string) => void }) {
+  const [baskets,  setBaskets]  = useState<StockBasket[]>([])
+  const [loading,  setLoading]  = useState(true)
+  const [page,     setPage]     = useState(1)
+  const [total,    setTotal]    = useState(0)
+  const LIMIT = 15
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    const qs = new URLSearchParams({ page: String(page), limit: String(LIMIT) })
+    try {
+      const res = await apiFetch(`/api/v1/deposit/baskets?${qs}`)
+      if (res.ok) {
+        const d = await res.json()
+        setBaskets(d.baskets ?? [])
+        setTotal(d.total ?? 0)
+      }
+    } catch { /* silencioso */ }
+    finally { setLoading(false) }
+  }, [page])
+
+  useEffect(() => { load() }, [load])
+
+  const totalPages = Math.ceil(total / LIMIT)
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <span className="text-xs text-gray-400">{total} romaneio{total !== 1 ? 's' : ''}</span>
+      </div>
+      {loading ? (
+        <div className="flex justify-center py-12"><Loader2 size={24} className="animate-spin text-[#F5A623]" /></div>
+      ) : baskets.length === 0 ? (
+        <div className="py-10 text-center text-sm text-gray-400">Nenhum romaneio encontrado</div>
+      ) : (
+        <div className="space-y-2">
+          {baskets.map(b => {
+            const st = BASKET_STATUS[b.status] ?? BASKET_STATUS.DRAFT
+            const BTYPE: Record<string, string> = { OUT: 'Saída', IN: 'Entrada', TRANSFER: 'Transferência', EPI_DELIVERY: 'EPI', RETURN: 'Devolução' }
+            return (
+              <div key={b.id} className="bg-white border border-gray-100 rounded-xl p-4 shadow-sm">
+                <div className="flex items-center justify-between flex-wrap gap-2 mb-2">
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono text-sm font-semibold text-gray-800">{b.docNumber}</span>
+                    <span className="text-xs text-gray-500">{BTYPE[b.type] ?? b.type}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className={cn('text-xs font-medium px-2 py-0.5 rounded-full', st.color)}>{st.label}</span>
+                    {b.status === 'SIGNED' && (
+                      <button
+                        onClick={() => onViewReceipt(b.id)}
+                        className="text-xs text-blue-600 hover:text-blue-800 font-medium flex items-center gap-1"
+                      >
+                        <Eye size={11} />Ver recibo
+                      </button>
+                    )}
                   </div>
                 </div>
-              ))}
-              {items.filter((i) => i.isEpi || i.isUniform).length === 0 && (
-                <p className="text-xs text-gray-400">Nenhum EPI ou uniforme cadastrado</p>
+                <div className="flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-gray-500">
+                  {b.employee && <span>👷 {b.employee.name}</span>}
+                  {b.project  && <span>🏗️ {b.project.name}</span>}
+                  {b._count   && <span>📦 {b._count.movements} iten{b._count.movements !== 1 ? 's' : ''}</span>}
+                  <span>📅 {new Date(b.createdAt).toLocaleDateString('pt-BR')}</span>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
+      {totalPages > 1 && (
+        <div className="flex items-center justify-center gap-2">
+          <button disabled={page <= 1 || loading} onClick={() => setPage(p => p - 1)}
+            className="px-3 py-1.5 text-xs border border-gray-200 rounded-lg disabled:opacity-40">← Anterior</button>
+          <span className="text-xs text-gray-500">Pág. {page}/{totalPages}</span>
+          <button disabled={page >= totalPages || loading} onClick={() => setPage(p => p + 1)}
+            className="px-3 py-1.5 text-xs border border-gray-200 rounded-lg disabled:opacity-40">Próxima →</button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── Main Page ────────────────────────────────────────────────────────────────
+
+type TabId = 'materials' | 'tools' | 'epis' | 'uniforms' | 'movements' | 'baskets'
+
+const TABS: { id: TabId; label: string; icon: React.ComponentType<any> }[] = [
+  { id: 'materials', label: 'Materiais',    icon: Package    },
+  { id: 'tools',     label: 'Ferramentário',icon: Wrench     },
+  { id: 'epis',      label: 'EPIs',         icon: ShieldCheck},
+  { id: 'uniforms',  label: 'Uniformes',    icon: Shirt      },
+  { id: 'movements', label: 'Movimentações',icon: Layers     },
+  { id: 'baskets',   label: 'Romaneios',    icon: FileText   },
+]
+
+export default function DepositoPage() {
+  // ── State ─────────────────────────────────────────────────────────────────
+  const [tab,       setTab]       = useState<TabId>('materials')
+  const [items,     setItems]     = useState<StockItem[]>([])
+  const [summary,   setSummary]   = useState<SummaryFull | null>(null)
+  const [employees, setEmployees] = useState<Employee[]>([])
+  const [projects,  setProjects]  = useState<Project[]>([])
+  const [loading,   setLoading]   = useState(true)
+
+  // Drawers & Modals
+  const [selectedItem,      setSelectedItem]      = useState<StockItem | null>(null)
+  const [selectedTool,      setSelectedTool]      = useState<StockItem | null>(null)
+  const [custodyItem,       setCustodyItem]        = useState<StockItem | null>(null)
+  const [maintenanceTool,   setMaintenanceTool]   = useState<StockItem | null>(null)
+  const [maintenanceRecord, setMaintenanceRecord] = useState<any>(null)
+  const [receiptBasketId,   setReceiptBasketId]   = useState<string | null>(null)
+  const [basketOpen,        setBasketOpen]        = useState(false)
+
+  // Form modals
+  const [materialFormOpen,  setMaterialFormOpen]  = useState(false)
+  const [toolFormOpen,      setToolFormOpen]      = useState(false)
+  const [epiFormOpen,       setEpiFormOpen]       = useState(false)
+  const [uniformFormOpen,   setUniformFormOpen]   = useState(false)
+  const [editingMaterial,   setEditingMaterial]   = useState<StockItem | null>(null)
+  const [editingTool,       setEditingTool]       = useState<StockItem | null>(null)
+
+  // ── Data loading ──────────────────────────────────────────────────────────
+  const loadAll = useCallback(async () => {
+    setLoading(true)
+    try {
+      const [itemsRes, summaryRes, empRes, projRes] = await Promise.all([
+        apiFetch('/api/v1/deposit/items?limit=500&active=true'),
+        apiFetch('/api/v1/deposit/summary/full'),
+        apiFetch('/api/v1/employees?limit=200'),
+        apiFetch('/api/v1/projects?limit=200'),
+      ])
+      if (itemsRes.ok)    { const d = await itemsRes.json();    setItems(d.items ?? [])       }
+      if (summaryRes.ok)  { const d = await summaryRes.json();  setSummary(d)                 }
+      if (empRes.ok)      { const d = await empRes.json();      setEmployees(d.employees ?? d.data ?? []) }
+      if (projRes.ok)     { const d = await projRes.json();     setProjects(d.projects ?? d.data ?? [])  }
+    } catch { /* silencioso */ }
+    finally { setLoading(false) }
+  }, [])
+
+  useEffect(() => { loadAll() }, [loadAll])
+
+  // ── Derived item lists ────────────────────────────────────────────────────
+  const materials = items.filter(i => !i.isEpi && !i.isUniform && !i.requiresCustody)
+  const tools      = items.filter(i => i.requiresCustody)
+  const epis       = items.filter(i => i.isEpi)
+  const uniforms   = items.filter(i => i.isUniform)
+
+  // ── Smart header button ───────────────────────────────────────────────────
+  function getAddButton() {
+    switch (tab) {
+      case 'materials': return { label: 'Novo Material',   onClick: () => { setEditingMaterial(null); setMaterialFormOpen(true) } }
+      case 'tools':     return { label: 'Nova Ferramenta', onClick: () => { setEditingTool(null);     setToolFormOpen(true)     } }
+      case 'epis':      return { label: 'Novo EPI',        onClick: () => { setEditingMaterial(null); setEpiFormOpen(true)      } }
+      case 'uniforms':  return { label: 'Novo Uniforme',   onClick: () => { setEditingMaterial(null); setUniformFormOpen(true)  } }
+      case 'baskets':   return { label: 'Novo Romaneio',   onClick: () => setBasketOpen(true) }
+      default:          return null
+    }
+  }
+  const addBtn = getAddButton()
+
+  // ── Handlers ─────────────────────────────────────────────────────────────
+  const handleViewItem = (item: StockItem) => {
+    if (item.requiresCustody) { setSelectedTool(item); setSelectedItem(null) }
+    else                      { setSelectedItem(item); setSelectedTool(null) }
+  }
+
+  const handleViewReceipt = (basketId: string) => {
+    setSelectedItem(null)
+    setSelectedTool(null)
+    setReceiptBasketId(basketId)
+  }
+
+  const handleBasketConfirm = async (payload: BasketPayload) => {
+    const res = await apiFetch('/api/v1/deposit/baskets', {
+      method: 'POST',
+      body:   JSON.stringify(payload),
+    })
+    if (!res.ok) {
+      const d = await res.json().catch(() => ({}))
+      throw new Error(d.error ?? `Erro ${res.status}`)
+    }
+    // Se há assinaturas, assinar o romaneio criado
+    const basket = await res.json()
+    if (payload.senderSignature || payload.receiverSignature) {
+      await apiFetch(`/api/v1/deposit/baskets/${basket.id}/sign`, {
+        method: 'PATCH',
+        body:   JSON.stringify({
+          senderSignature:   payload.senderSignature,
+          receiverSignature: payload.receiverSignature,
+        }),
+      })
+    }
+    setBasketOpen(false)
+    loadAll()
+  }
+
+  // ── Render ────────────────────────────────────────────────────────────────
+  return (
+    <div className="min-h-screen bg-gray-50">
+      {/* ── Header ─────────────────────────────────────────────────────── */}
+      <div className="bg-white border-b border-gray-100 sticky top-0 z-30">
+        <div className="max-w-screen-xl mx-auto px-4 sm:px-6">
+          <div className="flex items-center justify-between py-4">
+            <div>
+              <h1 className="text-lg font-bold text-gray-900">Depósito</h1>
+              <p className="text-xs text-gray-400 mt-0.5">Controle de materiais, ferramentas e EPIs</p>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={loadAll}
+                className="p-2 rounded-xl border border-gray-200 hover:bg-gray-50 transition"
+                title="Recarregar"
+              >
+                <RefreshCw size={15} className={cn('text-gray-500', loading && 'animate-spin')} />
+              </button>
+              {addBtn && (
+                <button
+                  onClick={addBtn.onClick}
+                  className="flex items-center gap-1.5 bg-[#F5A623] text-white text-sm font-medium px-4 py-2 rounded-xl hover:bg-[#e09610] transition"
+                >
+                  <Plus size={15} />
+                  <span className="hidden sm:inline">{addBtn.label}</span>
+                </button>
               )}
             </div>
           </div>
         </div>
-      )}
-
-      {/* ── Tab: Baskets (Romaneios) ────────────────────────────────────────── */}
-      {activeTab === 'baskets' && (
-        <div className="px-4 pt-3 space-y-3">
-          <div className="flex items-center justify-between">
-            <p className="text-sm font-semibold text-gray-700">{basketsTotal} romaneio{basketsTotal !== 1 ? 's' : ''}</p>
-            <button
-              onClick={() => setBasketModalOpen(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#F5A623] text-white text-xs font-semibold hover:bg-[#d4891a] transition"
-            >
-              <Plus size={14} /> Novo Romaneio
-            </button>
-          </div>
-
-          {basketsLoading && (
-            <div className="flex justify-center py-12">
-              <Loader2 size={28} className="animate-spin text-[#F5A623]" />
-            </div>
-          )}
-
-          {!basketsLoading && baskets.length === 0 && (
-            <div className="text-center py-16 text-gray-400">
-              <FileText size={40} className="mx-auto mb-2 opacity-30" />
-              <p className="text-sm">Nenhum romaneio emitido</p>
-              <button onClick={() => setBasketModalOpen(true)} className="mt-3 text-[#F5A623] text-sm font-medium">
-                + Criar primeiro romaneio
-              </button>
-            </div>
-          )}
-
-          {baskets.map((basket) => {
-            const statusBadge: Record<string, string> = {
-              DRAFT:     'bg-amber-100 text-amber-700',
-              SIGNED:    'bg-green-100 text-green-700',
-              CANCELLED: 'bg-red-100 text-red-600',
-            }
-            const typeBadge: Record<string, string> = {
-              OUT:    'Saída',
-              EPI:    'EPI',
-              RETURN: 'Devolução',
-            }
-            return (
-              <div key={basket.id} className="bg-white rounded-2xl border border-gray-100 p-4">
-                <div className="flex items-start gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-amber-50 flex items-center justify-center shrink-0">
-                    <FileText size={18} className="text-amber-600" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-start justify-between gap-2">
-                      <div>
-                        <p className="font-bold text-gray-900 text-sm">{basket.docNumber}</p>
-                        <p className="text-xs text-gray-500">{typeBadge[basket.type] ?? basket.type}</p>
-                      </div>
-                      <span className={cn('text-xs font-medium px-2 py-0.5 rounded-full', statusBadge[basket.status] ?? 'bg-gray-100 text-gray-500')}>
-                        {basket.status === 'DRAFT' ? 'Rascunho' : basket.status === 'SIGNED' ? 'Assinado' : 'Cancelado'}
-                      </span>
-                    </div>
-                    <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1.5 text-xs text-gray-500">
-                      {basket.project   && <span>🏗 {basket.project.name}</span>}
-                      {basket.employee  && <span>👤 {basket.employee.name}</span>}
-                      {basket.destinatary && <span>📋 {basket.destinatary}</span>}
-                      {basket._count    && <span>📦 {basket._count.movements} item{basket._count.movements !== 1 ? 'ns' : ''}</span>}
-                    </div>
-                    <div className="flex items-center justify-between mt-2">
-                      <p className="text-xs text-gray-400">{formatDate(basket.createdAt)}</p>
-                      {basket.status === 'SIGNED' && (
-                        <span className="flex items-center gap-1 text-xs text-green-600">
-                          <CheckCircle size={11} /> Assinado
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )
-          })}
-        </div>
-      )}
-
-      {/* ── FAB ────────────────────────────────────────────────────────────── */}
-      <div className="fixed bottom-6 right-5 z-30">
-        {fabOpen && (
-          <>
-            <div className="fixed inset-0" onClick={() => setFabOpen(false)} />
-            <div className="absolute bottom-16 right-0 flex flex-col items-end gap-2">
-              <button
-                onClick={() => { openItemSheet(); setFabOpen(false) }}
-                className="flex items-center gap-2 bg-white shadow-lg rounded-full pl-4 pr-5 py-3 text-sm font-medium text-gray-700 border border-gray-100 hover:bg-gray-50 transition"
-              >
-                <Package size={16} className="text-indigo-500" /> Novo Item
-              </button>
-              <button
-                onClick={() => { openMovSheet(); setFabOpen(false) }}
-                className="flex items-center gap-2 bg-white shadow-lg rounded-full pl-4 pr-5 py-3 text-sm font-medium text-gray-700 border border-gray-100 hover:bg-gray-50 transition"
-              >
-                <ArrowDownToLine size={16} className="text-green-500" /> Registrar Entrada
-              </button>
-              <button
-                onClick={() => { setForm_OUT(); setFabOpen(false) }}
-                className="flex items-center gap-2 bg-white shadow-lg rounded-full pl-4 pr-5 py-3 text-sm font-medium text-gray-700 border border-gray-100 hover:bg-gray-50 transition"
-              >
-                <ArrowUpFromLine size={16} className="text-red-500" /> Registrar Saída
-              </button>
-              <button
-                onClick={() => { setBasketModalOpen(true); setFabOpen(false) }}
-                className="flex items-center gap-2 bg-white shadow-lg rounded-full pl-4 pr-5 py-3 text-sm font-medium text-gray-700 border border-gray-100 hover:bg-gray-50 transition"
-              >
-                <FileText size={16} className="text-amber-500" /> Novo Romaneio
-              </button>
-            </div>
-          </>
-        )}
-        <button
-          onClick={() => setFabOpen(!fabOpen)}
-          className={cn(
-            'w-14 h-14 rounded-full shadow-xl flex items-center justify-center transition-all',
-            fabOpen ? 'bg-gray-700 rotate-45' : 'bg-indigo-600'
-          )}
-        >
-          <Plus size={24} className="text-white" />
-        </button>
       </div>
 
-      {/* ── Sheets ──────────────────────────────────────────────────────────── */}
-      <MovementSheet
-        open={movSheetOpen}
-        onClose={() => setMovSheetOpen(false)}
-        onSuccess={refreshAll}
-        preselectedItem={preselectedItem}
-        items={items}
-        employees={employees}
-        projects={projects}
-      />
-      <ItemSheet
-        open={itemSheetOpen}
-        onClose={() => setItemSheetOpen(false)}
-        onSuccess={refreshAll}
-        editItem={editItem}
-      />
-      <CustodyReturnSheet
-        open={returnSheetOpen}
-        custody={returnCustody}
-        onClose={() => setReturnSheetOpen(false)}
-        onSuccess={refreshAll}
+      <div className="max-w-screen-xl mx-auto px-4 sm:px-6 py-6 space-y-6">
+
+        {/* ── Metric cards ───────────────────────────────────────────────── */}
+        {loading && !summary ? (
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            {Array.from({ length: 8 }).map((_, i) => (
+              <div key={i} className="h-20 bg-white rounded-xl border border-gray-100 animate-pulse" />
+            ))}
+          </div>
+        ) : summary && (
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <MetricCard
+              label="Total de itens"
+              value={summary.totalItems}
+              icon={<Package size={18} className="text-blue-600" />}
+              color="bg-blue-50"
+            />
+            <MetricCard
+              label="Valor em estoque"
+              value={formatCurrency(summary.totalValue)}
+              icon={<TrendingUp size={18} className="text-green-600" />}
+              color="bg-green-50"
+            />
+            <MetricCard
+              label="Saídas este mês"
+              value={summary.exitsThisMonth}
+              icon={<ArrowUpFromLine size={18} className="text-red-500" />}
+              color="bg-red-50"
+            />
+            <MetricCard
+              label="Entradas este mês"
+              value={summary.entriesThisMonth}
+              icon={<ArrowDownToLine size={18} className="text-green-600" />}
+              color="bg-green-50"
+            />
+            <MetricCard
+              label="Estoque baixo"
+              value={summary.lowStockCount}
+              icon={<AlertTriangle size={18} className="text-red-500" />}
+              color="bg-red-50"
+              alert={summary.lowStockCount > 0}
+            />
+            <MetricCard
+              label="Devoluções atrasadas"
+              value={summary.overdueReturns}
+              icon={<Clock size={18} className="text-orange-500" />}
+              color="bg-orange-50"
+              alert={summary.overdueReturns > 0}
+            />
+            <MetricCard
+              label="Em manutenção"
+              value={summary.inMaintenanceCount}
+              icon={<Wrench size={18} className="text-purple-600" />}
+              color="bg-purple-50"
+            />
+            <MetricCard
+              label="Manutenções atrasadas"
+              value={summary.overdueMaintenance}
+              icon={<AlertTriangle size={18} className="text-red-600" />}
+              color="bg-red-50"
+              alert={summary.overdueMaintenance > 0}
+            />
+          </div>
+        )}
+
+        {/* ── Tabs ───────────────────────────────────────────────────────── */}
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+          {/* Tab bar */}
+          <div className="border-b border-gray-100 overflow-x-auto no-scrollbar">
+            <div className="flex min-w-max">
+              {TABS.map(t => {
+                const count =
+                  t.id === 'materials' ? materials.length :
+                  t.id === 'tools'     ? tools.length :
+                  t.id === 'epis'      ? epis.length :
+                  t.id === 'uniforms'  ? uniforms.length : null
+                return (
+                  <button
+                    key={t.id}
+                    onClick={() => setTab(t.id)}
+                    className={cn(
+                      'flex items-center gap-2 px-5 py-3.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap',
+                      tab === t.id
+                        ? 'border-[#F5A623] text-[#F5A623]'
+                        : 'border-transparent text-gray-500 hover:text-gray-700',
+                    )}
+                  >
+                    <t.icon size={15} />
+                    {t.label}
+                    {count !== null && (
+                      <span className={cn(
+                        'text-xs px-1.5 py-0.5 rounded-full font-medium',
+                        tab === t.id ? 'bg-orange-100 text-orange-700' : 'bg-gray-100 text-gray-500',
+                      )}>{count}</span>
+                    )}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+
+          {/* Tab content */}
+          <div className="p-5">
+            {loading && items.length === 0 ? (
+              <div className="flex justify-center py-16">
+                <Loader2 size={28} className="animate-spin text-[#F5A623]" />
+              </div>
+            ) : (
+              <>
+                {tab === 'materials' && (
+                  <MaterialsTable
+                    items={materials}
+                    onView={handleViewItem}
+                    onEdit={item => { setEditingMaterial(item); setMaterialFormOpen(true) }}
+                    onCustody={item => setCustodyItem(item)}
+                    onBasket={() => setBasketOpen(true)}
+                  />
+                )}
+                {tab === 'tools' && (
+                  <ToolsTable
+                    items={tools}
+                    onView={handleViewItem}
+                    onEdit={item => { setEditingTool(item); setToolFormOpen(true) }}
+                    onCustody={item => setCustodyItem(item)}
+                    onMaintenance={item => { setMaintenanceTool(item); setMaintenanceRecord(null) }}
+                  />
+                )}
+                {tab === 'epis' && (
+                  <MaterialsTable
+                    items={epis}
+                    onView={handleViewItem}
+                    onEdit={item => { setEditingMaterial(item); setEpiFormOpen(true) }}
+                    onCustody={item => setCustodyItem(item)}
+                    onBasket={() => setBasketOpen(true)}
+                  />
+                )}
+                {tab === 'uniforms' && (
+                  <MaterialsTable
+                    items={uniforms}
+                    onView={handleViewItem}
+                    onEdit={item => { setEditingMaterial(item); setUniformFormOpen(true) }}
+                    onCustody={item => setCustodyItem(item)}
+                    onBasket={() => setBasketOpen(true)}
+                  />
+                )}
+                {tab === 'movements' && (
+                  <MovementsTab onViewReceipt={handleViewReceipt} />
+                )}
+                {tab === 'baskets' && (
+                  <BasketsTab onViewReceipt={handleViewReceipt} />
+                )}
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* ── Drawers & Modals ────────────────────────────────────────────── */}
+
+      {selectedItem && (
+        <ItemDrawer
+          item={selectedItem as ItemDetail}
+          onClose={() => setSelectedItem(null)}
+          onViewReceipt={handleViewReceipt}
+        />
+      )}
+
+      {selectedTool && (
+        <ToolDrawer
+          tool={selectedTool as ToolItem}
+          onClose={() => setSelectedTool(null)}
+          onNewMaintenance={() => { setMaintenanceTool(selectedTool); setMaintenanceRecord(null) }}
+          onNewCustody={() => setCustodyItem(selectedTool)}
+          onEditMaintenance={(_tool, record) => { setMaintenanceTool(selectedTool); setMaintenanceRecord(record) }}
+        />
+      )}
+
+      {custodyItem && custodyItem.id && (
+        <CustodyModal
+          item={custodyItem as any}
+          employees={employees}
+          projects={projects}
+          onClose={() => setCustodyItem(null)}
+          onSaved={() => { setCustodyItem(null); loadAll() }}
+        />
+      )}
+
+      {maintenanceTool && maintenanceTool.id && (
+        <MaintenanceModal
+          toolId={maintenanceTool.id}
+          toolName={maintenanceTool.name}
+          existing={maintenanceRecord ?? undefined}
+          onClose={() => { setMaintenanceTool(null); setMaintenanceRecord(null) }}
+          onSaved={() => { setMaintenanceTool(null); setMaintenanceRecord(null); loadAll() }}
+        />
+      )}
+
+      {receiptBasketId && (
+        <ReceiptViewer
+          basketId={receiptBasketId}
+          onClose={() => setReceiptBasketId(null)}
+        />
+      )}
+
+      {basketOpen && (
+        <BasketModal
+          isOpen={basketOpen}
+          stockItems={items.map(i => ({
+            id:          i.id,
+            name:        i.name,
+            unit:        i.unit,
+            quantity:    i.quantity,
+            averageCost: i.averageCost,
+            unitCost:    i.unitCost,
+            brand:       i.brand,
+            code:        i.code,
+          }))}
+          employees={employees}
+          projects={projects}
+          onClose={() => setBasketOpen(false)}
+          onConfirm={handleBasketConfirm}
+        />
+      )}
+
+      {/* ── Form Modals ──────────────────────────────────────────────── */}
+
+      <ItemFormModal
+        mode="material"
+        isOpen={materialFormOpen}
+        onClose={() => { setMaterialFormOpen(false); setEditingMaterial(null) }}
+        onSuccess={() => { setMaterialFormOpen(false); setEditingMaterial(null); loadAll() }}
+        item={editingMaterial as any}
       />
 
-      {/* BasketModal */}
-      <BasketModal
-        isOpen={basketModalOpen}
-        onClose={() => setBasketModalOpen(false)}
-        onConfirm={handleBasketConfirm}
-        stockItems={items}
-        employees={employees}
-        projects={projects}
+      <ItemFormModal
+        mode="epi"
+        isOpen={epiFormOpen}
+        onClose={() => { setEpiFormOpen(false); setEditingMaterial(null) }}
+        onSuccess={() => { setEpiFormOpen(false); setEditingMaterial(null); loadAll() }}
+        item={editingMaterial as any}
+      />
+
+      <ItemFormModal
+        mode="uniform"
+        isOpen={uniformFormOpen}
+        onClose={() => { setUniformFormOpen(false); setEditingMaterial(null) }}
+        onSuccess={() => { setUniformFormOpen(false); setEditingMaterial(null); loadAll() }}
+        item={editingMaterial as any}
+      />
+
+      <ToolFormModal
+        isOpen={toolFormOpen}
+        onClose={() => { setToolFormOpen(false); setEditingTool(null) }}
+        onSuccess={() => { setToolFormOpen(false); setEditingTool(null); loadAll() }}
+        tool={editingTool as any}
       />
     </div>
   )
-
-  function setForm_OUT() {
-    setPreselectedItem(null)
-    setMovSheetOpen(true)
-  }
 }
