@@ -64,7 +64,7 @@ export function TransferModal({ isOpen, onClose, onSuccess, accounts: propAccoun
     if (propAccounts) { setAccounts(propAccounts); return }
     setLoadingAccts(true)
     try {
-      const res  = await fetch(`${API}/api/v1/financial/bank-accounts?activeOnly=true`, { headers: getHeaders() })
+      const res  = await fetch(`${API}/api/financial/bank-accounts?activeOnly=true`, { headers: getHeaders() })
       const data = await res.json()
       setAccounts((data.accounts ?? []).filter((a: any) => a.status === 'ACTIVE'))
     } catch {
@@ -118,7 +118,7 @@ export function TransferModal({ isOpen, onClose, onSuccess, accounts: propAccoun
     setLoading(true)
     setError('')
     try {
-      const res = await fetch(`${API}/api/v1/financial/transfers`, {
+      const res = await fetch(`${API}/api/financial/transfers`, {
         method:  'POST',
         headers: getHeaders(),
         body: JSON.stringify({

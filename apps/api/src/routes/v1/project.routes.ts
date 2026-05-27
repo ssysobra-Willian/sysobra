@@ -1,5 +1,6 @@
 import { FastifyInstance } from 'fastify'
 import { z } from 'zod'
+import puppeteer from 'puppeteer'
 import { prisma } from '@sysobra/database'
 import {
   authenticate,
@@ -961,4 +962,289 @@ export async function projectRoutes(app: FastifyInstance) {
       },
     })
   })
+
+  // ── GET /:id/plate/pdf — placa de obra em PDF (Puppeteer) ────────────────
+  app.get('/:id/plate/pdf', { preHandler: [requireCompany] }, async (request, reply) => {
+    const req       = request as RequestWithMember
+    const companyId = req.companyId!
+    const { id }    = request.params as { id: string }
+
+    const [project, company] = await Promise.all([
+      p.project.findFirst({
+        where: { id, companyId, isActive: true },
+        include: { client: { select: { id: true, name: true } } },
+      }),
+      prisma.company.findUnique({
+        where: { id: companyId },
+        select: { name: true, logo: true, cnpj: true, phone: true, email: true, address: true, city: true, state: true },
+      }),
+    ])
+
+    if (!project) return reply.status(404).send({ error: 'Obra não encontrada' })
+
+    const html  = buildPlacaHtml(project, company)
+    const browser = await puppeteer.launch({ headless: true, args: ['--no-sandbox', '--disable-setuid-sandbox'] })
+    try {
+      const page = await browser.newPage()
+      await page.setViewport({ width: 900, height: 1200, deviceScaleFactor: 2 })
+      await page.setContent(html, { waitUntil: 'load' })
+      await new Promise(resolve => setTimeout(resolve, 300))
+
+      const pdf = await page.pdf({
+        width:           '900px',
+        height:          '1200px',
+        printBackground: true,
+        margin:          { top: '0', right: '0', bottom: '0', left: '0' },
+        pageRanges:      '1',
+      })
+
+      reply
+        .header('Content-Type', 'application/pdf')
+        .header('Content-Disposition', `attachment; filename="placa-${project.code ?? project.id}-${Date.now()}.pdf"`)
+        .send(Buffer.from(pdf))
+    } finally {
+      await browser.close()
+    }
+  })
+
+  // ── GET /:id/plate/png — placa de obra em PNG (Puppeteer) ────────────────
+  app.get('/:id/plate/png', { preHandler: [requireCompany] }, async (request, reply) => {
+    const req       = request as RequestWithMember
+    const companyId = req.companyId!
+    const { id }    = request.params as { id: string }
+
+    const [project, company] = await Promise.all([
+      p.project.findFirst({
+        where: { id, companyId, isActive: true },
+        include: { client: { select: { id: true, name: true } } },
+      }),
+      prisma.company.findUnique({
+        where: { id: companyId },
+        select: { name: true, logo: true, cnpj: true, phone: true, email: true, address: true, city: true, state: true },
+      }),
+    ])
+
+    if (!project) return reply.status(404).send({ error: 'Obra não encontrada' })
+
+    const html    = buildPlacaHtml(project, company)
+    const browser = await puppeteer.launch({ headless: true, args: ['--no-sandbox', '--disable-setuid-sandbox'] })
+    try {
+      const page = await browser.newPage()
+      await page.setViewport({ width: 900, height: 1200, deviceScaleFactor: 2 })
+      await page.setContent(html, { waitUntil: 'load' })
+      await new Promise(resolve => setTimeout(resolve, 300))
+
+      const png = await page.screenshot({
+        type:             'png',
+        clip:             { x: 0, y: 0, width: 900, height: 1200 },
+        omitBackground:   false,
+      })
+
+      reply
+        .header('Content-Type', 'image/png')
+        .header('Content-Disposition', `attachment; filename="placa-${project.code ?? project.id}-${Date.now()}.png"`)
+        .send(Buffer.from(png))
+    } finally {
+      await browser.close()
+    }
+  })
+}
+
+// ─── Helper: gerador de HTML da placa (90cm × 120cm → 900px × 1200px) ────────
+
+function formatDateBR(iso: string | Date | null | undefined): string {
+  if (!iso) return '—'
+  return new Date(iso).toLocaleDateString('pt-BR')
+}
+
+function toAbsoluteUrl(path: string | null | undefined): string {
+  if (!path) return ''
+  if (path.startsWith('http')) return path
+  const base = process.env.API_URL || 'http://localhost:3001'
+  return `${base}${path.startsWith('/') ? '' : '/'}${path}`
+}
+
+function buildPlacaHtml(project: any, company: any): string {
+  const logoUrl    = toAbsoluteUrl(company?.logo)
+  const fullAddr   = [project.address, project.city, project.state].filter(Boolean).join(', ')
+  const artDisplay = [project.artExecution, project.artProjects].filter(Boolean).join(' / ') || '—'
+
+  return `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    width: 900px; height: 1200px; overflow: hidden;
+    font-family: 'Arial Black', Arial, sans-serif;
+    background: #FFFFFF;
+  }
+  .placa {
+    width: 900px; height: 1200px;
+    display: flex; flex-direction: column;
+    border: 8px solid #111827;
+  }
+  .topo {
+    background: #F5A623; height: 140px;
+    display: flex; align-items: center; justify-content: center;
+    padding: 16px 32px; border-bottom: 6px solid #111827;
+    gap: 20px;
+  }
+  .topo-logo { height: 96px; width: auto; object-fit: contain; }
+  .construtora-nome {
+    font-size: 48px; font-weight: 900; color: #000000;
+    text-transform: uppercase; letter-spacing: 3px;
+    text-align: center; line-height: 1.1;
+  }
+  .tipo-obra {
+    background: #111827; height: 56px;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .tipo-obra span {
+    font-size: 26px; font-weight: 700; color: #F5A623;
+    text-transform: uppercase; letter-spacing: 4px;
+  }
+  .nome-obra {
+    background: #FFFFFF; flex: 1;
+    display: flex; align-items: center; justify-content: center;
+    padding: 24px 40px; border-bottom: 4px solid #E5E7EB;
+  }
+  .nome-obra-texto {
+    font-size: 60px; font-weight: 900; color: #111827;
+    text-transform: uppercase; text-align: center;
+    line-height: 1.15; letter-spacing: 1px;
+  }
+  .dados-grid {
+    display: grid; grid-template-columns: 1fr 1fr;
+    border-bottom: 4px solid #111827;
+  }
+  .dado-item {
+    padding: 18px 28px;
+    border-right: 2px solid #E5E7EB;
+    border-bottom: 2px solid #E5E7EB;
+  }
+  .dado-item:nth-child(even) { border-right: none; }
+  .dado-label {
+    font-size: 13px; font-weight: 700; color: #F5A623;
+    text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 4px;
+  }
+  .dado-valor { font-size: 22px; font-weight: 700; color: #111827; line-height: 1.2; }
+  .dado-valor.small { font-size: 17px; }
+  .dado-full {
+    grid-column: 1 / -1; padding: 14px 28px;
+    border-bottom: 2px solid #E5E7EB;
+    display: flex; align-items: center; gap: 16px;
+  }
+  .dado-full .dado-label { margin-bottom: 0; min-width: 180px; }
+  .dado-full .dado-valor { font-size: 19px; }
+  .licencas {
+    background: #F9FAFB; padding: 16px 28px;
+    border-bottom: 3px solid #111827;
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px;
+  }
+  .licenca-item {
+    text-align: center; padding: 10px;
+    background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 6px;
+  }
+  .licenca-label {
+    font-size: 11px; font-weight: 700; color: #6B7280;
+    text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 3px;
+  }
+  .licenca-valor { font-size: 16px; font-weight: 700; color: #111827; }
+  .rodape {
+    background: #111827; height: 90px;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 32px;
+  }
+  .rodape-info { color: #9CA3AF; font-size: 13px; line-height: 1.6; }
+  .rodape-info span { color: #FFFFFF; font-weight: 600; }
+  .logo-box {
+    background: #F5A623; border-radius: 6px;
+    padding: 8px 16px; display: flex; align-items: center; gap: 8px;
+  }
+  .logo-texto { font-size: 22px; font-weight: 900; color: #111827; letter-spacing: 2px; }
+  .logo-subtexto { font-size: 10px; color: #9CA3AF; margin-top: 4px; text-align: right; }
+</style>
+</head>
+<body>
+<div class="placa">
+  <div class="topo">
+    ${logoUrl ? `<img class="topo-logo" src="${logoUrl}" alt="Logo" />` : ''}
+    <div class="construtora-nome">${company?.name ?? 'Empresa'}</div>
+  </div>
+  <div class="tipo-obra"><span>Obra de Construção Civil</span></div>
+  <div class="nome-obra">
+    <div class="nome-obra-texto">${project.name}</div>
+  </div>
+  <div class="dados-grid">
+    <div class="dado-item">
+      <div class="dado-label">Endereço</div>
+      <div class="dado-valor small">${fullAddr || '—'}</div>
+    </div>
+    <div class="dado-item">
+      <div class="dado-label">Código da Obra</div>
+      <div class="dado-valor">${project.code || '—'}</div>
+    </div>
+    <div class="dado-item">
+      <div class="dado-label">Início previsto</div>
+      <div class="dado-valor">${formatDateBR(project.startDate)}</div>
+    </div>
+    <div class="dado-item">
+      <div class="dado-label">Término previsto</div>
+      <div class="dado-valor">${formatDateBR(project.expectedEndDate)}</div>
+    </div>
+    ${project.technicalName ? `
+    <div class="dado-full">
+      <div class="dado-label">Resp. Técnico</div>
+      <div class="dado-valor">${project.technicalName}${project.technicalTitle ? ` — ${project.technicalTitle}` : ''}</div>
+    </div>` : ''}
+    ${project.technicalCrea ? `
+    <div class="dado-full">
+      <div class="dado-label">CREA / CAU</div>
+      <div class="dado-valor">${project.technicalCrea}</div>
+    </div>` : ''}
+    ${project.cno ? `
+    <div class="dado-full">
+      <div class="dado-label">CNO</div>
+      <div class="dado-valor">${project.cno}</div>
+    </div>` : ''}
+    ${(project.artExecution || project.artProjects) ? `
+    <div class="dado-full">
+      <div class="dado-label">ART / RRT</div>
+      <div class="dado-valor">${artDisplay}</div>
+    </div>` : ''}
+    ${project.client?.name ? `
+    <div class="dado-full">
+      <div class="dado-label">Cliente / Proprietário</div>
+      <div class="dado-valor">${project.client.name}</div>
+    </div>` : ''}
+  </div>
+  <div class="licencas">
+    <div class="licenca-item">
+      <div class="licenca-label">Empresa</div>
+      <div class="licenca-valor">${company?.cnpj ?? '—'}</div>
+    </div>
+    <div class="licenca-item">
+      <div class="licenca-label">Telefone</div>
+      <div class="licenca-valor">${company?.phone ?? '—'}</div>
+    </div>
+    <div class="licenca-item">
+      <div class="licenca-label">E-mail</div>
+      <div class="licenca-valor" style="font-size:13px">${company?.email ?? '—'}</div>
+    </div>
+  </div>
+  <div class="rodape">
+    <div class="rodape-info">
+      <div>Gerado em <span>${new Date().toLocaleDateString('pt-BR')} às ${new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</span></div>
+      <div>SYSOBRA · Sistema de Gestão de Obras</div>
+    </div>
+    <div>
+      <div class="logo-box"><div class="logo-texto">SYSOBRA</div></div>
+      <div class="logo-subtexto">sistema de gestão de obras</div>
+    </div>
+  </div>
+</div>
+</body>
+</html>`
 }

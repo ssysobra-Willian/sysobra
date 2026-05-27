@@ -1,14 +1,20 @@
 'use client'
 
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import {
-  ChevronLeft, Download, Printer, Eye, EyeOff, HardHat,
+  ChevronLeft, Download, Printer, Eye, HardHat,
   Calendar, MapPin, Building2, User, Loader2,
 } from 'lucide-react'
 import { Breadcrumb }  from '@/components/ui/Breadcrumb'
 import { toImageUrl } from '@/lib/imageUrl'
+
+function getAuthHeaders(): Record<string, string> {
+  const token     = typeof window !== 'undefined' ? localStorage.getItem('token')     ?? '' : ''
+  const companyId = typeof window !== 'undefined' ? localStorage.getItem('companyId') ?? '' : ''
+  return { Authorization: `Bearer ${token}`, 'x-company-id': companyId }
+}
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
 
@@ -198,7 +204,6 @@ export default function PlacaObraPage() {
   const [data,       setData]       = useState<PlateData | null>(null)
   const [loading,    setLoading]    = useState(true)
   const [showPhoto,  setShowPhoto]  = useState(true)
-  const plateRef = useRef<HTMLDivElement>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -217,6 +222,54 @@ export default function PlacaObraPage() {
   }, [id, router])
 
   useEffect(() => { load() }, [load])
+
+  const [downloadingPdf, setDownloadingPdf] = useState(false)
+  const [downloadingPng, setDownloadingPng] = useState(false)
+  const [downloadError,  setDownloadError]  = useState('')
+
+  const handleDownloadPdf = async () => {
+    setDownloadingPdf(true)
+    setDownloadError('')
+    try {
+      const res = await fetch(`${API}/api/v1/projects/${id}/plate/pdf`, { headers: getAuthHeaders() })
+      if (!res.ok) throw new Error(`Erro ao gerar PDF (HTTP ${res.status})`)
+      const blob = await res.blob()
+      const url  = URL.createObjectURL(blob)
+      const a    = document.createElement('a')
+      a.href     = url
+      a.download = `placa-${data?.projectCode ?? id}.pdf`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+    } catch (err: any) {
+      setDownloadError(err.message || 'Erro ao gerar PDF')
+    } finally {
+      setDownloadingPdf(false)
+    }
+  }
+
+  const handleDownloadPng = async () => {
+    setDownloadingPng(true)
+    setDownloadError('')
+    try {
+      const res = await fetch(`${API}/api/v1/projects/${id}/plate/png`, { headers: getAuthHeaders() })
+      if (!res.ok) throw new Error(`Erro ao gerar PNG (HTTP ${res.status})`)
+      const blob = await res.blob()
+      const url  = URL.createObjectURL(blob)
+      const a    = document.createElement('a')
+      a.href     = url
+      a.download = `placa-${data?.projectCode ?? id}.png`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+    } catch (err: any) {
+      setDownloadError(err.message || 'Erro ao gerar PNG')
+    } finally {
+      setDownloadingPng(false)
+    }
+  }
 
   const handlePrint = () => {
     const content = document.getElementById('plate-preview')
@@ -312,18 +365,42 @@ export default function PlacaObraPage() {
 
           {/* Botões de ação */}
           <div className="space-y-2">
+            {/* Erro de download */}
+            {downloadError && (
+              <div className="flex items-center gap-2 bg-red-50 border border-red-200 rounded-lg px-3 py-2 text-xs text-red-700">
+                ⚠️ {downloadError}
+              </div>
+            )}
+
             <button
-              onClick={handlePrint}
-              className="w-full flex items-center justify-center gap-2 bg-[#F5A623] hover:bg-[#e09610] text-white text-sm font-medium py-3 rounded-lg transition-colors"
+              onClick={handleDownloadPdf}
+              disabled={downloadingPdf}
+              className="w-full flex items-center justify-center gap-2 bg-[#F5A623] hover:bg-[#e09610] text-white text-sm font-medium py-3 rounded-lg transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
             >
-              <Printer size={16} /> Gerar PDF / Imprimir
+              {downloadingPdf ? (
+                <><Loader2 size={16} className="animate-spin" /> Gerando PDF...</>
+              ) : (
+                <><Printer size={16} /> Baixar PDF (90×120cm)</>
+              )}
+            </button>
+
+            <button
+              onClick={handleDownloadPng}
+              disabled={downloadingPng}
+              className="w-full flex items-center justify-center gap-2 border border-gray-200 text-gray-700 text-sm font-medium py-3 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+            >
+              {downloadingPng ? (
+                <><Loader2 size={16} className="animate-spin" /> Gerando PNG...</>
+              ) : (
+                <><Download size={16} /> Exportar PNG</>
+              )}
             </button>
 
             <button
               onClick={handlePrint}
-              className="w-full flex items-center justify-center gap-2 border border-gray-200 text-gray-700 text-sm font-medium py-3 rounded-lg hover:bg-gray-50 transition-colors"
+              className="w-full flex items-center justify-center gap-2 border border-gray-100 text-gray-500 text-xs py-2 rounded-lg hover:bg-gray-50 transition-colors"
             >
-              <Download size={16} /> Exportar PNG
+              <Eye size={13} /> Visualizar / Imprimir pelo navegador
             </button>
 
             <Link
@@ -337,7 +414,7 @@ export default function PlacaObraPage() {
           {/* Dica */}
           <div className="bg-blue-50 border border-blue-100 rounded-lg p-3">
             <p className="text-xs text-blue-600 leading-relaxed">
-              💡 <strong>Dica:</strong> Ao clicar em "Gerar PDF", o navegador abrirá a janela de impressão. Selecione "Salvar como PDF" para obter o arquivo. Para impressão em gráfica, use papel A4 ou 90×120cm.
+              💡 <strong>Dica:</strong> O PDF e PNG são gerados com dimensão exata de 90×120cm em alta resolução — prontos para envio à gráfica. Use o botão "Visualizar" para imprimir diretamente pelo navegador.
             </p>
           </div>
         </div>

@@ -16,7 +16,7 @@ import {
 } from 'lucide-react'
 import { TransactionModal } from '@/components/financial/TransactionModal'
 import { TransactionReceiptModal } from '@/components/financial/TransactionReceiptModal'
-import { TransferModal } from '@/components/financial/TransferModal'
+import { TransferModal, BankAccountOption } from '@/components/financial/TransferModal'
 import { TableActionMenu } from '@/components/ui/TableActionMenu'
 import { UserAvatar } from '@/components/ui/UserAvatar'
 import { useQueryClient } from '@tanstack/react-query'
@@ -272,7 +272,7 @@ export default function FinanceiroPage() {
   const [dateFrom,   setDateFrom]   = useState('')
   const [dateTo,     setDateTo]     = useState('')
 
-  const [bankAccounts,  setBankAccounts]  = useState<{ id: string; name: string }[]>([])
+  const [bankAccounts,  setBankAccounts]  = useState<BankAccountOption[]>([])
   const [filterBank,    setFilterBank]    = useState('')
 
   // ── Filtros CC / Etapa ────────────────────────────────────────────────────
@@ -411,7 +411,7 @@ export default function FinanceiroPage() {
     if (!confirm(`Estornar a transferência "${tx.description}"?\n\nOs saldos serão revertidos e ambos os lançamentos serão cancelados.`)) return
     setActionError('')
     try {
-      const res = await fetch(`${API}/api/v1/financial/transfers/${tx.transferPairId}`, {
+      const res = await fetch(`${API}/api/financial/transfers/${tx.transferPairId}`, {
         method: 'DELETE',
         headers: headers(),
       })
@@ -926,6 +926,7 @@ export default function FinanceiroPage() {
       <TransferModal
         isOpen={showTransfer}
         onClose={() => setShowTransfer(false)}
+        accounts={bankAccounts.filter(a => a.status === 'ACTIVE')}
         onSuccess={() => {
           setShowTransfer(false)
           loadTx()
