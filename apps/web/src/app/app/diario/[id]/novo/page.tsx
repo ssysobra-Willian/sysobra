@@ -7,7 +7,7 @@ import { Input, Textarea }                   from '@/components/ui/Input'
 import { PageHeader }                        from '@/components/ui/PageHeader'
 import { SemAcesso }                         from '@/components/SemAcesso'
 import { usePermissions }                    from '@/hooks/usePermissions'
-import DDSThemeSelector, { getSuggestedDdsTheme, type DdsStaticTheme } from '../components/DDSThemeSelector'
+import DDSThemeSelector, { getSuggestedDdsTheme, type DdsStaticTheme } from '../../components/DDSThemeSelector'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
 
