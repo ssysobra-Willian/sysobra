@@ -1,11 +1,9 @@
 'use client'
 
-import React, { useRef, useState, useEffect, useCallback } from 'react'
-import {
-  Camera, Eye, Trash2, Check, X,
-  ChevronLeft, ChevronRight, AlertCircle,
-} from 'lucide-react'
+import React, { useRef, useState, useCallback } from 'react'
+import { Camera, Eye, Trash2, Check, X, AlertCircle } from 'lucide-react'
 import { resolveUploadUrl } from '@/lib/upload'
+import { PhotoCarousel } from './PhotoCarousel'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
 
@@ -39,19 +37,12 @@ export function PhotoUpload({
   diaryId,
   token,
 }: PhotoUploadProps) {
-  const inputRef               = useRef<HTMLInputElement>(null)
-  const [isDragging, setIsDragging] = useState(false)
-  const [lightbox,   setLightbox]   = useState<{ open: boolean; idx: number }>({ open: false, idx: 0 })
+  const inputRef  = useRef<HTMLInputElement>(null)
+  const [isDragging,    setIsDragging]    = useState(false)
+  const [carouselOpen,  setCarouselOpen]  = useState(false)
+  const [carouselIndex, setCarouselIndex] = useState(0)
 
   // ── Helpers ────────────────────────────────────────────────────────────────
-
-  const addPhoto = useCallback((photo: PhotoItem) => {
-    onChange([...photos, photo])
-  }, [photos, onChange])
-
-  const updatePhoto = useCallback((id: string, patch: Partial<PhotoItem>) => {
-    onChange(photos.map(p => p.id === id ? { ...p, ...patch } : p))
-  }, [photos, onChange])
 
   const removePhoto = useCallback(async (id: string) => {
     const photo = photos.find(p => p.id === id)
@@ -64,6 +55,7 @@ export function PhotoUpload({
         })
       } catch { /* silent — arquivo pode já não existir */ }
     }
+    // Revogar blob se ainda for blob (erro antes do upload completar)
     if (photo?.url?.startsWith('blob:')) URL.revokeObjectURL(photo.url)
     onChange(photos.filter(p => p.id !== id))
   }, [photos, onChange, token])
@@ -71,12 +63,10 @@ export function PhotoUpload({
   // ── Upload ─────────────────────────────────────────────────────────────────
 
   const uploadFile = useCallback((file: File, existingPhotos: PhotoItem[]) => {
-    // Validar tipo
     if (!file.type.startsWith('image/')) {
       console.warn(`${file.name}: apenas imagens`)
       return
     }
-    // Validar tamanho
     if (file.size > 10 * 1024 * 1024) {
       console.warn(`${file.name}: máximo 10MB`)
       return
@@ -84,8 +74,11 @@ export function PhotoUpload({
 
     const localUrl = URL.createObjectURL(file)
     const tempId   = crypto.randomUUID()
-    const newPhoto: PhotoItem = { id: tempId, url: localUrl, status: 'uploading', progress: 0, file }
-    onChange([...existingPhotos, newPhoto])
+
+    // Adicionar foto com blob URL como preview imediato
+    onChange([...existingPhotos, {
+      id: tempId, url: localUrl, status: 'uploading', progress: 0, file,
+    }])
 
     const formData = new FormData()
     formData.append('file', file)
@@ -96,7 +89,6 @@ export function PhotoUpload({
     xhr.upload.onprogress = (e) => {
       if (e.lengthComputable) {
         const pct = Math.round((e.loaded / e.total) * 100)
-        // Atualiza usando referência estável
         onChange(prev => prev.map(p => p.id === tempId ? { ...p, progress: pct } : p))
       }
     }
@@ -104,26 +96,29 @@ export function PhotoUpload({
     xhr.onload = () => {
       if (xhr.status === 200) {
         const resp = JSON.parse(xhr.responseText) as {
-          url: string
-          savedPercent?: number
+          url:            string
+          savedPercent?:  number
           wasCompressed?: boolean
         }
-        URL.revokeObjectURL(localUrl)
 
-        // Badge de compressão: exibir por 4s se economizou ≥ 5%
         const compressionInfo =
           resp.wasCompressed && (resp.savedPercent ?? 0) >= 5
             ? `−${resp.savedPercent}%`
             : undefined
 
+        // ⚠ ORDEM IMPORTA: primeiro atualizar estado com URL do servidor,
+        //   SÓ DEPOIS revogar o blob — evita thumbnail quebrada durante re-render
         onChange(prev => prev.map(p =>
           p.id === tempId
-            ? { ...p, url: resp.url, status: 'done', progress: 100, file: undefined,
-                compressionInfo, showBadge: !!compressionInfo }
+            ? { ...p, url: resp.url, status: 'done', progress: 100,
+                file: undefined, compressionInfo, showBadge: !!compressionInfo }
             : p
         ))
 
-        // Ocultar badge após 4s
+        // Revogar blob local somente após React ter re-renderizado com a nova URL
+        setTimeout(() => URL.revokeObjectURL(localUrl), 1000)
+
+        // Ocultar badge de compressão após 4s
         if (compressionInfo) {
           setTimeout(() => {
             onChange(prev => prev.map(p =>
@@ -132,12 +127,16 @@ export function PhotoUpload({
           }, 4000)
         }
       } else {
-        onChange(prev => prev.map(p => p.id === tempId ? { ...p, status: 'error' } : p))
+        onChange(prev => prev.map(p =>
+          p.id === tempId ? { ...p, status: 'error' } : p
+        ))
       }
     }
 
     xhr.onerror = () => {
-      onChange(prev => prev.map(p => p.id === tempId ? { ...p, status: 'error' } : p))
+      onChange(prev => prev.map(p =>
+        p.id === tempId ? { ...p, status: 'error' } : p
+      ))
     }
 
     xhr.open('POST', `${API}/api/v1/uploads/diary-photo`)
@@ -148,16 +147,17 @@ export function PhotoUpload({
   // ── Input / Drop handlers ─────────────────────────────────────────────────
 
   function handleFiles(files: FileList | File[]) {
-    const arr    = Array.from(files)
-    const slots  = maxPhotos - photos.length
+    const arr      = Array.from(files)
+    const slots    = maxPhotos - photos.length
     const toUpload = arr.slice(0, slots)
-    // Captura snapshot do estado atual para cada arquivo em sequência
-    let current = [...photos]
+    let current    = [...photos]
     toUpload.forEach(f => {
+      uploadFile(f, current)
+      // Snapshot local para garantir que arquivos múltiplos não se sobreponham
       const localUrl = URL.createObjectURL(f)
-      const tempId   = crypto.randomUUID()
-      current = [...current, { id: tempId, url: localUrl, status: 'uploading', progress: 0, file: f }]
-      uploadFile(f, current.slice(0, -1)) // passa o snapshot sem este item; uploadFile vai adicionar
+      current = [...current, {
+        id: crypto.randomUUID(), url: localUrl, status: 'uploading', progress: 0, file: f,
+      }]
     })
   }
 
@@ -174,21 +174,15 @@ export function PhotoUpload({
     e.target.value = ''
   }
 
-  // ── Lightbox keyboard ─────────────────────────────────────────────────────
-
-  useEffect(() => {
-    if (!lightbox.open) return
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setLightbox(l => ({ ...l, open: false }))
-      const done = photos.filter(p => p.status === 'done')
-      if (e.key === 'ArrowRight') setLightbox(l => ({ ...l, idx: (l.idx + 1) % done.length }))
-      if (e.key === 'ArrowLeft')  setLightbox(l => ({ ...l, idx: (l.idx - 1 + done.length) % done.length }))
-    }
-    window.addEventListener('keydown', handler)
-    return () => window.removeEventListener('keydown', handler)
-  }, [lightbox.open, photos])
+  // ── Dados para o carrossel (somente fotos concluídas) ─────────────────────
 
   const donePhotos = photos.filter(p => p.status === 'done')
+
+  function openCarousel(photo: PhotoItem) {
+    const idx = donePhotos.findIndex(p => p.id === photo.id)
+    setCarouselIndex(idx >= 0 ? idx : 0)
+    setCarouselOpen(true)
+  }
 
   // ── Render ─────────────────────────────────────────────────────────────────
 
@@ -236,175 +230,135 @@ export function PhotoUpload({
             gap: '12px',
           }}
         >
-          {photos.map((photo, idx) => {
-            const doneIdx = donePhotos.findIndex(p => p.id === photo.id)
-            return (
-              <div key={photo.id} className="flex flex-col gap-1">
-                {/* Thumbnail container */}
-                <div
-                  className="relative overflow-hidden rounded-lg group"
-                  style={{ width: '100%', paddingBottom: '100%' }}
-                >
-                  <img
-                    src={resolveUploadUrl(photo.url)}
-                    alt={photo.caption || `Foto ${idx + 1}`}
-                    className="absolute inset-0 w-full h-full object-cover rounded-lg"
-                    style={{
-                      border: `2px solid ${
-                        photo.status === 'uploading' ? '#F5A623' :
-                        photo.status === 'error'     ? '#EF4444' :
-                        'transparent'
-                      }`,
-                    }}
-                  />
+          {photos.map((photo, idx) => (
+            <div key={photo.id} className="flex flex-col gap-1">
+              {/* Thumbnail */}
+              <div
+                className="relative overflow-hidden rounded-lg group bg-gray-100"
+                style={{ width: '100%', paddingBottom: '100%' }}
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={resolveUploadUrl(photo.url)}
+                  alt={photo.caption || `Foto ${idx + 1}`}
+                  className="absolute inset-0 w-full h-full object-cover rounded-lg"
+                  style={{
+                    border: `2px solid ${
+                      photo.status === 'uploading' ? '#F5A623' :
+                      photo.status === 'error'     ? '#EF4444' :
+                      'transparent'
+                    }`,
+                  }}
+                  onError={(e) => {
+                    // Tenta recarregar uma vez com cache-busting após 500ms
+                    const img = e.currentTarget
+                    if (!img.dataset.retried) {
+                      img.dataset.retried = '1'
+                      const base = photo.url.split('?')[0]
+                      setTimeout(() => {
+                        img.src = resolveUploadUrl(base) + '?t=' + Date.now()
+                      }, 500)
+                    }
+                  }}
+                />
 
-                  {/* Progress bar (uploading) */}
-                  {photo.status === 'uploading' && (
-                    <div className="absolute bottom-0 left-0 right-0 h-1 bg-gray-200/80">
-                      <div
-                        className="h-full bg-[#F5A623] transition-all duration-200"
-                        style={{ width: `${photo.progress ?? 0}%` }}
-                      />
-                    </div>
-                  )}
-
-                  {/* Hover overlay (done) */}
-                  {photo.status === 'done' && (
-                    <div className="absolute inset-0 bg-black/50 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-3">
-                      <button
-                        type="button"
-                        onClick={() => setLightbox({ open: true, idx: doneIdx >= 0 ? doneIdx : 0 })}
-                        className="p-2 bg-white/20 rounded-full hover:bg-white/40 text-white"
-                        title="Visualizar"
-                      >
-                        <Eye size={16} />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => removePhoto(photo.id)}
-                        className="p-2 bg-white/20 rounded-full hover:bg-red-500/80 text-white"
-                        title="Remover"
-                      >
-                        <Trash2 size={16} />
-                      </button>
-                    </div>
-                  )}
-
-                  {/* Status icon */}
-                  <div className="absolute top-1.5 right-1.5">
-                    {photo.status === 'uploading' && (
-                      <div className="w-5 h-5 border-2 border-[#F5A623] border-t-transparent rounded-full animate-spin" />
-                    )}
-                    {photo.status === 'done' && (
-                      <div className="w-5 h-5 bg-green-500 rounded-full flex items-center justify-center">
-                        <Check size={10} className="text-white" />
-                      </div>
-                    )}
-                    {photo.status === 'error' && (
-                      <button
-                        type="button"
-                        title="Clique para tentar novamente"
-                        onClick={() => photo.file && uploadFile(photo.file, photos.filter(p => p.id !== photo.id))}
-                        className="w-5 h-5 bg-red-500 rounded-full flex items-center justify-center hover:bg-red-600"
-                      >
-                        <AlertCircle size={10} className="text-white" />
-                      </button>
-                    )}
+                {/* Barra de progresso */}
+                {photo.status === 'uploading' && (
+                  <div className="absolute bottom-0 left-0 right-0 h-1 bg-gray-200/80">
+                    <div
+                      className="h-full bg-[#F5A623] transition-all duration-200"
+                      style={{ width: `${photo.progress ?? 0}%` }}
+                    />
                   </div>
+                )}
 
-                  {/* Badge de compressão (aparece por 4s) */}
-                  {photo.showBadge && photo.compressionInfo && (
-                    <div className="absolute bottom-1.5 left-1.5 flex items-center gap-1 bg-green-600/90 text-white text-[10px] font-bold rounded-full px-2 py-0.5 shadow animate-pulse">
-                      <span>⚡</span>
-                      <span>{photo.compressionInfo}</span>
-                    </div>
-                  )}
-
-                  {/* Error: remove button */}
-                  {photo.status === 'error' && (
+                {/* Overlay hover — apenas quando done */}
+                {photo.status === 'done' && (
+                  <div className="absolute inset-0 bg-black/50 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-3">
+                    <button
+                      type="button"
+                      onClick={() => openCarousel(photo)}
+                      className="p-2 bg-white/20 rounded-full hover:bg-white/40 text-white"
+                      title="Visualizar"
+                    >
+                      <Eye size={16} />
+                    </button>
                     <button
                       type="button"
                       onClick={() => removePhoto(photo.id)}
-                      className="absolute top-1.5 left-1.5 w-5 h-5 bg-red-500/80 rounded-full flex items-center justify-center hover:bg-red-600"
+                      className="p-2 bg-white/20 rounded-full hover:bg-red-500/80 text-white"
+                      title="Remover"
                     >
-                      <X size={10} className="text-white" />
+                      <Trash2 size={16} />
+                    </button>
+                  </div>
+                )}
+
+                {/* Ícone de status */}
+                <div className="absolute top-1.5 right-1.5">
+                  {photo.status === 'uploading' && (
+                    <div className="w-5 h-5 border-2 border-[#F5A623] border-t-transparent rounded-full animate-spin" />
+                  )}
+                  {photo.status === 'done' && (
+                    <div className="w-5 h-5 bg-green-500 rounded-full flex items-center justify-center">
+                      <Check size={10} className="text-white" />
+                    </div>
+                  )}
+                  {photo.status === 'error' && (
+                    <button
+                      type="button"
+                      title="Clique para tentar novamente"
+                      onClick={() => photo.file && uploadFile(photo.file, photos.filter(p => p.id !== photo.id))}
+                      className="w-5 h-5 bg-red-500 rounded-full flex items-center justify-center hover:bg-red-600"
+                    >
+                      <AlertCircle size={10} className="text-white" />
                     </button>
                   )}
                 </div>
 
-                {/* Caption */}
-                <input
-                  type="text"
-                  placeholder="Legenda (opcional)"
-                  value={photo.caption ?? ''}
-                  onChange={e => {
-                    const cap = e.target.value
-                    onChange(photos.map(p => p.id === photo.id ? { ...p, caption: cap } : p))
-                  }}
-                  className="w-full text-xs text-gray-600 bg-transparent border-0 border-b border-gray-200 focus:outline-none focus:border-[#F5A623] pb-0.5 px-0"
-                />
+                {/* Badge de compressão (aparece por 4s) */}
+                {photo.showBadge && photo.compressionInfo && (
+                  <div className="absolute bottom-1.5 left-1.5 flex items-center gap-1 bg-green-600/90 text-white text-[10px] font-bold rounded-full px-2 py-0.5 shadow animate-pulse">
+                    <span>⚡</span>
+                    <span>{photo.compressionInfo}</span>
+                  </div>
+                )}
+
+                {/* Botão remover no erro */}
+                {photo.status === 'error' && (
+                  <button
+                    type="button"
+                    onClick={() => removePhoto(photo.id)}
+                    className="absolute top-1.5 left-1.5 w-5 h-5 bg-red-500/80 rounded-full flex items-center justify-center hover:bg-red-600"
+                  >
+                    <X size={10} className="text-white" />
+                  </button>
+                )}
               </div>
-            )
-          })}
+
+              {/* Campo de legenda */}
+              <input
+                type="text"
+                placeholder="Legenda (opcional)"
+                value={photo.caption ?? ''}
+                onChange={e => {
+                  const cap = e.target.value
+                  onChange(photos.map(p => p.id === photo.id ? { ...p, caption: cap } : p))
+                }}
+                className="w-full text-xs text-gray-600 bg-transparent border-0 border-b border-gray-200 focus:outline-none focus:border-[#F5A623] pb-0.5 px-0"
+              />
+            </div>
+          ))}
         </div>
       )}
 
-      {/* Lightbox */}
-      {lightbox.open && donePhotos.length > 0 && (
-        <div
-          className="fixed inset-0 bg-black/90 z-[9999] flex items-center justify-center p-4"
-          onClick={() => setLightbox(l => ({ ...l, open: false }))}
-        >
-          {/* Close */}
-          <button
-            type="button"
-            onClick={() => setLightbox(l => ({ ...l, open: false }))}
-            className="absolute top-4 right-4 text-white p-2 hover:bg-white/20 rounded-full"
-          >
-            <X size={24} />
-          </button>
-
-          {/* Seta esquerda */}
-          {donePhotos.length > 1 && (
-            <button
-              type="button"
-              onClick={e => { e.stopPropagation(); setLightbox(l => ({ ...l, idx: (l.idx - 1 + donePhotos.length) % donePhotos.length })) }}
-              className="absolute left-4 top-1/2 -translate-y-1/2 text-white p-2 hover:bg-white/20 rounded-full"
-            >
-              <ChevronLeft size={32} />
-            </button>
-          )}
-
-          {/* Imagem */}
-          <img
-            src={resolveUploadUrl(donePhotos[lightbox.idx]?.url)}
-            alt={donePhotos[lightbox.idx]?.caption || ''}
-            onClick={e => e.stopPropagation()}
-            className="max-w-[90vw] max-h-[90vh] object-contain rounded-lg shadow-2xl"
-          />
-
-          {/* Seta direita */}
-          {donePhotos.length > 1 && (
-            <button
-              type="button"
-              onClick={e => { e.stopPropagation(); setLightbox(l => ({ ...l, idx: (l.idx + 1) % donePhotos.length })) }}
-              className="absolute right-4 top-1/2 -translate-y-1/2 text-white p-2 hover:bg-white/20 rounded-full"
-            >
-              <ChevronRight size={32} />
-            </button>
-          )}
-
-          {/* Caption + counter */}
-          <div className="absolute bottom-4 left-0 right-0 text-center">
-            {donePhotos[lightbox.idx]?.caption && (
-              <p className="text-white text-sm mb-1">{donePhotos[lightbox.idx].caption}</p>
-            )}
-            {donePhotos.length > 1 && (
-              <p className="text-white/50 text-xs">{lightbox.idx + 1} / {donePhotos.length}</p>
-            )}
-          </div>
-        </div>
-      )}
+      {/* Carrossel de visualização */}
+      <PhotoCarousel
+        photos={donePhotos.map(p => ({ url: p.url, caption: p.caption }))}
+        initialIndex={carouselIndex}
+        isOpen={carouselOpen}
+        onClose={() => setCarouselOpen(false)}
+      />
     </div>
   )
 }

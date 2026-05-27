@@ -12,6 +12,7 @@ import { SemAcesso }                                 from '@/components/SemAcess
 import { usePermissions }                            from '@/hooks/usePermissions'
 import type { BadgeVariant }                         from '@/components/ui/Badge'
 import { resolveUploadUrl }                          from '@/lib/upload'
+import { PhotoCarousel }                             from '../../components/PhotoCarousel'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
 
@@ -154,6 +155,8 @@ export default function RdoDetailPage() {
   const [error,         setError]         = useState('')
   const [actionMsg,     setActionMsg]     = useState<{ type: 'ok' | 'err'; msg: string } | null>(null)
   const [pdfLoading,    setPdfLoading]    = useState(false)
+  const [carouselOpen,  setCarouselOpen]  = useState(false)
+  const [carouselIndex, setCarouselIndex] = useState(0)
 
   // Modal: rejeitar
   const [rejectOpen,    setRejectOpen]    = useState(false)
@@ -622,20 +625,23 @@ export default function RdoDetailPage() {
           {entry.imageUrls.length > 0 && (
             <Card title={`Fotos (${entry.imageUrls.length})`}>
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                {entry.imageUrls.map((url, i) => {
-                  const absoluteUrl = resolveUploadUrl(url)
-                  return (
-                    <a key={i} href={absoluteUrl} target="_blank" rel="noreferrer">
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img
-                        src={absoluteUrl}
-                        alt={`Foto ${i + 1}`}
-                        className="w-full h-28 object-cover rounded-xl border border-gray-200 hover:opacity-90 transition-opacity"
-                      />
-                    </a>
-                  )
-                })}
+                {entry.imageUrls.map((url, i) => (
+                  <button
+                    key={i}
+                    type="button"
+                    onClick={() => { setCarouselIndex(i); setCarouselOpen(true) }}
+                    className="block rounded-xl overflow-hidden border border-gray-200 hover:opacity-90 hover:border-[#F5A623] transition-all focus:outline-none focus:ring-2 focus:ring-[#F5A623]"
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={resolveUploadUrl(url)}
+                      alt={`Foto ${i + 1}`}
+                      className="w-full h-28 object-cover"
+                    />
+                  </button>
+                ))}
               </div>
+              <p className="text-xs text-gray-400 mt-3">Clique em uma foto para ampliar</p>
             </Card>
           )}
         </div>
@@ -712,6 +718,14 @@ export default function RdoDetailPage() {
           </div>
         </div>
       </div>
+
+      {/* ── Carrossel de fotos ─────────────────────────────────────────────── */}
+      <PhotoCarousel
+        photos={entry.imageUrls.map(url => ({ url }))}
+        initialIndex={carouselIndex}
+        isOpen={carouselOpen}
+        onClose={() => setCarouselOpen(false)}
+      />
 
       {/* ── Modais ─────────────────────────────────────────────────────────── */}
       <Modal
