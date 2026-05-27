@@ -1526,4 +1526,235 @@ export async function financialRoutes(app: FastifyInstance) {
 
     return reply.send({ suppliers })
   })
+
+  // ════════════════════════════════════════════════════════════════════════════
+  // TRANSFERÊNCIAS ENTRE CONTAS
+  // ════════════════════════════════════════════════════════════════════════════
+
+  // ── POST /api/financial/transfers ─────────────────────────────────────────
+  app.post('/transfers', {
+    preHandler: [requirePermission('financeiro', 'create')],
+  }, async (request, reply) => {
+    const req     = request as RequestWithMember
+    const payload = request.user as JwtPayload
+    const companyId = req.companyId!
+    const userId    = payload.sub
+
+    const body = request.body as {
+      fromAccountId: string
+      toAccountId:   string
+      amount:        number
+      description?:  string
+      date:          string
+      observations?: string
+    }
+
+    // ── Validações básicas ──────────────────────────────────────────────────
+    if (!body.fromAccountId || !body.toAccountId || !body.amount || !body.date) {
+      return reply.status(400).send({ error: 'Campos obrigatórios: fromAccountId, toAccountId, amount, date' })
+    }
+    if (body.fromAccountId === body.toAccountId) {
+      return reply.status(400).send({ error: 'A conta de origem e destino devem ser diferentes' })
+    }
+    if (body.amount <= 0) {
+      return reply.status(400).send({ error: 'O valor deve ser maior que zero' })
+    }
+
+    // ── Buscar e validar as contas ──────────────────────────────────────────
+    const p = prisma as any
+    const [fromAccount, toAccount] = await Promise.all([
+      p.bankAccount.findFirst({ where: { id: body.fromAccountId, companyId } }),
+      p.bankAccount.findFirst({ where: { id: body.toAccountId,   companyId } }),
+    ])
+
+    if (!fromAccount) return reply.status(404).send({ error: 'Conta de origem não encontrada' })
+    if (!toAccount)   return reply.status(404).send({ error: 'Conta de destino não encontrada' })
+    if (fromAccount.status !== 'ACTIVE') return reply.status(400).send({ error: `Conta de origem (${fromAccount.name}) não está ativa` })
+    if (toAccount.status   !== 'ACTIVE') return reply.status(400).send({ error: `Conta de destino (${toAccount.name}) não está ativa` })
+
+    // ── Executar a transferência atomicamente ───────────────────────────────
+    const transferPairId = crypto.randomUUID()
+
+    // Meio-dia UTC para evitar problemas de fuso horário
+    const [year, month, day] = body.date.split('-').map(Number)
+    const dateObj = new Date(Date.UTC(year, month - 1, day, 12, 0, 0))
+
+    const txNumber = await nextTransactionNumber(companyId)
+
+    const result = await p.$transaction(async (tx: any) => {
+      // 1. Lançamento de SAÍDA na conta de origem
+      const outTx = await tx.financialTransaction.create({
+        data: {
+          companyId,
+          createdById:      userId,
+          type:             'EXPENSE',
+          description:      body.description || `Transferência para ${toAccount.name}`,
+          grossAmount:      body.amount,
+          interestAmount:   0,
+          retentionAmount:  0,
+          netAmount:        body.amount,
+          isPaid:           true,
+          paidAt:           dateObj,
+          dueDate:          dateObj,
+          referenceDate:    dateObj,
+          bankAccountId:    body.fromAccountId,
+          isTransfer:       true,
+          transferPairId,
+          notes:            body.observations ?? null,
+          isActive:         true,
+          transactionNumber: txNumber,
+        },
+      })
+
+      // 2. Lançamento de ENTRADA na conta de destino
+      const inTx = await tx.financialTransaction.create({
+        data: {
+          companyId,
+          createdById:     userId,
+          type:            'INCOME',
+          description:     body.description || `Transferência de ${fromAccount.name}`,
+          grossAmount:     body.amount,
+          interestAmount:  0,
+          retentionAmount: 0,
+          netAmount:       body.amount,
+          isPaid:          true,
+          paidAt:          dateObj,
+          dueDate:         dateObj,
+          referenceDate:   dateObj,
+          bankAccountId:   body.toAccountId,
+          isTransfer:      true,
+          transferPairId,
+          notes:           body.observations ?? null,
+          isActive:        true,
+        },
+      })
+
+      // 3. Atualizar saldo das contas (somente se não for conta integrada)
+      if (!fromAccount.integrationActive) {
+        await tx.bankAccount.update({
+          where: { id: body.fromAccountId },
+          data:  { balance: { decrement: body.amount } },
+        })
+      }
+      if (!toAccount.integrationActive) {
+        await tx.bankAccount.update({
+          where: { id: body.toAccountId },
+          data:  { balance: { increment: body.amount } },
+        })
+      }
+
+      // 4. Log de auditoria
+      await (tx as any).auditLog.create({
+        data: {
+          companyId,
+          userId,
+          action:      'TRANSFER',
+          entity:      'BankAccount',
+          entityId:    body.fromAccountId,
+          entityName:  fromAccount.name,
+          description: `Transferência de R$ ${body.amount.toFixed(2).replace('.', ',')} de "${fromAccount.name}" para "${toAccount.name}"`,
+          metadata: {
+            fromAccountId:  body.fromAccountId,
+            toAccountId:    body.toAccountId,
+            amount:         body.amount,
+            transferPairId,
+            outTransactionId: outTx.id,
+            inTransactionId:  inTx.id,
+          },
+        },
+      }).catch(() => null)
+
+      return { outTx, inTx }
+    })
+
+    // Buscar saldos atualizados
+    const [updatedFrom, updatedTo] = await Promise.all([
+      p.bankAccount.findUnique({ where: { id: body.fromAccountId }, select: { id: true, name: true, balance: true } }),
+      p.bankAccount.findUnique({ where: { id: body.toAccountId   }, select: { id: true, name: true, balance: true } }),
+    ])
+
+    return reply.status(201).send({
+      message:       'Transferência realizada com sucesso',
+      transferPairId,
+      outTransaction: { id: result.outTx.id, description: result.outTx.description, netAmount: body.amount },
+      inTransaction:  { id: result.inTx.id,  description: result.inTx.description,  netAmount: body.amount },
+      fromAccount:    { id: updatedFrom.id, name: updatedFrom.name, balance: toNum(updatedFrom.balance) },
+      toAccount:      { id: updatedTo.id,   name: updatedTo.name,   balance: toNum(updatedTo.balance)   },
+    })
+  })
+
+  // ── DELETE /api/financial/transfers/:pairId — estorno ─────────────────────
+  app.delete('/transfers/:pairId', {
+    preHandler: [requirePermission('financeiro', 'delete')],
+  }, async (request, reply) => {
+    const req     = request as RequestWithMember
+    const payload = request.user as JwtPayload
+    const companyId = req.companyId!
+    const userId    = payload.sub
+    const { pairId } = request.params as { pairId: string }
+
+    const p = prisma as any
+
+    const transactions = await p.financialTransaction.findMany({
+      where: { transferPairId: pairId, companyId },
+    })
+
+    if (transactions.length < 2) {
+      return reply.status(404).send({ error: 'Transferência não encontrada' })
+    }
+
+    const alreadyReversed = transactions.some((t: any) => !t.isActive)
+    if (alreadyReversed) {
+      return reply.status(400).send({ error: 'Esta transferência já foi estornada' })
+    }
+
+    const outTx = transactions.find((t: any) => t.type === 'EXPENSE')
+    const inTx  = transactions.find((t: any) => t.type === 'INCOME')
+
+    if (!outTx || !inTx) {
+      return reply.status(400).send({ error: 'Par de transferência inválido' })
+    }
+
+    const amount = toNum(outTx.netAmount)
+
+    await p.$transaction(async (tx: any) => {
+      // Marcar ambos como inativo
+      await tx.financialTransaction.updateMany({
+        where: { transferPairId: pairId, companyId },
+        data:  { isActive: false, deletedAt: new Date(), deletedById: userId },
+      })
+
+      // Estornar saldos
+      const fromAccount = await tx.bankAccount.findUnique({ where: { id: outTx.bankAccountId } })
+      const toAccount   = await tx.bankAccount.findUnique({ where: { id: inTx.bankAccountId  } })
+
+      if (fromAccount && !fromAccount.integrationActive) {
+        await tx.bankAccount.update({
+          where: { id: outTx.bankAccountId },
+          data:  { balance: { increment: amount } },
+        })
+      }
+      if (toAccount && !toAccount.integrationActive) {
+        await tx.bankAccount.update({
+          where: { id: inTx.bankAccountId },
+          data:  { balance: { decrement: amount } },
+        })
+      }
+
+      // Log de auditoria
+      await (tx as any).auditLog.create({
+        data: {
+          companyId,
+          userId,
+          action:      'REVERSE_TRANSFER',
+          entity:      'BankAccount',
+          entityId:    outTx.bankAccountId,
+          description: `Estorno de transferência de R$ ${amount.toFixed(2).replace('.', ',')}`,
+          metadata:    { transferPairId: pairId, amount },
+        },
+      }).catch(() => null)
+    })
+
+    return reply.send({ message: 'Transferência estornada com sucesso', transferPairId: pairId })
+  })
 }

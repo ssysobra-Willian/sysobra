@@ -5,9 +5,10 @@ import {
   Plus, Pencil, Trash2, RefreshCw,
   TrendingUp, TrendingDown, Wallet, CreditCard,
   Building2, Link, Link2Off, CheckCircle,
-  PauseCircle, PlayCircle, AlertTriangle, Lock,
+  PauseCircle, PlayCircle, AlertTriangle, Lock, ArrowLeftRight,
 } from 'lucide-react'
 import { BankAccountModal } from '@/components/financial/BankAccountModal'
+import { TransferModal } from '@/components/financial/TransferModal'
 import { TableActionMenu } from '@/components/ui/TableActionMenu'
 import { Breadcrumb } from '@/components/ui/Breadcrumb'
 import { formatCurrency } from '@/lib/format'
@@ -231,6 +232,7 @@ export default function ContasBancariasPage() {
   const [showModal,     setShowModal]     = useState(false)
   const [editing,       setEditing]       = useState<BankAccount | null>(null)
   const [actionLoading, setActionLoading] = useState(false)
+  const [showTransfer,  setShowTransfer]  = useState(false)
 
   // Summary counts (from API — includes all statuses)
   const [summary, setSummary] = useState({
@@ -402,6 +404,12 @@ export default function ContasBancariasPage() {
             className="flex items-center gap-1.5 text-xs text-gray-500 border border-gray-200 px-3 py-2 rounded-lg hover:bg-gray-50 transition-colors"
           >
             <RefreshCw size={13} /> Atualizar
+          </button>
+          <button
+            onClick={() => setShowTransfer(true)}
+            className="flex items-center gap-2 border border-[#F5A623] text-[#F5A623] hover:bg-orange-50 text-sm font-semibold px-4 py-2.5 rounded-xl transition-colors"
+          >
+            <ArrowLeftRight size={16} /> Transferência
           </button>
           <button
             onClick={() => { setEditing(null); setShowModal(true) }}
@@ -648,6 +656,23 @@ export default function ContasBancariasPage() {
           editAccount={editing ?? null}
         />
       )}
+
+      {/* ── Modal: Transferência entre contas ─────────────────────────── */}
+      <TransferModal
+        isOpen={showTransfer}
+        onClose={() => setShowTransfer(false)}
+        onSuccess={() => { setShowTransfer(false); load() }}
+        accounts={accounts
+          .filter((a) => a.status === 'ACTIVE')
+          .map((a) => ({
+            id:             a.id,
+            name:           a.name,
+            bank:           a.bank,
+            balance:        a.balance,
+            computedBalance:a.computedBalance,
+            status:         a.status,
+          }))}
+      />
 
       {/* ── Modal: Inativar ───────────────────────────────────────────── */}
       <ConfirmModal

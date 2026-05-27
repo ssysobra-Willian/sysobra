@@ -12,10 +12,11 @@ import {
   RefreshCw, ChevronLeft, ChevronRight, Search, X,
   Wallet, Clock, CalendarDays, Eye,
   ArrowDownCircle, ArrowUpCircle, Landmark, LayoutGrid, Users, Truck,
-  SlidersHorizontal, HardHat,
+  SlidersHorizontal, HardHat, ArrowLeftRight,
 } from 'lucide-react'
 import { TransactionModal } from '@/components/financial/TransactionModal'
 import { TransactionReceiptModal } from '@/components/financial/TransactionReceiptModal'
+import { TransferModal } from '@/components/financial/TransferModal'
 import { TableActionMenu } from '@/components/ui/TableActionMenu'
 import { UserAvatar } from '@/components/ui/UserAvatar'
 import { useQueryClient } from '@tanstack/react-query'
@@ -61,20 +62,22 @@ interface DashboardData {
 }
 
 interface Transaction {
-  id:          string
-  description: string
-  type:        'INCOME' | 'EXPENSE'
-  isPaid:      boolean
-  grossAmount: number
-  netAmount:   number
-  dueDate:     string | null
-  paidAt:      string | null
-  referenceDate: string
-  category:    { id: string; name: string; color: string; icon: string } | null
-  bankAccount: { id: string; name: string; bank: string | null } | null
-  client:      { id: string; name: string } | null
-  supplier:    { id: string; name: string } | null
-  createdBy:   { id: string; name: string; avatarUrl: string | null } | null
+  id:             string
+  description:    string
+  type:           'INCOME' | 'EXPENSE'
+  isPaid:         boolean
+  grossAmount:    number
+  netAmount:      number
+  dueDate:        string | null
+  paidAt:         string | null
+  referenceDate:  string
+  isTransfer:     boolean
+  transferPairId: string | null
+  category:       { id: string; name: string; color: string; icon: string } | null
+  bankAccount:    { id: string; name: string; bank: string | null } | null
+  client:         { id: string; name: string } | null
+  supplier:       { id: string; name: string } | null
+  createdBy:      { id: string; name: string; avatarUrl: string | null } | null
 }
 
 interface TxPage {
@@ -278,10 +281,11 @@ export default function FinanceiroPage() {
   const [filterStage,   setFilterStage]   = useState(() => searchParams?.get('stageId')   ?? '')
   const [filtersOpen,   setFiltersOpen]   = useState(false)
 
-  const [showModal,  setShowModal]   = useState(false)
-  const [editingTx,  setEditingTx]   = useState<Transaction | null>(null)
-  const [viewingTxId,setViewingTxId] = useState<string | null>(null)
-  const [actionError, setActionError] = useState('')
+  const [showModal,       setShowModal]       = useState(false)
+  const [editingTx,       setEditingTx]       = useState<Transaction | null>(null)
+  const [viewingTxId,     setViewingTxId]     = useState<string | null>(null)
+  const [actionError,     setActionError]     = useState('')
+  const [showTransfer,    setShowTransfer]    = useState(false)
 
   const queryClient = useQueryClient()
 
@@ -402,6 +406,26 @@ export default function FinanceiroPage() {
     }
   }
 
+  async function handleRevertTransfer(tx: Transaction) {
+    if (!tx.transferPairId) return
+    if (!confirm(`Estornar a transferência "${tx.description}"?\n\nOs saldos serão revertidos e ambos os lançamentos serão cancelados.`)) return
+    setActionError('')
+    try {
+      const res = await fetch(`${API}/api/v1/financial/transfers/${tx.transferPairId}`, {
+        method: 'DELETE',
+        headers: headers(),
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        setActionError((err as any).error || `Erro ao estornar (HTTP ${res.status})`)
+        return
+      }
+      loadDash(); loadTx(); invalidateDashboard()
+    } catch {
+      setActionError('Falha na conexão. Verifique sua rede e tente novamente.')
+    }
+  }
+
   function handleEdit(tx: Transaction) {
     setEditingTx(tx)
     setShowModal(true)
@@ -465,12 +489,20 @@ export default function FinanceiroPage() {
           <h1 className="text-2xl font-bold text-gray-900">Financeiro</h1>
           <p className="text-sm text-gray-500 mt-0.5">Painel financeiro geral da empresa</p>
         </div>
-        <button
-          onClick={() => { setEditingTx(null); setShowModal(true) }}
-          className="flex items-center gap-2 bg-[#F5A623] hover:bg-[#d4891a] text-white text-sm font-semibold px-4 py-2.5 rounded-xl transition-colors shadow-sm"
-        >
-          <Plus size={16} /> Lançamento
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowTransfer(true)}
+            className="flex items-center gap-2 border border-[#F5A623] text-[#F5A623] hover:bg-orange-50 text-sm font-semibold px-4 py-2.5 rounded-xl transition-colors"
+          >
+            <ArrowLeftRight size={16} /> Transferência
+          </button>
+          <button
+            onClick={() => { setEditingTx(null); setShowModal(true) }}
+            className="flex items-center gap-2 bg-[#F5A623] hover:bg-[#d4891a] text-white text-sm font-semibold px-4 py-2.5 rounded-xl transition-colors shadow-sm"
+          >
+            <Plus size={16} /> Lançamento
+          </button>
+        </div>
       </div>
 
       {/* ── Filtros ──────────────────────────────────────────────────── */}
@@ -781,20 +813,28 @@ export default function FinanceiroPage() {
               ) : transactions.length === 0 ? (
                 <tr><td colSpan={8} className="px-5 py-12 text-center text-sm text-gray-400">Nenhum lançamento encontrado.</td></tr>
               ) : transactions.map((tx) => (
-                <tr key={tx.id} className="hover:bg-gray-50 transition-colors">
+                <tr key={tx.id} className={`hover:bg-gray-50 transition-colors ${tx.isTransfer ? 'bg-blue-50/30' : ''}`}>
                   <td className="px-5 py-3 text-xs text-gray-500 font-mono whitespace-nowrap hidden lg:table-cell">{fmtDate(tx.referenceDate)}</td>
                   <td className="px-5 py-3">
                     <div className="flex items-center gap-2">
                       <span className={`w-1.5 h-6 rounded-full flex-shrink-0 ${tx.type === 'INCOME' ? 'bg-green-400' : 'bg-red-400'}`} />
                       <div>
-                        <span className="text-xs text-gray-700 line-clamp-1 max-w-[200px]">{tx.description}</span>
+                        <div className="flex items-center gap-1.5">
+                          {tx.isTransfer && <ArrowLeftRight size={11} className="text-blue-400 flex-shrink-0" />}
+                          <span className="text-xs text-gray-700 line-clamp-1 max-w-[200px]">{tx.description}</span>
+                        </div>
                         {/* Data visível só no mobile */}
                         <p className="lg:hidden text-[10px] text-gray-400 font-mono">{fmtDate(tx.referenceDate)}</p>
                       </div>
                     </div>
                   </td>
                   <td className="px-5 py-3 hidden lg:table-cell">
-                    {tx.category ? (
+                    {tx.isTransfer ? (
+                      <span className="inline-flex items-center gap-1 text-xs bg-blue-50 text-blue-600 px-2 py-0.5 rounded-full border border-blue-100">
+                        <ArrowLeftRight size={9} />
+                        Transferência
+                      </span>
+                    ) : tx.category ? (
                       <span className="inline-flex items-center gap-1 text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">
                         <span className="w-2 h-2 rounded-full" style={{ background: tx.category.color }} />
                         {tx.category.name}
@@ -817,12 +857,19 @@ export default function FinanceiroPage() {
                   </td>
                   <td className="px-5 py-3"><StatusBadge tx={tx} /></td>
                   <td className="px-5 py-3">
-                    <TableActionMenu actions={[
-                      { label: 'Ver lançamento', icon: <Eye size={13} className="text-[#F5A623]" />, onClick: () => handleView(tx) },
-                      { label: 'Editar', icon: <Pencil size={13} />, onClick: () => handleEdit(tx) },
-                      ...(!tx.isPaid ? [{ label: 'Marcar como pago', icon: <CheckCircle size={13} className="text-green-500" />, onClick: () => handlePay(tx) }] : []),
-                      { label: 'Cancelar lançamento', icon: <XCircle size={13} />, onClick: () => handleCancel(tx), variant: 'danger' as const, separator: true },
-                    ]} />
+                    {tx.isTransfer ? (
+                      <TableActionMenu actions={[
+                        { label: 'Ver lançamento', icon: <Eye size={13} className="text-[#F5A623]" />, onClick: () => handleView(tx) },
+                        { label: 'Estornar transferência', icon: <XCircle size={13} />, onClick: () => handleRevertTransfer(tx), variant: 'danger' as const },
+                      ]} />
+                    ) : (
+                      <TableActionMenu actions={[
+                        { label: 'Ver lançamento', icon: <Eye size={13} className="text-[#F5A623]" />, onClick: () => handleView(tx) },
+                        { label: 'Editar', icon: <Pencil size={13} />, onClick: () => handleEdit(tx) },
+                        ...(!tx.isPaid ? [{ label: 'Marcar como pago', icon: <CheckCircle size={13} className="text-green-500" />, onClick: () => handlePay(tx) }] : []),
+                        { label: 'Cancelar lançamento', icon: <XCircle size={13} />, onClick: () => handleCancel(tx), variant: 'danger' as const, separator: true },
+                      ]} />
+                    )}
                   </td>
                 </tr>
               ))}
@@ -873,6 +920,18 @@ export default function FinanceiroPage() {
         txId={viewingTxId}
         token={localStorage.getItem('token') ?? ''}
         onClose={() => setViewingTxId(null)}
+      />
+
+      {/* ── Modal de transferência ───────────────────────────────────── */}
+      <TransferModal
+        isOpen={showTransfer}
+        onClose={() => setShowTransfer(false)}
+        onSuccess={() => {
+          setShowTransfer(false)
+          loadTx()
+          loadDash()
+          invalidateDashboard()
+        }}
       />
     </div>
   )

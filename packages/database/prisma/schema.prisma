@@ -747,6 +747,8 @@ model FinancialTransaction {
   projectId         String?            @map("project_id")
   transactionNumber String?            @map("transaction_number")
   transactionHash   String?            @unique @map("transaction_hash")
+  isTransfer        Boolean            @default(false) @map("is_transfer")
+  transferPairId    String?            @map("transfer_pair_id")
   isActive          Boolean            @default(true) @map("is_active")
   deletedAt         DateTime?          @map("deleted_at")
   deletedById       String?            @map("deleted_by_id")
@@ -768,6 +770,7 @@ model FinancialTransaction {
   @@index([companyId, isPaid, type])
   @@index([companyId, isActive])
   @@index([companyId, transactionNumber])
+  @@index([companyId, transferPairId])
   @@map("financial_transactions")
 }
 
