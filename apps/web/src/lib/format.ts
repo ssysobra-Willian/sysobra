@@ -60,3 +60,47 @@ export function formatDateTime(iso: string | null | undefined): string {
   if (!iso) return '—'
   return new Date(iso).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })
 }
+
+// ─── Data segura para diário de obra (sem problemas de fuso horário) ──────────
+//
+// Strings de data vindas do backend (ex: "2026-05-27T12:00:00.000Z") são
+// armazenadas como meio-dia UTC. Se usarmos `new Date(iso)` diretamente e
+// o browser estiver em UTC-3, meia-noite UTC vira 21h do dia anterior.
+// A solução: sempre extrair só a parte "yyyy-MM-dd" e criar Date com meio-dia
+// local, garantindo que o dia exibido é sempre o correto.
+
+/**
+ * Retorna a string de data no formato "dd/MM/yyyy" sem risco de fuso horário.
+ * Ex: "2026-05-27T12:00:00.000Z" → "27/05/2026"
+ */
+export function formatDateBR(iso: string | null | undefined): string {
+  if (!iso) return '—'
+  const d = iso.slice(0, 10)        // "2026-05-27"
+  const [y, m, dd] = d.split('-')
+  return `${dd}/${m}/${y}`
+}
+
+/**
+ * Retorna a data por extenso em pt-BR sem risco de fuso horário.
+ * Ex: "2026-05-27T00:00:00Z" → "quarta-feira, 27 de maio de 2026"
+ */
+export function formatDateLongBR(iso: string | null | undefined): string {
+  if (!iso) return '—'
+  const d = iso.slice(0, 10)        // "2026-05-27"
+  // Meio-dia local garante que toLocaleDateString não volta um dia atrás
+  return new Date(d + 'T12:00:00').toLocaleDateString('pt-BR', {
+    weekday: 'long', day: '2-digit', month: 'long', year: 'numeric',
+  })
+}
+
+/**
+ * Retorna a data atual no formato "yyyy-MM-dd" usando o timezone LOCAL.
+ * Usar em lugar de `new Date().toISOString().slice(0, 10)` (que usa UTC).
+ */
+export function todayLocalDate(): string {
+  const now = new Date()
+  const y   = now.getFullYear()
+  const m   = String(now.getMonth() + 1).padStart(2, '0')
+  const d   = String(now.getDate()).padStart(2, '0')
+  return `${y}-${m}-${d}`
+}

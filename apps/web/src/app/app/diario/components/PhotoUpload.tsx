@@ -62,20 +62,30 @@ export function PhotoUpload({
 
   // ── Upload ─────────────────────────────────────────────────────────────────
 
-  const uploadFile = useCallback((file: File, existingPhotos: PhotoItem[]) => {
+  /**
+   * Faz o upload de um arquivo.
+   * tempId e localUrl são gerados FORA (em handleFiles) para que o snapshot
+   * passado como existingPhotos use os mesmos IDs — evita dessincronização
+   * quando múltiplos arquivos são selecionados de uma vez.
+   */
+  const uploadFile = useCallback((
+    file:           File,
+    existingPhotos: PhotoItem[],
+    tempId:         string,
+    localUrl:       string,
+  ) => {
     if (!file.type.startsWith('image/')) {
       console.warn(`${file.name}: apenas imagens`)
+      URL.revokeObjectURL(localUrl)
       return
     }
     if (file.size > 10 * 1024 * 1024) {
       console.warn(`${file.name}: máximo 10MB`)
+      URL.revokeObjectURL(localUrl)
       return
     }
 
-    const localUrl = URL.createObjectURL(file)
-    const tempId   = crypto.randomUUID()
-
-    // Adicionar foto com blob URL como preview imediato
+    // Adicionar ao state com blob URL como preview imediato
     onChange([...existingPhotos, {
       id: tempId, url: localUrl, status: 'uploading', progress: 0, file,
     }])
@@ -151,13 +161,16 @@ export function PhotoUpload({
     const slots    = maxPhotos - photos.length
     const toUpload = arr.slice(0, slots)
     let current    = [...photos]
+
     toUpload.forEach(f => {
-      uploadFile(f, current)
-      // Snapshot local para garantir que arquivos múltiplos não se sobreponham
+      const tempId   = crypto.randomUUID()
       const localUrl = URL.createObjectURL(f)
-      current = [...current, {
-        id: crypto.randomUUID(), url: localUrl, status: 'uploading', progress: 0, file: f,
-      }]
+
+      // Passa tempId e localUrl EXTERNOS para que o snapshot e o XHR usem os mesmos IDs
+      uploadFile(f, current, tempId, localUrl)
+
+      // Atualizar snapshot local para o próximo arquivo usar base correta
+      current = [...current, { id: tempId, url: localUrl, status: 'uploading', progress: 0, file: f }]
     })
   }
 
@@ -308,7 +321,12 @@ export function PhotoUpload({
                     <button
                       type="button"
                       title="Clique para tentar novamente"
-                      onClick={() => photo.file && uploadFile(photo.file, photos.filter(p => p.id !== photo.id))}
+                      onClick={() => {
+                        if (!photo.file) return
+                        const newTempId   = crypto.randomUUID()
+                        const newLocalUrl = URL.createObjectURL(photo.file)
+                        uploadFile(photo.file, photos.filter(p => p.id !== photo.id), newTempId, newLocalUrl)
+                      }}
                       className="w-5 h-5 bg-red-500 rounded-full flex items-center justify-center hover:bg-red-600"
                     >
                       <AlertCircle size={10} className="text-white" />

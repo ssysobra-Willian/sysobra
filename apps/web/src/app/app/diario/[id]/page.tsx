@@ -123,7 +123,9 @@ const SEV_CFG: Record<string, { label: string; variant: BadgeVariant }> = {
 }
 
 function fmtDate(iso: string) {
-  return new Date(iso).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' })
+  const d = iso.slice(0, 10)
+  const [y, m, dd] = d.split('-')
+  return `${dd}/${m}/${y}`
 }
 
 type TabId    = 'reports' | 'stages' | 'rain' | 'photos' | 'occurrences'
@@ -486,7 +488,7 @@ export default function DiarioProjectPage() {
                           </span>
                           {/* Data */}
                           <span className="text-xs text-gray-400 w-20 flex-shrink-0">
-                            {new Date(r.date).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })}
+                            {fmtDate(r.date).slice(0, 5)}
                           </span>
                           {/* Clima + chuva */}
                           <span className="text-xs text-gray-500 flex items-center gap-1 w-24 flex-shrink-0">

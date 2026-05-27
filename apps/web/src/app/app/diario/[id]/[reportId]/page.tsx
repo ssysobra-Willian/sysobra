@@ -127,14 +127,20 @@ const SEV_CFG: Record<string, { label: string; variant: BadgeVariant }> = {
   CRITICAL: { label: 'Crítica', variant: 'red'    },
 }
 
+/** Data por extenso sem risco de fuso: extrai só yyyy-MM-dd, usa meio-dia local */
 function fmtDate(iso: string) {
-  return new Date(iso).toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' })
+  const d = iso.slice(0, 10)
+  return new Date(d + 'T12:00:00').toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' })
 }
 
+/** Data curta (dd/mm/aaaa) sem risco de fuso */
 function fmtDateShort(iso: string) {
-  return new Date(iso).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' })
+  const d = iso.slice(0, 10)
+  const [y, m, dd] = d.split('-')
+  return `${dd}/${m}/${y}`
 }
 
+/** Data + hora: timestamps de aprovação/comentários — estes têm hora real, manter new Date() */
 function fmtDateTime(iso: string) {
   return new Date(iso).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
 }

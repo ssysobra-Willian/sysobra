@@ -51,10 +51,39 @@ async function nextReportNumber(projectId: string): Promise<string> {
   return `RDO-${String(num).padStart(3, '0')}`
 }
 
+// ─── Utilitários de data (timezone-safe) ──────────────────────────────────────
+
+/**
+ * Faz parse de "yyyy-MM-dd" como MEIO-DIA UTC.
+ * `new Date("2026-05-27")` interpreta como UTC meia-noite; em server UTC-3 isso
+ * vira o dia anterior. Usar meio-dia UTC é seguro para todos os fusos horários.
+ */
+function parseDateParam(dateStr: string): Date {
+  return new Date(dateStr + 'T12:00:00.000Z')
+}
+
+/**
+ * Retorna o intervalo de um dia completo em UTC para "yyyy-MM-dd".
+ * Independe do timezone do servidor.
+ */
+function dayRangeUTC(dateStr: string): { start: Date; end: Date } {
+  const [y, m, d] = dateStr.split('-').map(Number)
+  return {
+    start: new Date(Date.UTC(y, m - 1, d,  0,  0,  0,   0)),
+    end:   new Date(Date.UTC(y, m - 1, d, 23, 59, 59, 999)),
+  }
+}
+
+/** Extrai "yyyy-MM-dd" de um objeto Date ou string ISO */
+function toDateStr(date: Date | string): string {
+  return (date instanceof Date ? date.toISOString() : date).slice(0, 10)
+}
+
+// ─── Fim utilitários de data ──────────────────────────────────────────────────
+
 /** Gera letra do complemento (A, B, C…) para RDOs do mesmo dia */
 async function nextComplementLetter(projectId: string, date: Date): Promise<{ letter: string; parentId: string; parentNumber: string }> {
-  const dateStart = new Date(date); dateStart.setHours(0, 0, 0, 0)
-  const dateEnd   = new Date(date); dateEnd.setHours(23, 59, 59, 999)
+  const { start: dateStart, end: dateEnd } = dayRangeUTC(toDateStr(date))
 
   // Buscar o RDO principal do dia
   const parent = await p.diaryEntry.findFirst({
@@ -297,10 +326,10 @@ export async function diaryRoutes(app: FastifyInstance) {
     const proj = await getProjectOfCompany(body.projectId, companyId)
     if (!proj) return reply.status(404).send({ error: 'Obra não encontrada' })
 
-    // Verifica duplicata de data
-    const entryDate = body.date ? new Date(body.date) : new Date()
-    const dateStart = new Date(entryDate); dateStart.setHours(0, 0, 0, 0)
-    const dateEnd   = new Date(entryDate); dateEnd.setHours(23, 59, 59, 999)
+    // Verifica duplicata de data (timezone-safe: parseDateParam usa meio-dia UTC)
+    const entryDateStr  = body.date ?? toDateStr(new Date())
+    const entryDate     = parseDateParam(entryDateStr)
+    const { start: dateStart, end: dateEnd } = dayRangeUTC(entryDateStr)
 
     const existingMain = await p.diaryEntry.findFirst({
       where: { projectId: body.projectId, isComplement: false, date: { gte: dateStart, lte: dateEnd } },
@@ -543,7 +572,7 @@ export async function diaryRoutes(app: FastifyInstance) {
     for (const f of fields) {
       if (body[f] !== undefined) data[f] = body[f]
     }
-    if (body.date) data.date = new Date(body.date)
+    if (body.date) data.date = parseDateParam(body.date)
     if (body.ddsTime) data.ddsTime = new Date(body.ddsTime)
     data.rainMorningMm   = mMm
     data.rainAfternoonMm = aMm
@@ -686,8 +715,7 @@ export async function diaryRoutes(app: FastifyInstance) {
     // Resumo mensal
     const monthMap: Record<string, { totalMm: number; unworkableDays: number; rainyDays: number }> = {}
     for (const r of records) {
-      const dt  = new Date(r.date)
-      const key = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}`
+      const key = toDateStr(r.date).slice(0, 7)  // "yyyy-MM" — sem fuso horário
       if (!monthMap[key]) monthMap[key] = { totalMm: 0, unworkableDays: 0, rainyDays: 0 }
       monthMap[key].totalMm      += r.totalMm
       if (r.isUnworkable) monthMap[key].unworkableDays++
@@ -812,7 +840,11 @@ export async function diaryRoutes(app: FastifyInstance) {
     const rainyDays  = records.filter((r: any) => r.totalMm > 0).length
     const maxDay     = records.reduce((mx: any, r: any) => (!mx || r.totalMm > mx.totalMm) ? r : mx, null as any)
 
-    const labels    = records.map((r: any) => new Date(r.date).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }))
+    const labels    = records.map((r: any) => {
+      const d = toDateStr(r.date)   // "2026-05-27"
+      const [, m, dd] = d.split('-')
+      return `${dd}/${m}`           // "27/05" — sem fuso horário
+    })
     const mmPorDia  = records.map((r: any) => r.totalMm)
     let acc = 0
     const acumulado = records.map((r: any) => { acc += r.totalMm; return Math.round(acc * 10) / 10 })
@@ -958,7 +990,7 @@ export async function diaryRoutes(app: FastifyInstance) {
       data: {
         projectId:    body.projectId,
         authorId:     payload.sub,
-        date:         body.date ? new Date(body.date) : new Date(),
+        date:         body.date ? parseDateParam(body.date) : parseDateParam(toDateStr(new Date())),
         weather:      body.weather      ?? null,
         temperature:  body.temperature  ?? null,
         workers:      body.workers      ?? null,
@@ -1016,7 +1048,7 @@ export async function diaryRoutes(app: FastifyInstance) {
     const updated = await p.diaryEntry.update({
       where: { id },
       data: {
-        ...(body.date         && { date: new Date(body.date) }),
+        ...(body.date         && { date: parseDateParam(body.date) }),
         ...(body.weather      !== undefined && { weather:      body.weather }),
         ...(body.temperature  !== undefined && { temperature:  body.temperature }),
         ...(body.workers      !== undefined && { workers:      body.workers }),

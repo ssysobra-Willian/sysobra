@@ -9,6 +9,7 @@ import { SemAcesso }                         from '@/components/SemAcesso'
 import { usePermissions }                    from '@/hooks/usePermissions'
 import DDSThemeSelector, { getSuggestedDdsTheme, type DdsStaticTheme } from '../../components/DDSThemeSelector'
 import { PhotoUpload, type PhotoItem } from '../../components/PhotoUpload'
+import { todayLocalDate } from '@/lib/format'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
 
@@ -94,7 +95,7 @@ export default function NovoRdoPage() {
   const [step, setStep] = useState(1)
 
   // ── Seção 1: Identificação ────────────────────────────────────────────────
-  const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10))
+  const [date, setDate] = useState(() => todayLocalDate())
 
   // ── Seção 2: Clima ────────────────────────────────────────────────────────
   const [weatherMorning,    setWeatherMorning]    = useState('')
@@ -330,7 +331,7 @@ export default function NovoRdoPage() {
             onClick={() => {
               setSaved(null)
               setStep(1)
-              setDate(new Date().toISOString().slice(0, 10))
+              setDate(todayLocalDate())
               setGeneralActivities('')
               setGeneralNotes('')
               setOccurrences([])
@@ -383,7 +384,7 @@ export default function NovoRdoPage() {
               type="date"
               required
               value={date}
-              max={new Date().toISOString().slice(0, 10)}
+              max={todayLocalDate()}
               onChange={(e) => setDate(e.target.value)}
             />
           </div>

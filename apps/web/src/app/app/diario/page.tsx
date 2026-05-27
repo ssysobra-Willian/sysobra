@@ -65,7 +65,9 @@ const REPORT_STATUS: Record<string, { label: string; dot: string }> = {
 }
 
 function fmtDate(iso: string) {
-  return new Date(iso).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' })
+  const d = iso.slice(0, 10)
+  const [y, m, dd] = d.split('-')
+  return `${dd}/${m}/${y}`
 }
 
 // ─── Modal de seleção de obra ─────────────────────────────────────────────────
