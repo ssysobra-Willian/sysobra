@@ -2,6 +2,15 @@ import sharp from 'sharp'
 import fs from 'fs'
 import path from 'path'
 
+/** Converte caminho absoluto do arquivo salvo em /uploads/... relativo. */
+function toRelativePath(savedPath: string): string {
+  const uploadsRoot = path.join(process.cwd(), 'uploads')
+  const rel = path.relative(uploadsRoot, savedPath)
+    .split(path.sep)   // garante que \ vira / no Windows
+    .join('/')
+  return `/uploads/${rel}`
+}
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export interface ProcessImageOptions {
@@ -70,9 +79,7 @@ export async function processAndSaveImage(
 
     return {
       savedPath,
-      relativePath: savedPath.replace(/\\/g, '/').split('uploads/')[1]
-        ? `/uploads/${savedPath.replace(/\\/g, '/').split('uploads/')[1]}`
-        : `/${savedPath.replace(/\\/g, '/')}`,
+      relativePath:   toRelativePath(savedPath),
       originalSize,
       compressedSize: finalSize,
       savedPercent:   Math.max(0, savedPercent),
@@ -82,17 +89,15 @@ export async function processAndSaveImage(
     // ── Fallback: salva original ──────────────────────────────────────────────
     console.warn('[imageProcessor] sharp failed, saving original:', err)
 
-    const ext         = path.extname(filename) || '.jpg'
+    const ext          = path.extname(filename) || '.jpg'
     const fallbackName = `${filename}${ext}`
-    const savedPath   = path.join(outputDir, fallbackName)
+    const savedPath    = path.join(outputDir, fallbackName)
 
     fs.writeFileSync(savedPath, inputBuffer)
 
     return {
       savedPath,
-      relativePath: savedPath.replace(/\\/g, '/').split('uploads/')[1]
-        ? `/uploads/${savedPath.replace(/\\/g, '/').split('uploads/')[1]}`
-        : `/${savedPath.replace(/\\/g, '/')}`,
+      relativePath:   toRelativePath(savedPath),
       originalSize,
       compressedSize: originalSize,
       savedPercent:   0,

@@ -1,0 +1,4 @@
+# Ignorar arquivos de upload gerados em runtime.
+# A pasta existe apenas para servir static files — não comitar binários.
+*
+!.gitignore

@@ -5,6 +5,7 @@ import {
   Camera, Eye, Trash2, Check, X,
   ChevronLeft, ChevronRight, AlertCircle,
 } from 'lucide-react'
+import { resolveUploadUrl } from '@/lib/upload'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
 
@@ -245,7 +246,7 @@ export function PhotoUpload({
                   style={{ width: '100%', paddingBottom: '100%' }}
                 >
                   <img
-                    src={photo.url}
+                    src={resolveUploadUrl(photo.url)}
                     alt={photo.caption || `Foto ${idx + 1}`}
                     className="absolute inset-0 w-full h-full object-cover rounded-lg"
                     style={{
@@ -376,7 +377,7 @@ export function PhotoUpload({
 
           {/* Imagem */}
           <img
-            src={donePhotos[lightbox.idx]?.url}
+            src={resolveUploadUrl(donePhotos[lightbox.idx]?.url)}
             alt={donePhotos[lightbox.idx]?.caption || ''}
             onClick={e => e.stopPropagation()}
             className="max-w-[90vw] max-h-[90vh] object-contain rounded-lg shadow-2xl"

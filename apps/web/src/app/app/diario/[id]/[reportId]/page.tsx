@@ -11,6 +11,7 @@ import { PageHeader }                                from '@/components/ui/PageH
 import { SemAcesso }                                 from '@/components/SemAcesso'
 import { usePermissions }                            from '@/hooks/usePermissions'
 import type { BadgeVariant }                         from '@/components/ui/Badge'
+import { resolveUploadUrl }                          from '@/lib/upload'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
 
@@ -621,16 +622,19 @@ export default function RdoDetailPage() {
           {entry.imageUrls.length > 0 && (
             <Card title={`Fotos (${entry.imageUrls.length})`}>
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                {entry.imageUrls.map((url, i) => (
-                  <a key={i} href={url} target="_blank" rel="noreferrer">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src={url}
-                      alt={`Foto ${i + 1}`}
-                      className="w-full h-28 object-cover rounded-xl border border-gray-200 hover:opacity-90 transition-opacity"
-                    />
-                  </a>
-                ))}
+                {entry.imageUrls.map((url, i) => {
+                  const absoluteUrl = resolveUploadUrl(url)
+                  return (
+                    <a key={i} href={absoluteUrl} target="_blank" rel="noreferrer">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={absoluteUrl}
+                        alt={`Foto ${i + 1}`}
+                        className="w-full h-28 object-cover rounded-xl border border-gray-200 hover:opacity-90 transition-opacity"
+                      />
+                    </a>
+                  )
+                })}
               </div>
             </Card>
           )}
