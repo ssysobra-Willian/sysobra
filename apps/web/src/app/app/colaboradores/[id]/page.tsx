@@ -1,82 +1,89 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import {
   ChevronLeft, Pencil, UserX, UserMinus, Loader2,
   Upload, User, FileText, GraduationCap, Shield,
   CalendarDays, HardHat, Clock, Plus, Trash2, Download,
-  CheckCircle, AlertTriangle, X, Save,
+  CheckCircle, AlertTriangle, X, Save, ArrowRightLeft,
+  Eye, ExternalLink, FileImage, MapPin, History,
 } from 'lucide-react'
-import { Breadcrumb }        from '@/components/ui/Breadcrumb'
-import { EmployeeFormModal } from '../components/EmployeeFormModal'
-import { DismissalModal }    from '../components/DismissalModal'
-import { toImageUrl }        from '@/lib/imageUrl'
+import { Breadcrumb }             from '@/components/ui/Breadcrumb'
+import { EmployeeFormModal }      from '../components/EmployeeFormModal'
+import { DismissalModal }         from '../components/DismissalModal'
+import { TransferProjectModal }   from '../components/TransferProjectModal'
+import { toImageUrl }             from '@/lib/imageUrl'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
 interface Employee {
-  id:             string
-  code:           string
-  name:           string
-  cpf?:           string | null
-  rg?:            string | null
-  ctps?:          string | null
-  pis?:           string | null
-  birthDate?:     string | null
-  admissionDate?: string | null
-  dismissalDate?: string | null
-  email?:         string | null
-  phone?:         string | null
-  address?:       string | null
-  city?:          string | null
-  state?:         string | null
-  zipCode?:       string | null
-  photo?:         string | null
-  type:           string
-  role?:          string | null
-  department?:    string | null
-  salary?:        number | null
-  status:         string
-  projectId?:     string | null
-  project?:       { id: string; name: string; code: string | null } | null
-  documents:      EmployeeDoc[]
-  trainings:      EmployeeTraining[]
-  vacations:      EmployeeVacation[]
-  epiDeliveries:  EpiDelivery[]
+  id:               string
+  code:             string
+  name:             string
+  cpf?:             string | null
+  rg?:              string | null
+  ctps?:            string | null
+  pis?:             string | null
+  birthDate?:       string | null
+  admissionDate?:   string | null
+  dismissalDate?:   string | null
+  email?:           string | null
+  phone?:           string | null
+  address?:         string | null
+  city?:            string | null
+  state?:           string | null
+  zipCode?:         string | null
+  photo?:           string | null
+  type:             string
+  role?:            string | null
+  department?:      string | null
+  salary?:          number | null
+  status:           string
+  projectId?:       string | null
+  locationId?:      string | null
+  locationName?:    string | null
+  lastTransferDate?: string | null
+  project?:         { id: string; name: string; code: string | null } | null
+  documents:        EmployeeDoc[]
+  trainings:        EmployeeTraining[]
+  vacations:        EmployeeVacation[]
+  epiDeliveries:    EpiDelivery[]
 }
 
 interface EmployeeDoc {
-  id:           string
-  type:         string
-  name:         string
-  fileUrl?:     string | null
-  issueDate?:   string | null
-  expiryDate?:  string | null
+  id:            string
+  type:          string
+  name:          string
+  fileUrl?:      string | null
+  fileType?:     string | null
+  issueDate?:    string | null
+  expiryDate?:   string | null
   observations?: string | null
-  isActive:     boolean
+  isActive:      boolean
 }
 
 interface EmployeeTraining {
-  id:             string
-  name:           string
-  provider?:      string | null
-  workload?:      number | null
-  completedAt:    string
-  expiresAt?:     string | null
-  certificateUrl?: string | null
-  observations?:  string | null
+  id:              string
+  name:            string
+  provider?:       string | null
+  workload?:       number | null
+  completedAt:     string
+  expiresAt?:      string | null
+  certificateUrl?:  string | null
+  certificateType?: string | null
+  observations?:   string | null
 }
 
 interface EmployeeVacation {
-  id:           string
-  startDate:    string
-  endDate:      string
-  days:         number
-  status:       string
+  id:            string
+  startDate:     string
+  endDate:       string
+  days:          number
+  status:        string
   observations?: string | null
 }
 
@@ -88,6 +95,17 @@ interface EpiDelivery {
   deliveredAt: string
   returnedAt?: string | null
   condition?:  string | null
+}
+
+interface ProjectHistory {
+  id:           string
+  projectId?:   string | null
+  locationId?:  string | null
+  locationName?: string | null
+  startDate:    string
+  endDate?:     string | null
+  reason?:      string | null
+  project?:     { id: string; name: string; code: string | null } | null
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -124,18 +142,40 @@ function daysUntil(iso: string | null | undefined): number | null {
   return Math.ceil((new Date(iso).getTime() - Date.now()) / 86_400_000)
 }
 
+function diffDays(start: string, end?: string | null): number {
+  const a = new Date(start).getTime()
+  const b = end ? new Date(end).getTime() : Date.now()
+  return Math.round(Math.abs(b - a) / 86_400_000)
+}
+
+/** Data fim + 1 dia corridos = data fim calculada */
+function addDaysToDate(dateStr: string, days: number): string {
+  const d = new Date(dateStr)
+  d.setDate(d.getDate() + days - 1)
+  return d.toISOString().slice(0, 10)
+}
+
+/** Diferença em dias corridos entre duas datas (inclusivo) */
+function daysBetween(start: string, end: string): number {
+  const a = new Date(start).getTime()
+  const b = new Date(end).getTime()
+  return Math.round((b - a) / 86_400_000) + 1
+}
+
 const TYPE_LABELS: Record<string, string> = {
   CLT: 'CLT', PJ: 'PJ', TEMPORARY: 'Temporário', INTERN: 'Estagiário', THIRD_PARTY: 'Terceirizado',
 }
 const STATUS_COLORS: Record<string, string> = {
-  ACTIVE: 'bg-green-100 text-green-700', AWAY: 'bg-amber-100 text-amber-700', DISMISSED: 'bg-red-100 text-red-600',
+  ACTIVE:    'bg-green-100 text-green-700',
+  AWAY:      'bg-amber-100 text-amber-700',
+  DISMISSED: 'bg-red-100 text-red-600',
 }
 const STATUS_LABELS: Record<string, string> = { ACTIVE: 'Ativo', AWAY: 'Afastado', DISMISSED: 'Desligado' }
 const DOC_TYPES = ['RG','CPF','CTPS','ASO','NR35','NR18','CNH','HABILITACAO','CERTIFICADO','CONTRATO','OTHER']
 const VAC_STATUS_LABELS: Record<string, string> = { SCHEDULED: 'Agendado', ACTIVE: 'Em férias', COMPLETED: 'Concluído', CANCELLED: 'Cancelado' }
 
-type Tab = 'Dados pessoais' | 'Documentos' | 'Treinamentos' | 'EPIs' | 'Férias'
-const TABS: Tab[] = ['Dados pessoais', 'Documentos', 'Treinamentos', 'EPIs', 'Férias']
+type Tab = 'Dados pessoais' | 'Documentos' | 'Treinamentos' | 'EPIs' | 'Férias' | 'Histórico de obras'
+const TABS: Tab[] = ['Dados pessoais', 'Documentos', 'Treinamentos', 'EPIs', 'Férias', 'Histórico de obras']
 
 // ─── Componente ───────────────────────────────────────────────────────────────
 
@@ -143,13 +183,14 @@ export default function ColaboradorPerfilPage() {
   const { id }  = useParams() as { id: string }
   const router  = useRouter()
 
-  const [employee,    setEmployee]    = useState<Employee | null>(null)
-  const [loading,     setLoading]     = useState(true)
-  const [tab,         setTab]         = useState<Tab>('Dados pessoais')
-  const [showEdit,    setShowEdit]    = useState(false)
-  const [dismissing,  setDismissing]  = useState<'dismiss' | 'away' | null>(null)
+  const [employee,       setEmployee]       = useState<Employee | null>(null)
+  const [loading,        setLoading]        = useState(true)
+  const [tab,            setTab]            = useState<Tab>('Dados pessoais')
+  const [showEdit,       setShowEdit]       = useState(false)
+  const [dismissing,     setDismissing]     = useState<'dismiss' | 'away' | null>(null)
+  const [showTransfer,   setShowTransfer]   = useState(false)
   const [uploadingPhoto, setUploadingPhoto] = useState(false)
-  const [projects,    setProjects]    = useState<{ id: string; name: string; code: string | null }[]>([])
+  const [projects,       setProjects]       = useState<{ id: string; name: string; code: string | null }[]>([])
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -204,11 +245,16 @@ export default function ColaboradorPerfilPage() {
   }
   if (!employee) return null
 
+  // Local atual legível
+  const localAtual = employee.locationName
+    || employee.project?.name
+    || (employee.locationId ? employee.locationId : null)
+
   return (
     <div className="max-w-5xl mx-auto space-y-6">
       <Breadcrumb items={[
-        { label: 'Dashboard',       href: '/app/dashboard' },
-        { label: 'Colaboradores',   href: '/app/colaboradores' },
+        { label: 'Dashboard',     href: '/app/dashboard' },
+        { label: 'Colaboradores', href: '/app/colaboradores' },
         { label: employee.name },
       ]} />
 
@@ -254,13 +300,22 @@ export default function ColaboradorPerfilPage() {
               {employee.role && <span className="font-medium text-gray-700">{employee.role}</span>}
               <span className="font-mono text-xs">{employee.code}</span>
             </div>
-            {employee.project && (
+            {localAtual && (
               <div className="mt-2 flex items-center gap-1.5">
-                <HardHat size={13} className="text-[#F5A623]" />
-                <Link href={`/app/centro-de-custo/${employee.project.id}`}
-                  className="text-sm text-[#F5A623] hover:underline font-medium">
-                  {employee.project.name}
-                </Link>
+                {employee.project ? (
+                  <>
+                    <HardHat size={13} className="text-[#F5A623]" />
+                    <Link href={`/app/centro-de-custo/${employee.project.id}`}
+                      className="text-sm text-[#F5A623] hover:underline font-medium">
+                      {localAtual}
+                    </Link>
+                  </>
+                ) : (
+                  <>
+                    <MapPin size={13} className="text-gray-400" />
+                    <span className="text-sm text-gray-600">{localAtual}</span>
+                  </>
+                )}
               </div>
             )}
           </div>
@@ -275,6 +330,12 @@ export default function ColaboradorPerfilPage() {
             </button>
             {employee.status !== 'DISMISSED' && (
               <>
+                <button
+                  onClick={() => setShowTransfer(true)}
+                  className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium border border-[#F5A623] rounded-xl text-[#F5A623] hover:bg-orange-50 transition-colors"
+                >
+                  <ArrowRightLeft size={14} /> Transferir
+                </button>
                 <button
                   onClick={() => setDismissing('away')}
                   className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium border border-amber-200 rounded-xl text-amber-600 hover:bg-amber-50 transition-colors"
@@ -324,20 +385,19 @@ export default function ColaboradorPerfilPage() {
         {/* Dados pessoais */}
         {tab === 'Dados pessoais' && (
           <div className="p-5 space-y-6">
-            {/* Dados pessoais */}
             <section>
               <h3 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
                 <User size={14} className="text-[#F5A623]" /> Dados pessoais
               </h3>
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
                 {[
-                  { label: 'CPF',             value: maskCpf(employee.cpf) },
-                  { label: 'RG',              value: employee.rg ?? '—' },
-                  { label: 'CTPS',            value: employee.ctps ?? '—' },
-                  { label: 'PIS/PASEP',       value: employee.pis ?? '—' },
-                  { label: 'Nascimento',      value: fmtDate(employee.birthDate) },
-                  { label: 'Telefone',        value: employee.phone ?? '—' },
-                  { label: 'E-mail',          value: employee.email ?? '—' },
+                  { label: 'CPF',       value: maskCpf(employee.cpf) },
+                  { label: 'RG',        value: employee.rg ?? '—' },
+                  { label: 'CTPS',      value: employee.ctps ?? '—' },
+                  { label: 'PIS/PASEP', value: employee.pis ?? '—' },
+                  { label: 'Nascimento', value: fmtDate(employee.birthDate) },
+                  { label: 'Telefone',  value: employee.phone ?? '—' },
+                  { label: 'E-mail',    value: employee.email ?? '—' },
                 ].map(f => (
                   <div key={f.label}>
                     <p className="text-[10px] text-gray-400 uppercase font-semibold tracking-wide mb-0.5">{f.label}</p>
@@ -347,19 +407,19 @@ export default function ColaboradorPerfilPage() {
               </div>
             </section>
             <div className="border-t border-gray-100" />
-            {/* Dados profissionais */}
             <section>
               <h3 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
                 <Shield size={14} className="text-[#F5A623]" /> Dados profissionais
               </h3>
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
                 {[
-                  { label: 'Tipo de contrato', value: TYPE_LABELS[employee.type] ?? employee.type },
-                  { label: 'Função',            value: employee.role ?? '—' },
-                  { label: 'Departamento',      value: employee.department ?? '—' },
-                  { label: 'Data de admissão',  value: fmtDate(employee.admissionDate) },
-                  { label: 'Data desligamento', value: fmtDate(employee.dismissalDate) },
-                  { label: 'Salário / Custo',   value: employee.salary ? '••••••' : '—' },
+                  { label: 'Tipo de contrato',  value: TYPE_LABELS[employee.type] ?? employee.type },
+                  { label: 'Função',             value: employee.role ?? '—' },
+                  { label: 'Departamento',       value: employee.department ?? '—' },
+                  { label: 'Data de admissão',   value: fmtDate(employee.admissionDate) },
+                  { label: 'Data desligamento',  value: fmtDate(employee.dismissalDate) },
+                  { label: 'Salário / Custo',    value: employee.salary ? '••••••' : '—' },
+                  { label: 'Local atual',        value: localAtual ?? '—' },
                 ].map(f => (
                   <div key={f.label}>
                     <p className="text-[10px] text-gray-400 uppercase font-semibold tracking-wide mb-0.5">{f.label}</p>
@@ -372,15 +432,13 @@ export default function ColaboradorPerfilPage() {
               <>
                 <div className="border-t border-gray-100" />
                 <section>
-                  <h3 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
-                    Endereço
-                  </h3>
+                  <h3 className="text-sm font-semibold text-gray-700 mb-3">Endereço</h3>
                   <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
                     {[
-                      { label: 'CEP',     value: employee.zipCode ?? '—' },
+                      { label: 'CEP',      value: employee.zipCode ?? '—' },
                       { label: 'Endereço', value: employee.address ?? '—' },
-                      { label: 'Cidade',  value: employee.city    ?? '—' },
-                      { label: 'UF',      value: employee.state   ?? '—' },
+                      { label: 'Cidade',   value: employee.city    ?? '—' },
+                      { label: 'UF',       value: employee.state   ?? '—' },
                     ].map(f => (
                       <div key={f.label}>
                         <p className="text-[10px] text-gray-400 uppercase font-semibold tracking-wide mb-0.5">{f.label}</p>
@@ -394,15 +452,9 @@ export default function ColaboradorPerfilPage() {
           </div>
         )}
 
-        {/* Documentos */}
-        {tab === 'Documentos' && (
-          <DocumentsPanel employee={employee} onReload={load} />
-        )}
-
-        {/* Treinamentos */}
-        {tab === 'Treinamentos' && (
-          <TrainingsPanel employee={employee} onReload={load} />
-        )}
+        {tab === 'Documentos'  && <DocumentsPanel  employee={employee} onReload={load} />}
+        {tab === 'Treinamentos' && <TrainingsPanel  employee={employee} onReload={load} />}
+        {tab === 'Férias'       && <VacationsPanel  employee={employee} onReload={load} />}
 
         {/* EPIs */}
         {tab === 'EPIs' && (
@@ -430,9 +482,9 @@ export default function ColaboradorPerfilPage() {
           </div>
         )}
 
-        {/* Férias */}
-        {tab === 'Férias' && (
-          <VacationsPanel employee={employee} onReload={load} />
+        {/* Histórico de obras */}
+        {tab === 'Histórico de obras' && (
+          <HistoryPanel employeeId={id} />
         )}
       </div>
 
@@ -455,6 +507,17 @@ export default function ColaboradorPerfilPage() {
           mode={dismissing}
         />
       )}
+
+      <TransferProjectModal
+        isOpen={showTransfer}
+        onClose={() => setShowTransfer(false)}
+        onSuccess={() => { setShowTransfer(false); load() }}
+        employeeId={id}
+        employeeName={employee.name}
+        currentProject={employee.project}
+        currentLocationId={employee.locationId}
+        currentLocationName={employee.locationName}
+      />
     </div>
   )
 }
@@ -462,10 +525,32 @@ export default function ColaboradorPerfilPage() {
 // ─── Subcomp: Documentos ──────────────────────────────────────────────────────
 
 function DocumentsPanel({ employee, onReload }: { employee: Employee; onReload: () => void }) {
-  const [showAdd, setShowAdd] = useState(false)
-  const [form,    setForm]    = useState({ type: 'ASO', name: '', issueDate: '', expiryDate: '', fileUrl: '', observations: '' })
-  const [saving,  setSaving]  = useState(false)
-  const [error,   setError]   = useState('')
+  const [showAdd,     setShowAdd]     = useState(false)
+  const [form,        setForm]        = useState({ type: 'ASO', name: '', issueDate: '', expiryDate: '', fileUrl: '', fileType: '', observations: '' })
+  const [saving,      setSaving]      = useState(false)
+  const [error,       setError]       = useState('')
+  const [uploading,   setUploading]   = useState(false)
+  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  const uploadFile = useCallback(async (file: File) => {
+    setUploading(true)
+    try {
+      const t = localStorage.getItem('token')     ?? ''
+      const c = localStorage.getItem('companyId') ?? ''
+      const fd = new FormData(); fd.append('file', file)
+      const res  = await fetch(`${API}/api/v1/uploads/employee-document`, {
+        method: 'POST', headers: { Authorization: `Bearer ${t}`, 'x-company-id': c }, body: fd,
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error)
+      setForm(f => ({ ...f, fileUrl: data.url, fileType: data.type }))
+    } catch (e: any) {
+      setError(e.message)
+    } finally {
+      setUploading(false)
+    }
+  }, [])
 
   const save = useCallback(async () => {
     if (!form.type || !form.name) { setError('Tipo e nome são obrigatórios'); return }
@@ -474,11 +559,18 @@ function DocumentsPanel({ employee, onReload }: { employee: Employee; onReload: 
       const res = await fetch(`${API}/api/v1/employees/${employee.id}/documents`, {
         method: 'POST',
         headers: { ...getHeaders(), 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...form, issueDate: form.issueDate || undefined, expiryDate: form.expiryDate || undefined }),
+        body: JSON.stringify({
+          ...form,
+          issueDate:  form.issueDate  || undefined,
+          expiryDate: form.expiryDate || undefined,
+          fileUrl:    form.fileUrl    || undefined,
+          fileType:   form.fileType   || undefined,
+        }),
       })
       const d = await res.json()
       if (!res.ok) throw new Error(d.error)
-      setShowAdd(false); setForm({ type: 'ASO', name: '', issueDate: '', expiryDate: '', fileUrl: '', observations: '' })
+      setShowAdd(false)
+      setForm({ type: 'ASO', name: '', issueDate: '', expiryDate: '', fileUrl: '', fileType: '', observations: '' })
       onReload()
     } catch (e: any) { setError(e.message) } finally { setSaving(false) }
   }, [form, employee.id, onReload])
@@ -491,6 +583,16 @@ function DocumentsPanel({ employee, onReload }: { employee: Employee; onReload: 
 
   return (
     <div className="p-5 space-y-4">
+      {/* Lightbox */}
+      {lightboxUrl && (
+        <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4" onClick={() => setLightboxUrl(null)}>
+          <button className="absolute top-4 right-4 text-white p-2 hover:bg-white/10 rounded-lg">
+            <X size={22} />
+          </button>
+          <img src={lightboxUrl} alt="Documento" className="max-w-full max-h-full rounded-xl object-contain" onClick={e => e.stopPropagation()} />
+        </div>
+      )}
+
       <div className="flex items-center justify-between">
         <p className="text-sm font-semibold text-gray-700">Documentos ({employee.documents.length})</p>
         <button onClick={() => setShowAdd(v => !v)}
@@ -525,10 +627,45 @@ function DocumentsPanel({ employee, onReload }: { employee: Employee; onReload: 
               <input type="date" value={form.expiryDate} onChange={e => setForm(f => ({ ...f, expiryDate: e.target.value }))}
                 className="w-full border border-gray-200 rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-300" />
             </div>
+
+            {/* FIX 5 — Upload de arquivo do documento */}
+            <div className="col-span-2">
+              <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">
+                Arquivo <span className="text-gray-400 font-normal normal-case">(JPG, PNG, PDF • Máx. 10MB)</span>
+              </label>
+              {form.fileUrl ? (
+                <div className="flex items-center gap-2 px-3 py-2 bg-white border border-gray-200 rounded-lg">
+                  {form.fileType === 'pdf' ? (
+                    <FileText size={16} className="text-red-500 flex-shrink-0" />
+                  ) : (
+                    <FileImage size={16} className="text-blue-500 flex-shrink-0" />
+                  )}
+                  <span className="text-xs text-gray-600 flex-1 truncate">
+                    {form.fileType === 'pdf' ? 'PDF anexado' : 'Imagem anexada'}
+                  </span>
+                  <button type="button" onClick={() => setForm(f => ({ ...f, fileUrl: '', fileType: '' }))}
+                    className="text-gray-400 hover:text-red-500">
+                    <X size={14} />
+                  </button>
+                </div>
+              ) : (
+                <label className={`flex items-center gap-2 px-3 py-2 border-2 border-dashed rounded-lg cursor-pointer transition-colors ${
+                  uploading ? 'border-orange-300 bg-orange-50' : 'border-gray-200 hover:border-[#F5A623]'
+                }`}>
+                  {uploading ? (
+                    <><Loader2 size={14} className="animate-spin text-[#F5A623]" /><span className="text-xs text-gray-500">Enviando...</span></>
+                  ) : (
+                    <><Upload size={14} className="text-gray-400" /><span className="text-xs text-gray-500">Clique para anexar documento</span></>
+                  )}
+                  <input ref={fileInputRef} type="file" className="hidden" accept="image/*,application/pdf"
+                    onChange={e => { const f = e.target.files?.[0]; if (f) uploadFile(f) }} />
+                </label>
+              )}
+            </div>
           </div>
           <div className="flex gap-2 justify-end">
             <button onClick={() => setShowAdd(false)} className="px-3 py-1.5 text-sm border border-gray-200 rounded-lg text-gray-600 hover:bg-gray-100">Cancelar</button>
-            <button onClick={save} disabled={saving}
+            <button onClick={save} disabled={saving || uploading}
               className="px-3 py-1.5 text-sm bg-[#F5A623] text-white rounded-lg hover:bg-[#d4891a] disabled:opacity-50 flex items-center gap-1.5">
               {saving ? <Loader2 size={12} className="animate-spin" /> : <Save size={12} />}
               Salvar
@@ -545,9 +682,10 @@ function DocumentsPanel({ employee, onReload }: { employee: Employee; onReload: 
             const days  = daysUntil(doc.expiryDate)
             const badge = days === null ? null
               : days < 0   ? { text: `Vencido há ${Math.abs(days)} dias`, cls: 'bg-red-100 text-red-700' }
-              : days <= 7  ? { text: `Vence em ${days} dias`, cls: 'bg-red-100 text-red-700' }
-              : days <= 30 ? { text: `Vence em ${days} dias`, cls: 'bg-amber-100 text-amber-700' }
+              : days <= 7  ? { text: `Vence em ${days} dias`,             cls: 'bg-red-100 text-red-700' }
+              : days <= 30 ? { text: `Vence em ${days} dias`,             cls: 'bg-amber-100 text-amber-700' }
               : { text: 'Válido', cls: 'bg-green-100 text-green-700' }
+            const fileUrl = doc.fileUrl ? toImageUrl(doc.fileUrl) : null
             return (
               <div key={doc.id} className="flex items-start justify-between p-3 bg-gray-50 rounded-xl border border-gray-100 gap-3">
                 <div className="min-w-0 flex-1">
@@ -557,14 +695,26 @@ function DocumentsPanel({ employee, onReload }: { employee: Employee; onReload: 
                     {badge && <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full ${badge.cls}`}>{badge.text}</span>}
                   </div>
                   <div className="flex gap-3 text-xs text-gray-400">
-                    {doc.issueDate && <span>Emissão: {new Date(doc.issueDate).toLocaleDateString('pt-BR')}</span>}
+                    {doc.issueDate  && <span>Emissão: {new Date(doc.issueDate).toLocaleDateString('pt-BR')}</span>}
                     {doc.expiryDate && <span>Vence: {new Date(doc.expiryDate).toLocaleDateString('pt-BR')}</span>}
                   </div>
                 </div>
                 <div className="flex items-center gap-1 flex-shrink-0">
-                  {doc.fileUrl && (
-                    <a href={toImageUrl(doc.fileUrl)} target="_blank" rel="noopener noreferrer"
-                      className="p-1.5 text-gray-400 hover:text-blue-500 transition-colors" title="Baixar">
+                  {fileUrl && doc.fileType === 'image' && (
+                    <button onClick={() => setLightboxUrl(fileUrl)}
+                      className="p-1.5 text-gray-400 hover:text-blue-500 transition-colors" title="Ver imagem">
+                      <Eye size={14} />
+                    </button>
+                  )}
+                  {fileUrl && doc.fileType === 'pdf' && (
+                    <a href={fileUrl} target="_blank" rel="noopener noreferrer"
+                      className="p-1.5 text-gray-400 hover:text-red-500 transition-colors" title="Abrir PDF">
+                      <ExternalLink size={14} />
+                    </a>
+                  )}
+                  {fileUrl && (
+                    <a href={fileUrl} download
+                      className="p-1.5 text-gray-400 hover:text-green-500 transition-colors" title="Baixar">
                       <Download size={14} />
                     </a>
                   )}
@@ -585,10 +735,31 @@ function DocumentsPanel({ employee, onReload }: { employee: Employee; onReload: 
 // ─── Subcomp: Treinamentos ────────────────────────────────────────────────────
 
 function TrainingsPanel({ employee, onReload }: { employee: Employee; onReload: () => void }) {
-  const [showAdd, setShowAdd] = useState(false)
-  const [form,    setForm]    = useState({ name: '', provider: '', workload: '', completedAt: '', expiresAt: '', observations: '' })
-  const [saving,  setSaving]  = useState(false)
-  const [error,   setError]   = useState('')
+  const [showAdd,   setShowAdd]   = useState(false)
+  const [form,      setForm]      = useState({ name: '', provider: '', workload: '', completedAt: '', expiresAt: '', certificateUrl: '', certificateType: '', observations: '' })
+  const [saving,    setSaving]    = useState(false)
+  const [error,     setError]     = useState('')
+  const [uploading, setUploading] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  const uploadCertificate = useCallback(async (file: File) => {
+    setUploading(true)
+    try {
+      const t = localStorage.getItem('token')     ?? ''
+      const c = localStorage.getItem('companyId') ?? ''
+      const fd = new FormData(); fd.append('file', file)
+      const res  = await fetch(`${API}/api/v1/uploads/employee-certificate`, {
+        method: 'POST', headers: { Authorization: `Bearer ${t}`, 'x-company-id': c }, body: fd,
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error)
+      setForm(f => ({ ...f, certificateUrl: data.url, certificateType: data.type }))
+    } catch (e: any) {
+      setError(e.message)
+    } finally {
+      setUploading(false)
+    }
+  }, [])
 
   const save = useCallback(async () => {
     if (!form.name || !form.completedAt) { setError('Nome e data de conclusão são obrigatórios'); return }
@@ -598,15 +769,20 @@ function TrainingsPanel({ employee, onReload }: { employee: Employee; onReload: 
         method: 'POST',
         headers: { ...getHeaders(), 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          name: form.name, provider: form.provider || undefined,
-          workload: form.workload ? parseInt(form.workload) : undefined,
-          completedAt: form.completedAt, expiresAt: form.expiresAt || undefined,
-          observations: form.observations || undefined,
+          name:            form.name,
+          provider:        form.provider     || undefined,
+          workload:        form.workload     ? parseInt(form.workload) : undefined,
+          completedAt:     form.completedAt,
+          expiresAt:       form.expiresAt    || undefined,
+          certificateUrl:  form.certificateUrl  || undefined,
+          certificateType: form.certificateType || undefined,
+          observations:    form.observations || undefined,
         }),
       })
       const d = await res.json()
       if (!res.ok) throw new Error(d.error)
-      setShowAdd(false); setForm({ name: '', provider: '', workload: '', completedAt: '', expiresAt: '', observations: '' })
+      setShowAdd(false)
+      setForm({ name: '', provider: '', workload: '', completedAt: '', expiresAt: '', certificateUrl: '', certificateType: '', observations: '' })
       onReload()
     } catch (e: any) { setError(e.message) } finally { setSaving(false) }
   }, [form, employee.id, onReload])
@@ -656,10 +832,45 @@ function TrainingsPanel({ employee, onReload }: { employee: Employee; onReload: 
               <input type="date" value={form.expiresAt} onChange={e => setForm(f => ({ ...f, expiresAt: e.target.value }))}
                 className="w-full border border-gray-200 rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-300" />
             </div>
+
+            {/* FIX 4 — Upload de certificado */}
+            <div className="col-span-2">
+              <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">
+                Certificado <span className="text-gray-400 font-normal normal-case">(JPG, PNG, PDF • Máx. 10MB)</span>
+              </label>
+              {form.certificateUrl ? (
+                <div className="flex items-center gap-2 px-3 py-2 bg-white border border-gray-200 rounded-lg">
+                  {form.certificateType === 'pdf' ? (
+                    <FileText size={16} className="text-red-500 flex-shrink-0" />
+                  ) : (
+                    <FileImage size={16} className="text-blue-500 flex-shrink-0" />
+                  )}
+                  <span className="text-xs text-gray-600 flex-1 truncate">
+                    {form.certificateType === 'pdf' ? 'PDF anexado' : 'Imagem anexada'}
+                  </span>
+                  <button type="button" onClick={() => setForm(f => ({ ...f, certificateUrl: '', certificateType: '' }))}
+                    className="text-gray-400 hover:text-red-500">
+                    <X size={14} />
+                  </button>
+                </div>
+              ) : (
+                <label className={`flex items-center gap-2 px-3 py-2 border-2 border-dashed rounded-lg cursor-pointer transition-colors ${
+                  uploading ? 'border-orange-300 bg-orange-50' : 'border-gray-200 hover:border-[#F5A623]'
+                }`}>
+                  {uploading ? (
+                    <><Loader2 size={14} className="animate-spin text-[#F5A623]" /><span className="text-xs text-gray-500">Enviando...</span></>
+                  ) : (
+                    <><Upload size={14} className="text-gray-400" /><span className="text-xs text-gray-500">Clique para anexar certificado</span></>
+                  )}
+                  <input ref={fileInputRef} type="file" className="hidden" accept="image/*,application/pdf"
+                    onChange={e => { const f = e.target.files?.[0]; if (f) uploadCertificate(f) }} />
+                </label>
+              )}
+            </div>
           </div>
           <div className="flex gap-2 justify-end">
             <button onClick={() => setShowAdd(false)} className="px-3 py-1.5 text-sm border border-gray-200 rounded-lg text-gray-600 hover:bg-gray-100">Cancelar</button>
-            <button onClick={save} disabled={saving}
+            <button onClick={save} disabled={saving || uploading}
               className="px-3 py-1.5 text-sm bg-[#F5A623] text-white rounded-lg hover:bg-[#d4891a] disabled:opacity-50 flex items-center gap-1.5">
               {saving ? <Loader2 size={12} className="animate-spin" /> : <Save size={12} />}
               Salvar
@@ -678,6 +889,7 @@ function TrainingsPanel({ employee, onReload }: { employee: Employee; onReload: 
               : days < 0   ? { text: `Vencido há ${Math.abs(days)} dias`, cls: 'bg-red-100 text-red-700' }
               : days <= 30 ? { text: `Vence em ${days} dias`, cls: 'bg-amber-100 text-amber-700' }
               : { text: 'Válido', cls: 'bg-green-100 text-green-700' }
+            const certUrl = t.certificateUrl ? toImageUrl(t.certificateUrl) : null
             return (
               <div key={t.id} className="flex items-start justify-between p-3 bg-gray-50 rounded-xl border border-gray-100 gap-3">
                 <div className="min-w-0 flex-1">
@@ -686,16 +898,22 @@ function TrainingsPanel({ employee, onReload }: { employee: Employee; onReload: 
                     <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full ${badge.cls}`}>{badge.text}</span>
                   </div>
                   <div className="flex gap-3 text-xs text-gray-400 flex-wrap">
-                    {t.provider && <span>{t.provider}</span>}
+                    {t.provider  && <span>{t.provider}</span>}
                     {t.workload  && <span>{t.workload}h</span>}
                     <span>Concluído: {new Date(t.completedAt).toLocaleDateString('pt-BR')}</span>
                     {t.expiresAt && <span>Vence: {new Date(t.expiresAt).toLocaleDateString('pt-BR')}</span>}
                   </div>
                 </div>
                 <div className="flex items-center gap-1 flex-shrink-0">
-                  {t.certificateUrl && (
-                    <a href={toImageUrl(t.certificateUrl)} target="_blank" rel="noopener noreferrer"
-                      className="p-1.5 text-gray-400 hover:text-blue-500" title="Certificado">
+                  {certUrl && t.certificateType === 'pdf' && (
+                    <a href={certUrl} target="_blank" rel="noopener noreferrer"
+                      className="p-1.5 text-gray-400 hover:text-red-500" title="Abrir PDF">
+                      <ExternalLink size={14} />
+                    </a>
+                  )}
+                  {certUrl && (
+                    <a href={certUrl} download
+                      className="p-1.5 text-gray-400 hover:text-blue-500" title="Baixar certificado">
                       <Download size={14} />
                     </a>
                   )}
@@ -712,29 +930,64 @@ function TrainingsPanel({ employee, onReload }: { employee: Employee; onReload: 
   )
 }
 
-// ─── Subcomp: Férias ──────────────────────────────────────────────────────────
+// ─── Subcomp: Férias (FIX 3 — cálculo bidirecional) ──────────────────────────
 
 function VacationsPanel({ employee, onReload }: { employee: Employee; onReload: () => void }) {
   const [showAdd, setShowAdd] = useState(false)
-  const [form,    setForm]    = useState({ startDate: '', endDate: '', days: '', observations: '' })
+  const [startDate, setStartDate] = useState('')
+  const [endDate,   setEndDate]   = useState('')
+  const [days,      setDays]      = useState('30')
+  const [vacStatus, setVacStatus] = useState('SCHEDULED')
+  const [observations, setObservations] = useState('')
   const [saving,  setSaving]  = useState(false)
   const [error,   setError]   = useState('')
 
+  const resetForm = () => { setStartDate(''); setEndDate(''); setDays('30'); setVacStatus('SCHEDULED'); setObservations('') }
+
+  // Início + dias → calcular fim
+  const handleStartChange = (val: string) => {
+    setStartDate(val)
+    if (val && parseInt(days) > 0) {
+      setEndDate(addDaysToDate(val, parseInt(days)))
+    }
+  }
+
+  const handleDaysChange = (val: string) => {
+    setDays(val)
+    const d = parseInt(val)
+    if (startDate && d > 0) {
+      setEndDate(addDaysToDate(startDate, d))
+    }
+  }
+
+  // Fim → recalcular dias
+  const handleEndChange = (val: string) => {
+    setEndDate(val)
+    if (startDate && val) {
+      const diff = daysBetween(startDate, val)
+      if (diff > 0) setDays(String(diff))
+    }
+  }
+
   const save = useCallback(async () => {
-    if (!form.startDate || !form.endDate || !form.days) { setError('Datas e dias são obrigatórios'); return }
+    if (!startDate || !endDate || !days) { setError('Datas e dias são obrigatórios'); return }
     setSaving(true); setError('')
     try {
       const res = await fetch(`${API}/api/v1/employees/${employee.id}/vacations`, {
         method: 'POST',
         headers: { ...getHeaders(), 'Content-Type': 'application/json' },
-        body: JSON.stringify({ startDate: form.startDate, endDate: form.endDate, days: parseInt(form.days), observations: form.observations || undefined }),
+        body: JSON.stringify({
+          startDate, endDate,
+          days:         parseInt(days),
+          status:       vacStatus,
+          observations: observations || undefined,
+        }),
       })
       const d = await res.json()
       if (!res.ok) throw new Error(d.error)
-      setShowAdd(false); setForm({ startDate: '', endDate: '', days: '', observations: '' })
-      onReload()
+      setShowAdd(false); resetForm(); onReload()
     } catch (e: any) { setError(e.message) } finally { setSaving(false) }
-  }, [form, employee.id, onReload])
+  }, [startDate, endDate, days, vacStatus, observations, employee.id, onReload])
 
   const remove = useCallback(async (vacationId: string) => {
     if (!confirm('Remover este registro de férias?')) return
@@ -742,11 +995,16 @@ function VacationsPanel({ employee, onReload }: { employee: Employee; onReload: 
     onReload()
   }, [employee.id, onReload])
 
+  // Descrição do período para preview
+  const periodPreview = startDate && endDate && parseInt(days) > 0
+    ? `${new Date(startDate + 'T00:00').toLocaleDateString('pt-BR')} até ${new Date(endDate + 'T00:00').toLocaleDateString('pt-BR')} (${days} dias corridos)`
+    : null
+
   return (
     <div className="p-5 space-y-4">
       <div className="flex items-center justify-between">
         <p className="text-sm font-semibold text-gray-700">Férias ({employee.vacations.length})</p>
-        <button onClick={() => setShowAdd(v => !v)}
+        <button onClick={() => { setShowAdd(v => !v); if (showAdd) resetForm() }}
           className="flex items-center gap-1.5 text-sm text-[#F5A623] hover:underline font-medium">
           <Plus size={14} /> Agendar
         </button>
@@ -755,25 +1013,55 @@ function VacationsPanel({ employee, onReload }: { employee: Employee; onReload: 
       {showAdd && (
         <div className="bg-gray-50 rounded-xl p-4 space-y-3 border border-gray-200">
           {error && <p className="text-xs text-red-500">{error}</p>}
-          <div className="grid grid-cols-3 gap-3">
+
+          {/* FIX 3 — Cálculo bidirecional */}
+          <div className="grid grid-cols-3 gap-3 items-end">
             <div>
               <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Início *</label>
-              <input type="date" value={form.startDate} onChange={e => setForm(f => ({ ...f, startDate: e.target.value }))}
+              <input type="date" value={startDate} onChange={e => handleStartChange(e.target.value)}
                 className="w-full border border-gray-200 rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-300" />
             </div>
             <div>
               <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Fim *</label>
-              <input type="date" value={form.endDate} onChange={e => setForm(f => ({ ...f, endDate: e.target.value }))}
+              <input type="date" value={endDate} onChange={e => handleEndChange(e.target.value)}
                 className="w-full border border-gray-200 rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-300" />
             </div>
             <div>
-              <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Dias *</label>
-              <input type="number" value={form.days} onChange={e => setForm(f => ({ ...f, days: e.target.value }))}
-                placeholder="30" className="w-full border border-gray-200 rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-300" />
+              <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Dias ↔</label>
+              <input type="number" min="1" max="365" value={days} onChange={e => handleDaysChange(e.target.value)}
+                className="w-full border border-gray-200 rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-300" />
             </div>
           </div>
+
+          {/* Preview do período */}
+          {periodPreview && (
+            <div className="flex items-center gap-2 px-3 py-2 bg-blue-50 border border-blue-100 rounded-lg">
+              <CalendarDays size={13} className="text-blue-500 flex-shrink-0" />
+              <p className="text-xs text-blue-700 font-medium">Período: {periodPreview}</p>
+            </div>
+          )}
+          <p className="text-[11px] text-gray-400">ℹ️ Preencha início + fim OU início + dias — o outro campo é calculado automaticamente</p>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Status</label>
+              <select value={vacStatus} onChange={e => setVacStatus(e.target.value)}
+                className="w-full border border-gray-200 rounded-lg px-2.5 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-orange-300">
+                <option value="SCHEDULED">Agendado</option>
+                <option value="ACTIVE">Em férias</option>
+                <option value="COMPLETED">Concluído</option>
+                <option value="CANCELLED">Cancelado</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Observações</label>
+              <input type="text" value={observations} onChange={e => setObservations(e.target.value)}
+                placeholder="Opcional..." className="w-full border border-gray-200 rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-300" />
+            </div>
+          </div>
+
           <div className="flex gap-2 justify-end">
-            <button onClick={() => setShowAdd(false)} className="px-3 py-1.5 text-sm border border-gray-200 rounded-lg text-gray-600 hover:bg-gray-100">Cancelar</button>
+            <button onClick={() => { setShowAdd(false); resetForm() }} className="px-3 py-1.5 text-sm border border-gray-200 rounded-lg text-gray-600 hover:bg-gray-100">Cancelar</button>
             <button onClick={save} disabled={saving}
               className="px-3 py-1.5 text-sm bg-[#F5A623] text-white rounded-lg hover:bg-[#d4891a] disabled:opacity-50 flex items-center gap-1.5">
               {saving ? <Loader2 size={12} className="animate-spin" /> : <Save size={12} />}
@@ -795,7 +1083,7 @@ function VacationsPanel({ employee, onReload }: { employee: Employee; onReload: 
                   <span className="text-gray-400 text-xs ml-2">({v.days} dias)</span>
                 </p>
                 <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full ${
-                  v.status === 'ACTIVE' ? 'bg-green-100 text-green-700'
+                  v.status === 'ACTIVE'    ? 'bg-green-100 text-green-700'
                   : v.status === 'COMPLETED' ? 'bg-gray-100 text-gray-500'
                   : v.status === 'CANCELLED' ? 'bg-red-100 text-red-600'
                   : 'bg-blue-100 text-blue-700'
@@ -810,6 +1098,90 @@ function VacationsPanel({ employee, onReload }: { employee: Employee; onReload: 
           ))}
         </div>
       )}
+    </div>
+  )
+}
+
+// ─── Subcomp: Histórico de obras ──────────────────────────────────────────────
+
+function HistoryPanel({ employeeId }: { employeeId: string }) {
+  const [history,  setHistory]  = useState<ProjectHistory[]>([])
+  const [loading,  setLoading]  = useState(true)
+
+  useEffect(() => {
+    setLoading(true)
+    fetch(`${API}/api/v1/employees/${employeeId}/history`, { headers: getHeaders() })
+      .then(r => r.json())
+      .then(setHistory)
+      .catch(() => {})
+      .finally(() => setLoading(false))
+  }, [employeeId])
+
+  if (loading) {
+    return (
+      <div className="p-5 flex items-center justify-center py-10">
+        <Loader2 size={20} className="animate-spin text-[#F5A623]" />
+      </div>
+    )
+  }
+
+  if (history.length === 0) {
+    return (
+      <div className="p-5 text-center py-10 space-y-2">
+        <History size={28} className="text-gray-200 mx-auto" />
+        <p className="text-sm text-gray-400">Nenhuma transferência registrada</p>
+        <p className="text-xs text-gray-400">O histórico é criado automaticamente ao transferir o colaborador</p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="p-5">
+      <p className="text-sm font-semibold text-gray-700 mb-4">Histórico de alocações ({history.length})</p>
+      <div className="relative">
+        {/* Linha vertical */}
+        <div className="absolute left-[7px] top-2 bottom-2 w-0.5 bg-gray-200" />
+        <div className="space-y-4">
+          {history.map((entry, idx) => {
+            const label   = entry.locationName || entry.project?.name || entry.locationId || 'Local não definido'
+            const durDays = diffDays(entry.startDate, entry.endDate ?? undefined)
+            const current = !entry.endDate
+            return (
+              <div key={entry.id} className="flex gap-4 relative">
+                {/* Círculo */}
+                <div className={`w-3.5 h-3.5 rounded-full border-2 flex-shrink-0 mt-0.5 z-10 ${
+                  current ? 'bg-[#F5A623] border-[#F5A623]' : 'bg-white border-gray-300'
+                }`} />
+                <div className="flex-1 pb-2">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <p className="text-sm font-semibold text-gray-800">{label}</p>
+                    {current && (
+                      <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-orange-100 text-[#F5A623]">
+                        Atual
+                      </span>
+                    )}
+                    {entry.project && (
+                      <Link href={`/app/centro-de-custo/${entry.project.id}`}
+                        className="text-[10px] text-[#F5A623] hover:underline">
+                        Ver obra
+                      </Link>
+                    )}
+                  </div>
+                  <p className="text-xs text-gray-400 mt-0.5">
+                    {new Date(entry.startDate).toLocaleDateString('pt-BR')}
+                    {' → '}
+                    {entry.endDate ? new Date(entry.endDate).toLocaleDateString('pt-BR') : 'hoje'}
+                    {durDays > 0 && <span className="ml-1 text-gray-400">({durDays} dias)</span>}
+                  </p>
+                  {entry.reason && (
+                    <p className="text-xs text-gray-400 mt-0.5">Motivo: {entry.reason}</p>
+                  )}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      </div>
     </div>
   )
 }

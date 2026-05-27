@@ -29,7 +29,7 @@ export interface EmployeeFormData {
   role:          string
   department:    string
   salary:        string
-  projectId:     string
+  locationId:    string  // 'OFFICE' | 'PROJECT_{id}' | etc.
 }
 
 interface Project {
@@ -39,12 +39,27 @@ interface Project {
 }
 
 interface Props {
-  isOpen:     boolean
-  onClose:    () => void
-  onSuccess:  (employee: any) => void
-  editId?:    string | null
-  projects?:  Project[]
+  isOpen:    boolean
+  onClose:   () => void
+  onSuccess: (employee: any) => void
+  editId?:   string | null
+  projects?: Project[]
 }
+
+// ─── Constantes ───────────────────────────────────────────────────────────────
+
+const FIXED_LOCATIONS = [
+  { value: 'OFFICE',       label: 'Escritório' },
+  { value: 'DEPOSIT',      label: 'Depósito' },
+  { value: 'WAREHOUSE',    label: 'Almoxarifado' },
+  { value: 'TOOL_ROOM',    label: 'Ferramentário' },
+  { value: 'WORKSHOP',     label: 'Oficina' },
+  { value: 'YARD',         label: 'Pátio' },
+  { value: 'FIELD',        label: 'Externo / Campo' },
+  { value: 'MEDICAL_LEAVE',label: 'Afastado médico' },
+  { value: 'VACATION',     label: 'Férias' },
+  { value: 'HOME_OFFICE',  label: 'Home office' },
+]
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -76,37 +91,48 @@ function maskCep(v: string): string {
   return d.replace(/(\d{5})(\d{0,3})/, '$1-$2').replace(/-$/, '')
 }
 
-const ROLES_SUGGESTIONS = [
-  'Pedreiro', 'Servente', 'Carpinteiro', 'Ferreiro', 'Eletricista',
-  'Encanador', 'Encarregado', 'Mestre de Obras', 'Engenheiro Civil',
-  'Arquiteto', 'Técnico em Edificações', 'Motorista', 'Operador de Máquinas',
-  'Pintor', 'Azulejista', 'Gesseiro', 'Impermeabilizador', 'Vigia',
-]
+/** Converte locationId para projectId se for PROJECT_ */
+function extractProjectId(locationId: string): string | undefined {
+  if (locationId.startsWith('PROJECT_')) return locationId.replace('PROJECT_', '')
+  return undefined
+}
 
 const EMPTY: EmployeeFormData = {
   name: '', cpf: '', rg: '', ctps: '', pis: '', birthDate: '', admissionDate: '',
   email: '', phone: '', address: '', city: '', state: '', zipCode: '', photo: '',
-  type: 'CLT', role: '', department: '', salary: '', projectId: '',
+  type: 'CLT', role: '', department: '', salary: '', locationId: '',
 }
 
 // ─── Componente ───────────────────────────────────────────────────────────────
 
-export function EmployeeFormModal({ isOpen, onClose, onSuccess, editId, projects = [] }: Props) {
-  const [form,         setForm]         = useState<EmployeeFormData>(EMPTY)
-  const [loading,      setLoading]      = useState(false)
-  const [loadingInit,  setLoadingInit]  = useState(false)
-  const [error,        setError]        = useState('')
-  const [success,      setSuccess]      = useState(false)
+export function EmployeeFormModal({ isOpen, onClose, onSuccess, editId, projects: projectsProp = [] }: Props) {
+  const [form,           setForm]           = useState<EmployeeFormData>(EMPTY)
+  const [loading,        setLoading]        = useState(false)
+  const [loadingInit,    setLoadingInit]    = useState(false)
+  const [error,          setError]          = useState('')
+  const [success,        setSuccess]        = useState(false)
   const [uploadingPhoto, setUploadingPhoto] = useState(false)
-  const [cepLoading,   setCepLoading]   = useState(false)
-  const [roleInput,    setRoleInput]    = useState('')
-  const [showRoleSugg, setShowRoleSugg] = useState(false)
+  const [cepLoading,     setCepLoading]     = useState(false)
+  const [projects,       setProjects]       = useState<Project[]>(projectsProp)
 
   const isEdit = !!editId
 
+  // Carregar obras dinamicamente se não vierem como prop
+  useEffect(() => {
+    if (!isOpen) return
+    const token     = localStorage.getItem('token')     ?? ''
+    const companyId = localStorage.getItem('companyId') ?? ''
+    fetch(`${API}/api/v1/projects?status=ACTIVE&limit=200`, {
+      headers: { Authorization: `Bearer ${token}`, 'x-company-id': companyId },
+    }).then(r => r.json()).then(d => {
+      const list = (d.projects ?? d) as any[]
+      setProjects(list.map(p => ({ id: p.id, name: p.name, code: p.code ?? null })))
+    }).catch(() => {})
+  }, [isOpen])
+
   // Carregar dados para edição
   useEffect(() => {
-    if (!isOpen) { setForm(EMPTY); setError(''); setSuccess(false); setRoleInput(''); return }
+    if (!isOpen) { setForm(EMPTY); setError(''); setSuccess(false); return }
     if (editId) {
       setLoadingInit(true)
       const token     = localStorage.getItem('token')     ?? ''
@@ -114,6 +140,9 @@ export function EmployeeFormModal({ isOpen, onClose, onSuccess, editId, projects
       fetch(`${API}/api/v1/employees/${editId}`, {
         headers: { Authorization: `Bearer ${token}`, 'x-company-id': companyId },
       }).then(r => r.json()).then(emp => {
+        // Reconstituir locationId
+        let locationId = emp.locationId ?? ''
+        if (!locationId && emp.projectId) locationId = `PROJECT_${emp.projectId}`
         setForm({
           name:          emp.name          ?? '',
           cpf:           emp.cpf           ? maskCpf(emp.cpf) : '',
@@ -133,9 +162,8 @@ export function EmployeeFormModal({ isOpen, onClose, onSuccess, editId, projects
           role:          emp.role          ?? '',
           department:    emp.department    ?? '',
           salary:        emp.salary        ? String(emp.salary) : '',
-          projectId:     emp.projectId     ?? '',
+          locationId,
         })
-        setRoleInput(emp.role ?? '')
       }).finally(() => setLoadingInit(false))
     }
   }, [isOpen, editId])
@@ -194,6 +222,16 @@ export function EmployeeFormModal({ isOpen, onClose, onSuccess, editId, projects
     setLoading(true)
     setError('')
     try {
+      const projectId    = extractProjectId(form.locationId)
+      const locationName = (() => {
+        if (!form.locationId) return undefined
+        if (form.locationId.startsWith('PROJECT_')) {
+          const p = projects.find(x => x.id === projectId)
+          return p ? p.name : undefined
+        }
+        return FIXED_LOCATIONS.find(l => l.value === form.locationId)?.label
+      })()
+
       const url    = isEdit ? `${API}/api/v1/employees/${editId}` : `${API}/api/v1/employees`
       const method = isEdit ? 'PUT' : 'POST'
       const res = await fetch(url, {
@@ -218,7 +256,9 @@ export function EmployeeFormModal({ isOpen, onClose, onSuccess, editId, projects
           role:          form.role.trim(),
           department:    form.department    || undefined,
           salary:        form.salary        ? parseFloat(form.salary.replace(',', '.')) : undefined,
-          projectId:     form.projectId     || undefined,
+          projectId:     projectId ?? (form.locationId ? null : undefined),
+          locationId:    form.locationId    || undefined,
+          locationName:  locationName       || undefined,
         }),
       })
       const data = await res.json()
@@ -230,13 +270,9 @@ export function EmployeeFormModal({ isOpen, onClose, onSuccess, editId, projects
     } finally {
       setLoading(false)
     }
-  }, [form, isEdit, editId, onSuccess, onClose])
+  }, [form, isEdit, editId, onSuccess, onClose, projects])
 
   if (!isOpen) return null
-
-  const filteredSugg = ROLES_SUGGESTIONS.filter(r =>
-    r.toLowerCase().includes(roleInput.toLowerCase()) && r !== roleInput
-  ).slice(0, 6)
 
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
@@ -280,9 +316,9 @@ export function EmployeeFormModal({ isOpen, onClose, onSuccess, editId, projects
                 </div>
               )}
 
-              {/* ─────────────────────────────────────────────────────────── */}
-              {/* SEÇÃO 1 — Foto e dados pessoais                             */}
-              {/* ─────────────────────────────────────────────────────────── */}
+              {/* ──────────────────────────────────────────────────────────── */}
+              {/* SEÇÃO 1 — Foto e dados pessoais                              */}
+              {/* ──────────────────────────────────────────────────────────── */}
               <section>
                 <div className="flex items-center gap-2 mb-4">
                   <User size={15} className="text-[#F5A623]" />
@@ -416,9 +452,9 @@ export function EmployeeFormModal({ isOpen, onClose, onSuccess, editId, projects
 
               <div className="border-t border-gray-100" />
 
-              {/* ─────────────────────────────────────────────────────────── */}
-              {/* SEÇÃO 2 — Dados profissionais                               */}
-              {/* ─────────────────────────────────────────────────────────── */}
+              {/* ──────────────────────────────────────────────────────────── */}
+              {/* SEÇÃO 2 — Dados profissionais                                */}
+              {/* ──────────────────────────────────────────────────────────── */}
               <section>
                 <div className="flex items-center gap-2 mb-4">
                   <Briefcase size={15} className="text-[#F5A623]" />
@@ -441,30 +477,47 @@ export function EmployeeFormModal({ isOpen, onClose, onSuccess, editId, projects
                       <option value="THIRD_PARTY">Terceirizado</option>
                     </select>
                   </div>
-                  <div className="relative">
+
+                  {/* FIX 1 — Função com datalist nativo */}
+                  <div>
                     <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
                       Função / Cargo <span className="text-red-400">*</span>
                     </label>
                     <input
-                      type="text"
-                      value={roleInput}
-                      onChange={e => { setRoleInput(e.target.value); set('role', e.target.value); setShowRoleSugg(true) }}
-                      onFocus={() => setShowRoleSugg(true)}
-                      onBlur={() => setTimeout(() => setShowRoleSugg(false), 150)}
-                      placeholder="Ex: Pedreiro, Encarregado..."
+                      list="funcoes-sugeridas"
+                      value={form.role}
+                      onChange={e => set('role', e.target.value)}
+                      placeholder="Digite ou selecione a função..."
                       className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-300"
                     />
-                    {showRoleSugg && filteredSugg.length > 0 && (
-                      <div className="absolute z-20 top-full mt-1 left-0 right-0 bg-white border border-gray-200 rounded-xl shadow-lg overflow-hidden">
-                        {filteredSugg.map(s => (
-                          <button key={s} type="button"
-                            className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
-                            onMouseDown={() => { setRoleInput(s); set('role', s); setShowRoleSugg(false) }}
-                          >{s}</button>
-                        ))}
-                      </div>
-                    )}
+                    <datalist id="funcoes-sugeridas">
+                      <option value="Pedreiro" />
+                      <option value="Servente" />
+                      <option value="Carpinteiro" />
+                      <option value="Armador" />
+                      <option value="Encarregado" />
+                      <option value="Mestre de obras" />
+                      <option value="Engenheiro Civil" />
+                      <option value="Arquiteto" />
+                      <option value="Técnico em Edificações" />
+                      <option value="Eletricista" />
+                      <option value="Hidráulico" />
+                      <option value="Pintor" />
+                      <option value="Gesseiro" />
+                      <option value="Azulejista" />
+                      <option value="Serralheiro" />
+                      <option value="Soldador" />
+                      <option value="Motorista" />
+                      <option value="Operador de máquinas" />
+                      <option value="Almoxarife" />
+                      <option value="Administrativo" />
+                      <option value="Auxiliar administrativo" />
+                      <option value="Porteiro" />
+                      <option value="Vigilante" />
+                      <option value="Estagiário" />
+                    </datalist>
                   </div>
+
                   <div>
                     <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Departamento / Setor</label>
                     <input
@@ -496,19 +549,33 @@ export function EmployeeFormModal({ isOpen, onClose, onSuccess, editId, projects
                       className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-300"
                     />
                   </div>
+
+                  {/* FIX 2 — Local atual: locais fixos + obras */}
                   <div>
-                    <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Obra atual</label>
+                    <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
+                      <MapPin size={11} className="inline mr-1" />
+                      Local atual
+                    </label>
                     <select
-                      value={form.projectId}
-                      onChange={e => set('projectId', e.target.value)}
+                      value={form.locationId}
+                      onChange={e => set('locationId', e.target.value)}
                       className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-300 bg-white"
                     >
-                      <option value="">— Sem obra alocada —</option>
-                      {projects.map(p => (
-                        <option key={p.id} value={p.id}>
-                          {p.name}{p.code ? ` (${p.code})` : ''}
-                        </option>
-                      ))}
+                      <option value="">Selecione o local...</option>
+                      <optgroup label="Locais fixos">
+                        {FIXED_LOCATIONS.map(l => (
+                          <option key={l.value} value={l.value}>{l.label}</option>
+                        ))}
+                      </optgroup>
+                      {projects.length > 0 && (
+                        <optgroup label="Obras">
+                          {projects.map(p => (
+                            <option key={p.id} value={`PROJECT_${p.id}`}>
+                              {p.code ? `${p.code} — ` : ''}{p.name}
+                            </option>
+                          ))}
+                        </optgroup>
+                      )}
                     </select>
                   </div>
                 </div>
@@ -516,9 +583,9 @@ export function EmployeeFormModal({ isOpen, onClose, onSuccess, editId, projects
 
               <div className="border-t border-gray-100" />
 
-              {/* ─────────────────────────────────────────────────────────── */}
-              {/* SEÇÃO 3 — Endereço                                          */}
-              {/* ─────────────────────────────────────────────────────────── */}
+              {/* ──────────────────────────────────────────────────────────── */}
+              {/* SEÇÃO 3 — Endereço                                           */}
+              {/* ──────────────────────────────────────────────────────────── */}
               <section>
                 <div className="flex items-center gap-2 mb-4">
                   <MapPin size={15} className="text-[#F5A623]" />

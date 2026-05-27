@@ -1,6 +1,7 @@
 import { FastifyInstance } from 'fastify'
-import * as fs   from 'fs'
-import * as path from 'path'
+import * as fs     from 'fs'
+import * as path   from 'path'
+import * as crypto from 'crypto'
 import { prisma } from '@sysobra/database'
 import {
   authenticate,
@@ -442,6 +443,8 @@ export async function employeeRoutes(app: FastifyInstance) {
         department:    body.department    ?? undefined,
         salary:        body.salary        ?? undefined,
         projectId:     body.projectId     !== undefined ? (body.projectId || null) : undefined,
+        locationId:    body.locationId   !== undefined ? (body.locationId   || null) : undefined,
+        locationName:  body.locationName !== undefined ? (body.locationName || null) : undefined,
       },
       include: { project: { select: { id: true, name: true, code: true } } },
     })
@@ -556,12 +559,13 @@ export async function employeeRoutes(app: FastifyInstance) {
     if (!emp) return reply.status(404).send({ error: 'Colaborador não encontrado' })
 
     const body = request.body as {
-      type:          string
-      name:          string
-      fileUrl?:      string
-      issueDate?:    string
-      expiryDate?:   string
-      observations?: string
+      type:           string
+      name:           string
+      fileUrl?:       string
+      fileType?:      string
+      issueDate?:     string
+      expiryDate?:    string
+      observations?:  string
     }
 
     if (!body.type || !body.name) return reply.status(400).send({ error: 'type e name são obrigatórios' })
@@ -573,6 +577,7 @@ export async function employeeRoutes(app: FastifyInstance) {
         type:         body.type,
         name:         body.name.trim(),
         fileUrl:      body.fileUrl    ?? null,
+        fileType:     body.fileType   ?? null,
         issueDate:    body.issueDate  ? new Date(body.issueDate)  : null,
         expiryDate:   body.expiryDate ? new Date(body.expiryDate) : null,
         observations: body.observations ?? null,
@@ -646,13 +651,14 @@ export async function employeeRoutes(app: FastifyInstance) {
     if (!emp) return reply.status(404).send({ error: 'Colaborador não encontrado' })
 
     const body = request.body as {
-      name:            string
-      provider?:       string
-      workload?:       number
-      completedAt:     string
-      expiresAt?:      string
-      certificateUrl?: string
-      observations?:   string
+      name:             string
+      provider?:        string
+      workload?:        number
+      completedAt:      string
+      expiresAt?:       string
+      certificateUrl?:  string
+      certificateType?: string
+      observations?:    string
     }
 
     if (!body.name || !body.completedAt) {
@@ -662,14 +668,15 @@ export async function employeeRoutes(app: FastifyInstance) {
     const training = await p.employeeTraining.create({
       data: {
         companyId,
-        employeeId:     id,
-        name:           body.name.trim(),
-        provider:       body.provider       ?? null,
-        workload:       body.workload        ?? null,
-        completedAt:    new Date(body.completedAt),
-        expiresAt:      body.expiresAt ? new Date(body.expiresAt) : null,
-        certificateUrl: body.certificateUrl ?? null,
-        observations:   body.observations   ?? null,
+        employeeId:      id,
+        name:            body.name.trim(),
+        provider:        body.provider       ?? null,
+        workload:        body.workload        ?? null,
+        completedAt:     new Date(body.completedAt),
+        expiresAt:       body.expiresAt ? new Date(body.expiresAt) : null,
+        certificateUrl:  body.certificateUrl  ?? null,
+        certificateType: body.certificateType ?? null,
+        observations:    body.observations    ?? null,
       },
     })
 
@@ -812,6 +819,355 @@ export async function employeeRoutes(app: FastifyInstance) {
     await p.employeeVacation.update({ where: { id: vacationId }, data: { isActive: false } })
     return reply.send({ success: true })
   })
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // HISTÓRICO DE OBRAS / TRANSFERÊNCIA
+  // ══════════════════════════════════════════════════════════════════════════
+
+  /** Retorna o nome legível de um locationId fixo */
+  function locationLabel(locationId: string | null | undefined): string {
+    const map: Record<string, string> = {
+      OFFICE: 'Escritório', DEPOSIT: 'Depósito', WAREHOUSE: 'Almoxarifado',
+      TOOL_ROOM: 'Ferramentário', WORKSHOP: 'Oficina', YARD: 'Pátio',
+      FIELD: 'Externo / Campo', MEDICAL_LEAVE: 'Afastado médico',
+      VACATION: 'Férias', HOME_OFFICE: 'Home office',
+    }
+    if (!locationId) return ''
+    return map[locationId] ?? locationId
+  }
+
+  /**
+   * GET /api/v1/employees/:id/history
+   * Histórico de obras / locais do colaborador.
+   */
+  app.get('/:id/history', async (request, reply) => {
+    const req       = request as RequestWithMember
+    const companyId = req.companyId!
+    const { id }    = request.params as { id: string }
+
+    const emp = await p.employee.findFirst({ where: { id, companyId, isActive: true } })
+    if (!emp) return reply.status(404).send({ error: 'Colaborador não encontrado' })
+
+    const history = await p.employeeProjectHistory.findMany({
+      where:   { employeeId: id, companyId },
+      include: { project: { select: { id: true, name: true, code: true } } },
+      orderBy: { startDate: 'desc' },
+    })
+
+    return reply.send(history)
+  })
+
+  /**
+   * POST /api/v1/employees/:id/transfer
+   * Transfere colaborador para nova obra / local.
+   * Salva histórico da alocação anterior.
+   */
+  app.post('/:id/transfer', async (request, reply) => {
+    const req       = request as RequestWithMember
+    const payload   = request.user as JwtPayload
+    const companyId = req.companyId!
+    const userId    = payload.sub
+    const { id }    = request.params as { id: string }
+
+    const body = request.body as {
+      locationId:    string
+      transferDate?: string
+      reason?:       string
+    }
+
+    if (!body.locationId) return reply.status(400).send({ error: 'locationId é obrigatório' })
+
+    const emp = await p.employee.findFirst({
+      where:   { id, companyId, isActive: true },
+      include: { project: { select: { id: true, name: true } } },
+    })
+    if (!emp) return reply.status(404).send({ error: 'Colaborador não encontrado' })
+
+    // Calcular novo projectId e locationName
+    let newProjectId:   string | null = null
+    let newLocationName = ''
+
+    if (body.locationId.startsWith('PROJECT_')) {
+      newProjectId = body.locationId.replace('PROJECT_', '')
+      const proj   = await prisma.project.findFirst({ where: { id: newProjectId, companyId, isActive: true } })
+      if (!proj) return reply.status(404).send({ error: 'Obra não encontrada' })
+      newLocationName = proj.name
+    } else {
+      newLocationName = locationLabel(body.locationId)
+    }
+
+    const transferDate = body.transferDate ? new Date(body.transferDate) : new Date()
+
+    // Salvar histórico da alocação anterior
+    const prevStart = (emp as any).lastTransferDate ?? emp.admissionDate ?? new Date()
+    await p.employeeProjectHistory.create({
+      data: {
+        id:           crypto.randomBytes(12).toString('hex'),
+        companyId,
+        employeeId:   id,
+        projectId:    emp.projectId ?? null,
+        locationId:   (emp as any).locationId   ?? null,
+        locationName: (emp as any).locationName ?? (emp.projectId ? (emp as any).project?.name ?? '' : ''),
+        startDate:    prevStart,
+        endDate:      transferDate,
+        reason:       body.reason ?? 'Transferência',
+        isActive:     true,
+      },
+    })
+
+    // Atualizar colaborador
+    const updated = await p.employee.update({
+      where: { id },
+      data: {
+        projectId:        newProjectId,
+        locationId:       body.locationId,
+        locationName:     newLocationName,
+        lastTransferDate: transferDate,
+      },
+      include: { project: { select: { id: true, name: true, code: true } } },
+    })
+
+    const prevLabel = (emp as any).locationName || (emp as any).project?.name || 'sem local'
+    await createAuditLog({
+      prisma: p, companyId, userId,
+      action:     'UPDATE',
+      module:     'COLLABORATORS',
+      entity:     'Employee',
+      entityId:   id,
+      entityName: emp.name,
+      description: `Colaborador '${emp.name}' transferido: '${prevLabel}' → '${newLocationName}'${body.reason ? ` · Motivo: ${body.reason}` : ''}`,
+      request,
+    })
+
+    return reply.send(serialiseEmployee(updated))
+  })
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // FOLHA DE PAGAMENTO
+  // ══════════════════════════════════════════════════════════════════════════
+
+  const ENCARGOS_CLT = {
+    inss_empregado:   0.14,
+    fgts:             0.08,
+    inss_patronal:    0.20,
+    rat:              0.03,
+    terceiros:        0.058,
+    ferias_provisao:  0.1111,
+    decimo_provisao:  0.0833,
+  }
+
+  function calcPayrollEntry(emp: any, horasExtras: number) {
+    const salario        = toNum(emp.salary)
+    const valorHora      = (salario / 220) * 1.5
+    const valorHE        = horasExtras * valorHora
+    const salarioBruto   = salario + valorHE
+
+    if (emp.type === 'PJ' || emp.type === 'THIRD_PARTY') {
+      return {
+        employeeId: emp.id, name: emp.name, type: emp.type, role: emp.role,
+        projectId:  emp.projectId,
+        project:    emp.project,
+        salarioBase: salario, horasExtras, valorHorasExtras: 0,
+        salarioBruto: salario, inss: 0, salarioLiquido: salario,
+        fgts: 0, encargosPatronais: 0, custoTotal: salario,
+      }
+    }
+
+    const totalEncPct = ENCARGOS_CLT.inss_patronal + ENCARGOS_CLT.rat + ENCARGOS_CLT.terceiros
+                      + ENCARGOS_CLT.ferias_provisao + ENCARGOS_CLT.decimo_provisao
+    const inss             = salarioBruto * ENCARGOS_CLT.inss_empregado
+    const fgts             = salarioBruto * ENCARGOS_CLT.fgts
+    const encargosPatronais = salarioBruto * totalEncPct
+    const custoTotal       = salarioBruto + fgts + encargosPatronais
+
+    return {
+      employeeId: emp.id, name: emp.name, type: emp.type, role: emp.role,
+      projectId:  emp.projectId,
+      project:    emp.project,
+      salarioBase: salario, horasExtras, valorHorasExtras: valorHE,
+      salarioBruto, inss,
+      salarioLiquido: salarioBruto - inss,
+      fgts, encargosPatronais, custoTotal,
+    }
+  }
+
+  /**
+   * GET /api/v1/employees/payroll-preview
+   * Prévia da folha de pagamento.
+   */
+  app.get('/payroll-preview', async (request, reply) => {
+    const req       = request as RequestWithMember
+    const companyId = req.companyId!
+
+    const q = request.query as { month?: string; year?: string; projectId?: string }
+    const now   = new Date()
+    const month = parseInt(q.month ?? String(now.getMonth() + 1), 10)
+    const year  = parseInt(q.year  ?? String(now.getFullYear()),  10)
+
+    const where: any = {
+      companyId,
+      isActive: true,
+      status:   { in: ['ACTIVE', 'AWAY'] },
+      salary:   { not: null },
+    }
+    if (q.projectId) where.projectId = q.projectId
+
+    const employees = await p.employee.findMany({
+      where,
+      include: { project: { select: { id: true, name: true, code: true } } },
+      orderBy: { name: 'asc' },
+    })
+
+    const entries = employees.map((emp: any) => calcPayrollEntry(emp, 0))
+
+    const totals = entries.reduce((acc: any, e: any) => ({
+      totalSalariosBrutos:  acc.totalSalariosBrutos  + e.salarioBruto,
+      totalSalariosLiquidos: acc.totalSalariosLiquidos + e.salarioLiquido,
+      totalFgts:            acc.totalFgts            + e.fgts,
+      totalEncargos:        acc.totalEncargos        + e.encargosPatronais,
+      totalCustoEmpresa:    acc.totalCustoEmpresa    + e.custoTotal,
+    }), { totalSalariosBrutos: 0, totalSalariosLiquidos: 0, totalFgts: 0, totalEncargos: 0, totalCustoEmpresa: 0 })
+
+    return reply.send({
+      month, year,
+      entries,
+      totals: { ...totals, quantidadeColaboradores: entries.length },
+    })
+  })
+
+  /**
+   * POST /api/v1/employees/payroll-launch
+   * Lança folha no financeiro, criando uma transação por obra.
+   */
+  app.post('/payroll-launch', async (request, reply) => {
+    const req       = request as RequestWithMember
+    const payload   = request.user as JwtPayload
+    const companyId = req.companyId!
+    const userId    = payload.sub
+
+    const body = request.body as {
+      month:       number
+      year:        number
+      description: string
+      entries: {
+        employeeId:          string
+        projectId?:          string | null
+        salarioBruto:        number
+        salarioLiquido:      number
+        horasExtras:         number
+        valorHorasExtras:    number
+        fgts:                number
+        encargosPatronais:   number
+        custoTotal:          number
+      }[]
+    }
+
+    if (!body.month || !body.year || !body.entries?.length) {
+      return reply.status(400).send({ error: 'month, year e entries são obrigatórios' })
+    }
+
+    const MONTH_LABELS = ['','Janeiro','Fevereiro','Março','Abril','Maio','Junho',
+      'Julho','Agosto','Setembro','Outubro','Novembro','Dezembro']
+    const mesLabel = MONTH_LABELS[body.month] ?? String(body.month)
+
+    // Agrupar colaboradores por projectId (null = sem obra)
+    const byProject: Record<string, typeof body.entries> = {}
+    for (const entry of body.entries) {
+      const key = entry.projectId ?? 'null'
+      if (!byProject[key]) byProject[key] = []
+      byProject[key].push(entry)
+    }
+
+    // Buscar categoria de despesa "Folha" se existir
+    const payrollCat = await p.financialCategory.findFirst({
+      where: {
+        companyId,
+        isActive: true,
+        type: { in: ['EXPENSE', 'BOTH'] },
+        OR: [
+          { name: { contains: 'folha', mode: 'insensitive' } },
+          { name: { contains: 'pagamento', mode: 'insensitive' } },
+          { name: { contains: 'salário', mode: 'insensitive' } },
+        ],
+      },
+    })
+
+    const referenceDate = new Date(body.year, body.month - 1, 1)
+    const dueDate       = new Date(body.year, body.month, 0) // último dia do mês
+    const createdTransactions: any[] = []
+
+    for (const [projectKey, entries] of Object.entries(byProject)) {
+      const projectId   = projectKey === 'null' ? null : projectKey
+      const total       = entries.reduce((sum, e) => sum + e.custoTotal, 0)
+      const empNames    = entries.map(e => {
+        const emp = body.entries.find(x => x.employeeId === e.employeeId)
+        return emp?.employeeId ?? e.employeeId
+      })
+
+      // Buscar nomes
+      const empRecs = await p.employee.findMany({
+        where: { id: { in: entries.map(e => e.employeeId) }, companyId },
+        select: { id: true, name: true },
+      })
+      const nameMap: Record<string, string> = Object.fromEntries(empRecs.map((e: any) => [e.id, e.name]))
+      const names = entries.map(e => nameMap[e.employeeId] ?? e.employeeId).join(', ')
+
+      let projectName = 'Administrativo'
+      if (projectId) {
+        const proj = await prisma.project.findFirst({ where: { id: projectId }, select: { name: true } })
+        if (proj) projectName = proj.name
+      }
+
+      const txHash = crypto.randomBytes(16).toString('hex')
+      const txNum  = `PAY-${body.year}${String(body.month).padStart(2,'0')}-${Date.now()}`
+
+      const tx = await p.financialTransaction.create({
+        data: {
+          companyId,
+          createdById:  userId,
+          type:         'EXPENSE',
+          status:       'PENDING',
+          isPaid:       false,
+          description:  `Folha ${mesLabel}/${body.year} — ${projectName} (${entries.length} colab.)`,
+          observations: `Colaboradores: ${names}`,
+          grossAmount:  total,
+          netAmount:    total,
+          dueDate,
+          referenceDate,
+          projectId:    projectId ?? undefined,
+          categoryId:   payrollCat?.id ?? undefined,
+          isPayroll:    true,
+          payrollMonth: body.month,
+          payrollYear:  body.year,
+          transactionHash:   txHash,
+          transactionNumber: txNum,
+          isActive:     true,
+          origin:       'SYSTEM',
+        },
+      })
+      createdTransactions.push(tx)
+    }
+
+    const totalGeral = body.entries.reduce((sum, e) => sum + e.custoTotal, 0)
+    const fmt = (n: number) => `R$ ${n.toFixed(2).replace('.', ',').replace(/\B(?=(\d{3})+(?!\d))/g, '.')}`
+
+    await createAuditLog({
+      prisma: p, companyId, userId,
+      action:     'CREATE',
+      module:     'COLLABORATORS',
+      entity:     'Payroll',
+      entityId:   `${body.year}-${body.month}`,
+      entityName: `Folha ${mesLabel}/${body.year}`,
+      description: `Folha ${mesLabel}/${body.year} lançada — ${body.entries.length} colaboradores · Total: ${fmt(totalGeral)}`,
+      request,
+    })
+
+    return reply.status(201).send({
+      success: true,
+      transactionsCreated: createdTransactions.length,
+      total: totalGeral,
+    })
+  })
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -819,6 +1175,8 @@ export async function employeeRoutes(app: FastifyInstance) {
 // ══════════════════════════════════════════════════════════════════════════════
 
 export async function employeePhotoUploadRoute(app: FastifyInstance) {
+
+  // ─── Foto do colaborador ────────────────────────────────────────────────────
   app.post('/employee-photo', {
     preHandler: [authenticate, requireCompany],
   }, async (request, reply) => {
@@ -858,6 +1216,110 @@ export async function employeePhotoUploadRoute(app: FastifyInstance) {
       filename:     path.basename(result.savedPath),
       size:         result.compressedSize,
       originalSize: result.originalSize,
+    })
+  })
+
+  // ─── Certificado de treinamento ─────────────────────────────────────────────
+  app.post('/employee-certificate', {
+    preHandler: [authenticate, requireCompany],
+  }, async (request, reply) => {
+    const req = request as RequestWithMember
+    const { companyId } = req
+
+    const data = await request.file()
+    if (!data) return reply.status(400).send({ error: 'Nenhum arquivo enviado' })
+
+    const ALLOWED = [...ALLOWED_TYPES, 'application/pdf']
+    if (!ALLOWED.includes(data.mimetype)) {
+      return reply.status(400).send({ error: 'Tipo inválido. JPEG, PNG, WEBP ou PDF.' })
+    }
+
+    let buffer: Buffer
+    try { buffer = await streamToBuffer(data.file) }
+    catch { return reply.status(500).send({ error: 'Erro ao ler arquivo' }) }
+
+    if (buffer.length > 10 * 1024 * 1024) {
+      return reply.status(400).send({ error: 'Arquivo muito grande. Máximo 10MB.' })
+    }
+
+    const dir       = path.join(UPLOADS_ROOT, 'employees', companyId, 'certificates')
+    fs.mkdirSync(dir, { recursive: true })
+    const basename  = `${Date.now()}-${data.filename.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 60)}`
+    const isPdf     = data.mimetype === 'application/pdf'
+
+    let filePath: string
+    let relPath:  string
+
+    if (isPdf) {
+      filePath = path.join(dir, basename)
+      fs.writeFileSync(filePath, buffer)
+      relPath  = `/uploads/employees/${companyId}/certificates/${basename}`
+    } else {
+      const result = await processAndSaveImage({
+        inputBuffer: buffer,
+        outputDir:   dir,
+        filename:    basename,
+        type:        'diary',  // max 1200px, q85
+      })
+      filePath = result.savedPath
+      relPath  = result.relativePath
+    }
+
+    return reply.send({
+      url:  relPath,
+      type: isPdf ? 'pdf' : 'image',
+      size: buffer.length,
+    })
+  })
+
+  // ─── Arquivo de documento do colaborador ───────────────────────────────────
+  app.post('/employee-document', {
+    preHandler: [authenticate, requireCompany],
+  }, async (request, reply) => {
+    const req = request as RequestWithMember
+    const { companyId } = req
+
+    const data = await request.file()
+    if (!data) return reply.status(400).send({ error: 'Nenhum arquivo enviado' })
+
+    const ALLOWED = [...ALLOWED_TYPES, 'application/pdf']
+    if (!ALLOWED.includes(data.mimetype)) {
+      return reply.status(400).send({ error: 'Tipo inválido. JPEG, PNG, WEBP ou PDF.' })
+    }
+
+    let buffer: Buffer
+    try { buffer = await streamToBuffer(data.file) }
+    catch { return reply.status(500).send({ error: 'Erro ao ler arquivo' }) }
+
+    if (buffer.length > 10 * 1024 * 1024) {
+      return reply.status(400).send({ error: 'Arquivo muito grande. Máximo 10MB.' })
+    }
+
+    const dir       = path.join(UPLOADS_ROOT, 'employees', companyId, 'documents')
+    fs.mkdirSync(dir, { recursive: true })
+    const basename  = `${Date.now()}-${data.filename.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 60)}`
+    const isPdf     = data.mimetype === 'application/pdf'
+
+    let relPath: string
+
+    if (isPdf) {
+      const filePath = path.join(dir, basename)
+      fs.writeFileSync(filePath, buffer)
+      relPath = `/uploads/employees/${companyId}/documents/${basename}`
+    } else {
+      const result = await processAndSaveImage({
+        inputBuffer: buffer,
+        outputDir:   dir,
+        filename:    basename,
+        type:        'diary',
+      })
+      relPath = result.relativePath
+    }
+
+    return reply.send({
+      url:  relPath,
+      type: isPdf ? 'pdf' : 'image',
+      size: buffer.length,
     })
   })
 }

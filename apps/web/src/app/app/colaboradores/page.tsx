@@ -7,7 +7,7 @@ import {
   Users, UserCheck, UserX, UserMinus, HardHat, TrendingUp,
   TrendingDown, AlertTriangle, Clock, Plus, Search, X, RefreshCw,
   Loader2, FileDown, ChevronLeft, ChevronRight,
-  Eye, Pencil, UserCog, CalendarDays, Shield,
+  Eye, Pencil, UserCog, CalendarDays, Shield, DollarSign,
 } from 'lucide-react'
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
@@ -222,6 +222,10 @@ export default function ColaboradoresPage() {
         >
           <Plus size={16} /> Novo colaborador
         </button>
+        <Link href="/app/colaboradores/folha"
+          className="flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white text-sm font-semibold px-4 py-2.5 rounded-xl shadow-sm transition-colors">
+          <DollarSign size={16} /> Folha de pagamento
+        </Link>
       </div>
 
       {/* ── Alertas de urgência ────────────────────────────────────────── */}
