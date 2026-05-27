@@ -3,10 +3,12 @@ import { PrismaClient } from '@prisma/client'
 const prisma = new PrismaClient()
 
 async function main() {
-  // Buscar primeira empresa cadastrada
-  const company = await prisma.company.findFirst()
+  // Buscar empresa "Vertice teste" (ambiente de testes)
+  const company = await prisma.company.findFirst({
+    where: { name: { contains: 'teste', mode: 'insensitive' } },
+  })
   if (!company) {
-    console.error('Nenhuma empresa encontrada. Cadastre uma empresa primeiro.')
+    console.error('Empresa de teste não encontrada. Verifique o nome no banco.')
     return
   }
   const companyId = company.id
