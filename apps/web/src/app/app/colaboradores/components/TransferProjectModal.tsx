@@ -1,16 +1,17 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { X, ArrowRightLeft, Loader2, CheckCircle, AlertTriangle, HardHat } from 'lucide-react'
+import { X, ArrowRightLeft, Loader2, CheckCircle, AlertTriangle, HardHat, MapPin, Building2 } from 'lucide-react'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
 interface Project {
-  id:   string
-  name: string
-  code: string | null
+  id:     string
+  name:   string
+  code:   string | null
+  status: string
 }
 
 interface Props {
@@ -27,16 +28,16 @@ interface Props {
 // ─── Constantes ───────────────────────────────────────────────────────────────
 
 const FIXED_LOCATIONS = [
-  { value: 'OFFICE',        label: 'Escritório' },
-  { value: 'DEPOSIT',       label: 'Depósito' },
-  { value: 'WAREHOUSE',     label: 'Almoxarifado' },
-  { value: 'TOOL_ROOM',     label: 'Ferramentário' },
-  { value: 'WORKSHOP',      label: 'Oficina' },
-  { value: 'YARD',          label: 'Pátio' },
-  { value: 'FIELD',         label: 'Externo / Campo' },
-  { value: 'MEDICAL_LEAVE', label: 'Afastado médico' },
-  { value: 'VACATION',      label: 'Férias' },
-  { value: 'HOME_OFFICE',   label: 'Home office' },
+  { value: 'OFFICE',        label: '🏢 Escritório' },
+  { value: 'DEPOSIT',       label: '📦 Depósito' },
+  { value: 'WAREHOUSE',     label: '🏭 Almoxarifado' },
+  { value: 'TOOL_ROOM',     label: '🔧 Ferramentário' },
+  { value: 'WORKSHOP',      label: '⚙️ Oficina' },
+  { value: 'YARD',          label: '🚧 Pátio' },
+  { value: 'FIELD',         label: '🌐 Externo / Campo' },
+  { value: 'MEDICAL_LEAVE', label: '🏥 Afastado médico' },
+  { value: 'VACATION',      label: '🏖️ Férias' },
+  { value: 'HOME_OFFICE',   label: '🏠 Home office' },
 ]
 
 function todayIso() {
@@ -57,33 +58,60 @@ export function TransferProjectModal({
   employeeId, employeeName,
   currentProject, currentLocationId, currentLocationName,
 }: Props) {
-  const [locationId,    setLocationId]    = useState('')
-  const [transferDate,  setTransferDate]  = useState(todayIso())
-  const [reason,        setReason]        = useState('')
-  const [loading,       setLoading]       = useState(false)
-  const [error,         setError]         = useState('')
-  const [success,       setSuccess]       = useState(false)
-  const [projects,      setProjects]      = useState<Project[]>([])
+  // ── Cascata: tipo → local específico ──────────────────────────────────────
+  const [newLocationType, setNewLocationType] = useState<'FIXED' | 'PROJECT' | ''>('')
+  const [newLocationFixed, setNewLocationFixed] = useState('')
+  const [newProjectId,     setNewProjectId]     = useState('')
 
-  // Carregar obras
+  const [transferDate, setTransferDate] = useState(todayIso())
+  const [reason,       setReason]       = useState('')
+  const [loading,      setLoading]      = useState(false)
+  const [error,        setError]        = useState('')
+  const [success,      setSuccess]      = useState(false)
+  const [projects,     setProjects]     = useState<Project[]>([])
+  const [loadingProjs, setLoadingProjs] = useState(false)
+
+  // Carregar obras ativas ao abrir
   useEffect(() => {
     if (!isOpen) return
-    const h = getHeaders()
-    fetch(`${API}/api/v1/projects?status=ACTIVE&limit=200`, {
-      headers: { ...h, 'Content-Type': 'application/json' },
+    setLoadingProjs(true)
+    fetch(`${API}/api/v1/projects?status=ALL&limit=200`, {
+      headers: getHeaders(),
     }).then(r => r.json()).then(d => {
       const list = (d.projects ?? d) as any[]
-      setProjects(list.map(p => ({ id: p.id, name: p.name, code: p.code ?? null })))
-    }).catch(() => {})
+      const active = list.filter((p: any) => !['COMPLETED', 'CANCELLED'].includes(p.status))
+      setProjects(active.map((p: any) => ({ id: p.id, name: p.name, code: p.code ?? null, status: p.status })))
+    }).catch(() => {}).finally(() => setLoadingProjs(false))
   }, [isOpen])
 
   // Reset ao fechar
   useEffect(() => {
-    if (!isOpen) { setLocationId(''); setReason(''); setTransferDate(todayIso()); setError(''); setSuccess(false) }
+    if (!isOpen) {
+      setNewLocationType(''); setNewLocationFixed(''); setNewProjectId('')
+      setReason(''); setTransferDate(todayIso()); setError(''); setSuccess(false)
+    }
   }, [isOpen])
 
+  // Montar locationId para o backend
+  const locationId = newLocationType === 'FIXED'
+    ? newLocationFixed
+    : newLocationType === 'PROJECT'
+      ? (newProjectId ? `PROJECT_${newProjectId}` : '')
+      : ''
+
+  const canConfirm = !!(
+    transferDate &&
+    ((newLocationType === 'FIXED' && newLocationFixed) ||
+     (newLocationType === 'PROJECT' && newProjectId))
+  )
+
+  // Label do novo local para exibição
+  const newLocationLabel = newLocationType === 'PROJECT'
+    ? projects.find(p => p.id === newProjectId)?.name ?? ''
+    : FIXED_LOCATIONS.find(l => l.value === newLocationFixed)?.label?.replace(/^\S+\s/, '') ?? ''
+
   const handleConfirm = useCallback(async () => {
-    if (!locationId) { setError('Selecione o novo local ou obra'); return }
+    if (!canConfirm) return
     setLoading(true); setError('')
     try {
       const res = await fetch(`${API}/api/v1/employees/${employeeId}/transfer`, {
@@ -100,14 +128,14 @@ export function TransferProjectModal({
     } finally {
       setLoading(false)
     }
-  }, [locationId, transferDate, reason, employeeId, onSuccess, onClose])
+  }, [canConfirm, locationId, transferDate, reason, employeeId, onSuccess, onClose])
 
   if (!isOpen) return null
 
   // Descrição do local atual
   const currentLabel = currentLocationName
     || (currentProject ? currentProject.name : null)
-    || (currentLocationId ? FIXED_LOCATIONS.find(l => l.value === currentLocationId)?.label : null)
+    || (currentLocationId ? (FIXED_LOCATIONS.find(l => l.value === currentLocationId)?.label?.replace(/^\S+\s/, '') ?? currentLocationId) : null)
     || 'Sem local atribuído'
 
   return (
@@ -122,8 +150,8 @@ export function TransferProjectModal({
               <ArrowRightLeft size={16} className="text-[#F5A623]" />
             </div>
             <div>
-              <h2 className="text-base font-bold text-gray-900">Transferir de obra</h2>
-              <p className="text-xs text-gray-400">Alterar local / alocação do colaborador</p>
+              <h2 className="text-base font-bold text-gray-900">Transferir colaborador</h2>
+              <p className="text-xs text-gray-400">Alterar local / alocação</p>
             </div>
           </div>
           <button onClick={onClose} className="p-1.5 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100">
@@ -161,33 +189,83 @@ export function TransferProjectModal({
             </div>
           )}
 
-          {/* Nova obra / local */}
+          {/* ── Cascata: Select 1 — tipo de local ─────────────────────────── */}
           <div>
             <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
-              Novo local / obra <span className="text-red-400">*</span>
+              Novo local <span className="text-red-400">*</span>
             </label>
             <select
-              value={locationId}
-              onChange={e => setLocationId(e.target.value)}
+              value={newLocationType}
+              onChange={e => {
+                setNewLocationType(e.target.value as 'FIXED' | 'PROJECT' | '')
+                setNewLocationFixed('')
+                setNewProjectId('')
+              }}
               className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-300 bg-white"
             >
-              <option value="">Selecione o local...</option>
-              <optgroup label="Locais fixos">
+              <option value="">Selecione o tipo de local...</option>
+              <option value="FIXED">📍 Local fixo (escritório, depósito, etc.)</option>
+              <option value="PROJECT">🏗️ Obra</option>
+            </select>
+          </div>
+
+          {/* ── Cascata: Select 2A — local fixo ───────────────────────────── */}
+          {newLocationType === 'FIXED' && (
+            <div>
+              <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
+                <MapPin size={11} className="inline mr-1" />
+                Local fixo <span className="text-red-400">*</span>
+              </label>
+              <select
+                value={newLocationFixed}
+                onChange={e => setNewLocationFixed(e.target.value)}
+                className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-300 bg-white"
+              >
+                <option value="">Selecione o local...</option>
                 {FIXED_LOCATIONS.map(l => (
                   <option key={l.value} value={l.value}>{l.label}</option>
                 ))}
-              </optgroup>
-              {projects.length > 0 && (
-                <optgroup label="Obras">
-                  {projects.map(p => (
-                    <option key={p.id} value={`PROJECT_${p.id}`}>
-                      {p.code ? `${p.code} — ` : ''}{p.name}
-                    </option>
-                  ))}
-                </optgroup>
+              </select>
+            </div>
+          )}
+
+          {/* ── Cascata: Select 2B — obra ─────────────────────────────────── */}
+          {newLocationType === 'PROJECT' && (
+            <div>
+              <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
+                <Building2 size={11} className="inline mr-1" />
+                Obra <span className="text-red-400">*</span>
+              </label>
+              <select
+                value={newProjectId}
+                onChange={e => setNewProjectId(e.target.value)}
+                className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-300 bg-white"
+                disabled={loadingProjs}
+              >
+                <option value="">
+                  {loadingProjs ? 'Carregando obras...' : 'Selecione a obra...'}
+                </option>
+                {projects.map(p => (
+                  <option key={p.id} value={p.id}>
+                    {p.code ? `${p.code} — ` : ''}{p.name}
+                  </option>
+                ))}
+              </select>
+              {projects.length === 0 && !loadingProjs && (
+                <p className="text-xs text-gray-400 mt-1">Nenhuma obra ativa encontrada</p>
               )}
-            </select>
-          </div>
+            </div>
+          )}
+
+          {/* Preview do novo local selecionado */}
+          {newLocationLabel && (
+            <div className="flex items-center gap-2 px-3 py-2.5 bg-green-50 border border-green-200 rounded-xl">
+              <CheckCircle size={13} className="text-green-600 flex-shrink-0" />
+              <p className="text-sm text-green-800">
+                Novo local: <strong>{newLocationLabel}</strong>
+              </p>
+            </div>
+          )}
 
           {/* Data da transferência */}
           <div>
@@ -230,7 +308,7 @@ export function TransferProjectModal({
           <button
             type="button"
             onClick={handleConfirm}
-            disabled={loading || success}
+            disabled={!canConfirm || loading || success}
             className="flex-1 bg-[#F5A623] hover:bg-[#d4891a] text-white text-sm font-semibold py-2.5 rounded-xl transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
           >
             {loading ? (

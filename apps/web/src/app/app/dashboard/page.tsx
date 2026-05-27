@@ -17,7 +17,7 @@ import {
   Plus, Pencil, CheckCircle, XCircle, Trash2, RefreshCcw,
 } from 'lucide-react'
 
-import { useFilterState, useDashboardData, useBankAccounts, useProjects, useProjectAlerts, type ProjectOption } from './hooks'
+import { useFilterState, useDashboardData, useBankAccounts, useProjects, useProjectAlerts, useVacationAlerts, type ProjectOption } from './hooks'
 import { ChartModal, ChartDropdown, ZoomBtn, makeChartTooltip, useChartExport, exportCsv } from './chart-actions'
 import type { BillGroup, Transaction, ExpenseCategory, CashflowPoint, BalancePoint } from './data'
 import { formatCurrency, formatCurrencyCompact } from '@/lib/format'
@@ -201,11 +201,13 @@ function ActivitiesCard({ loading }: { loading: boolean }) {
 
 function AlertsCard({
   budgetAlertCount, delayAlertCount, overduePayable, overdueReceivable,
+  vacationAlerts,
 }: {
-  budgetAlertCount: number
-  delayAlertCount:  number
-  overduePayable:   { count: number; amount: number }
-  overdueReceivable:{ count: number; amount: number }
+  budgetAlertCount:  number
+  delayAlertCount:   number
+  overduePayable:    { count: number; amount: number }
+  overdueReceivable: { count: number; amount: number }
+  vacationAlerts?:   { proximasCount: number; vencendoCount: number; vencidasCount: number; emFeriasCount: number }
 }) {
   const items: { icon: React.ElementType; title: string; desc: string; action: string; href?: string; scheme: { bg:string; border:string; icon:string; text:string } }[] = []
 
@@ -239,6 +241,31 @@ function AlertsCard({
     desc:  'Data prevista de conclusão ultrapassada',
     action: 'Ver obras →', href: '/app/centro-de-custo',
     scheme: { bg:'bg-red-50', border:'border-red-200', icon:'text-red-500', text:'text-red-700' },
+  })
+
+  // ── Alertas de férias ──────────────────────────────────────────────────────
+  if (vacationAlerts?.vencidasCount && vacationAlerts.vencidasCount > 0) items.push({
+    icon: AlertTriangle,
+    title: `${vacationAlerts.vencidasCount} colaborador${vacationAlerts.vencidasCount !== 1 ? 'es' : ''} com férias vencidas`,
+    desc:  'Prazo legal CLT ultrapassado — risco trabalhista',
+    action: 'Ver colaboradores →', href: '/app/colaboradores?tab=ferias',
+    scheme: { bg:'bg-red-50', border:'border-red-200', icon:'text-red-500', text:'text-red-700' },
+  })
+
+  if (vacationAlerts?.vencendoCount && vacationAlerts.vencendoCount > 0) items.push({
+    icon: AlertCircle,
+    title: `${vacationAlerts.vencendoCount} colaborador${vacationAlerts.vencendoCount !== 1 ? 'es' : ''} com férias vencendo`,
+    desc:  'Prazo de férias expira nos próximos 60 dias',
+    action: 'Ver colaboradores →', href: '/app/colaboradores?tab=ferias',
+    scheme: { bg:'bg-amber-50', border:'border-amber-200', icon:'text-amber-500', text:'text-amber-700' },
+  })
+
+  if (vacationAlerts?.proximasCount && vacationAlerts.proximasCount > 0) items.push({
+    icon: Info,
+    title: `${vacationAlerts.proximasCount} férias agendada${vacationAlerts.proximasCount !== 1 ? 's' : ''} nos próximos 30 dias`,
+    desc:  `${vacationAlerts.emFeriasCount > 0 ? `${vacationAlerts.emFeriasCount} colaborador${vacationAlerts.emFeriasCount !== 1 ? 'es' : ''} em férias agora · ` : ''}Planeje a cobertura`,
+    action: 'Ver colaboradores →', href: '/app/colaboradores?tab=ferias',
+    scheme: { bg:'bg-blue-50', border:'border-blue-200', icon:'text-blue-500', text:'text-blue-700' },
   })
 
   if (items.length === 0) items.push({
@@ -330,7 +357,8 @@ export default function DashboardPage() {
   const { data, loading, error, refetch } = useDashboardData(filters)
   const bankAccounts  = useBankAccounts()
   const projects      = useProjects()
-  const { alerts: projectAlerts } = useProjectAlerts()
+  const { alerts: projectAlerts }  = useProjectAlerts()
+  const { alerts: vacationAlerts } = useVacationAlerts()
 
   // Estado do accordion de filtros (mobile)
   const [filtersOpen, setFiltersOpen] = useState(false)
@@ -667,6 +695,7 @@ export default function DashboardPage() {
             delayAlertCount={projectAlerts.delayAlertCount}
             overduePayable={{ count: accountsPayable[0]?.count ?? 0, amount: accountsPayable[0]?.valor ?? 0 }}
             overdueReceivable={{ count: accountsReceivable[0]?.count ?? 0, amount: accountsReceivable[0]?.valor ?? 0 }}
+            vacationAlerts={vacationAlerts}
           />
         </div>
       </div>

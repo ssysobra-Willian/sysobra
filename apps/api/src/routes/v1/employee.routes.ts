@@ -1297,8 +1297,411 @@ export async function employeeRoutes(app: FastifyInstance) {
   })
 
   /**
+   * GET /api/v1/employees/payroll-draft?month=&year=
+   * Carrega rascunho de folha existente.
+   */
+  app.get('/payroll-draft', async (request, reply) => {
+    const req       = request as RequestWithMember
+    const companyId = req.companyId!
+    const q         = request.query as { month?: string; year?: string }
+    const month     = parseInt(q.month ?? '0', 10)
+    const year      = parseInt(q.year  ?? '0', 10)
+
+    if (!month || !year) {
+      return reply.status(400).send({ error: 'month e year são obrigatórios' })
+    }
+
+    const draft = await p.payrollDraft.findUnique({
+      where: { companyId_month_year: { companyId, month, year } },
+    })
+
+    if (!draft) return reply.status(404).send({ error: 'Nenhum rascunho encontrado' })
+    return reply.send({ draft })
+  })
+
+  /**
+   * POST /api/v1/employees/payroll-draft
+   * Salva/atualiza rascunho de folha (upsert por companyId+month+year).
+   */
+  app.post('/payroll-draft', async (request, reply) => {
+    const req       = request as RequestWithMember
+    const payload   = request.user as JwtPayload
+    const companyId = req.companyId!
+    const userId    = payload.sub
+
+    const body = request.body as {
+      month:              number
+      year:               number
+      data:               any
+      totalBruto:         number
+      totalLiquido:       number
+      totalColaboradores: number
+      observations?:      string
+    }
+
+    if (!body.month || !body.year || !body.data) {
+      return reply.status(400).send({ error: 'month, year e data são obrigatórios' })
+    }
+
+    const draft = await p.payrollDraft.upsert({
+      where:  { companyId_month_year: { companyId, month: body.month, year: body.year } },
+      update: {
+        data:               body.data,
+        totalBruto:         body.totalBruto,
+        totalLiquido:       body.totalLiquido,
+        totalColaboradores: body.totalColaboradores,
+        observations:       body.observations ?? null,
+        status:             'DRAFT',
+      },
+      create: {
+        companyId,
+        month:              body.month,
+        year:               body.year,
+        data:               body.data,
+        totalBruto:         body.totalBruto,
+        totalLiquido:       body.totalLiquido,
+        totalColaboradores: body.totalColaboradores,
+        observations:       body.observations ?? null,
+        status:             'DRAFT',
+        createdBy:          userId,
+      },
+    })
+
+    return reply.status(201).send({ draft })
+  })
+
+  /**
+   * POST /api/v1/employees/payroll-pdf
+   * Gera PDF profissional da folha (A4 paisagem) via Puppeteer.
+   */
+  app.post('/payroll-pdf', async (request, reply) => {
+    const req       = request as RequestWithMember
+    const companyId = req.companyId!
+
+    const body = request.body as {
+      month:   number
+      year:    number
+      entries: {
+        employeeId:         string
+        name:               string
+        type:               string
+        role?:              string | null
+        projectName?:       string | null
+        salarioBase:        number
+        horasExtras60:      number
+        valorHorasExtras60: number
+        horasExtras100:     number
+        valorHorasExtras100:number
+        salarioBruto:       number
+        desconto:           number
+        inss:               number
+        irrf:               number
+        salarioLiquido:     number
+        fgts:               number
+        encargosPatronais:  number
+        custoTotal:         number
+      }[]
+    }
+
+    if (!body.month || !body.year || !body.entries?.length) {
+      return reply.status(400).send({ error: 'Dados insuficientes para gerar PDF' })
+    }
+
+    const MONTH_LABELS = ['','Janeiro','Fevereiro','Março','Abril','Maio','Junho',
+      'Julho','Agosto','Setembro','Outubro','Novembro','Dezembro']
+    const mesLabel = MONTH_LABELS[body.month] ?? String(body.month)
+
+    // Buscar dados da empresa
+    const company = await p.company.findUnique({
+      where:  { id: companyId },
+      select: { name: true, cnpj: true, city: true, state: true },
+    })
+    const companyName = company?.name ?? 'Empresa'
+
+    const fmt = (n: number) => n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+    const pct = (n: number) => `${(n * 100).toFixed(1)}%`
+
+    const totals = body.entries.reduce((acc, e) => ({
+      salarioBruto:      acc.salarioBruto      + e.salarioBruto,
+      descontos:         acc.descontos         + (e.desconto ?? 0),
+      inss:              acc.inss              + e.inss,
+      irrf:              acc.irrf              + e.irrf,
+      salarioLiquido:    acc.salarioLiquido    + e.salarioLiquido - (e.desconto ?? 0),
+      fgts:              acc.fgts              + e.fgts,
+      encargosPatronais: acc.encargosPatronais + e.encargosPatronais,
+      custoTotal:        acc.custoTotal        + e.custoTotal,
+      he60:              acc.he60              + e.valorHorasExtras60,
+      he100:             acc.he100             + e.valorHorasExtras100,
+    }), { salarioBruto: 0, descontos: 0, inss: 0, irrf: 0, salarioLiquido: 0,
+          fgts: 0, encargosPatronais: 0, custoTotal: 0, he60: 0, he100: 0 })
+
+    const rowsHtml = body.entries.map((e, i) => {
+      const isPj      = e.type === 'PJ' || e.type === 'THIRD_PARTY'
+      const liquido   = e.salarioLiquido - (e.desconto ?? 0)
+      const bg        = i % 2 === 0 ? '#FFFFFF' : '#F9FAFB'
+      return `
+        <tr style="background:${bg}">
+          <td>${i + 1}</td>
+          <td class="name-cell">
+            <strong>${e.name}</strong>
+            ${e.role ? `<br><span class="sub">${e.role}</span>` : ''}
+            ${e.projectName ? `<br><span class="sub obra">${e.projectName}</span>` : ''}
+          </td>
+          <td><span class="badge ${isPj ? 'badge-pj' : 'badge-clt'}">${e.type}</span></td>
+          <td class="num">${fmt(e.salarioBase)}</td>
+          <td class="num ${e.horasExtras60 > 0 ? 'he60' : ''}">
+            ${e.horasExtras60 > 0 ? `${e.horasExtras60}h<br><small>${fmt(e.valorHorasExtras60)}</small>` : '—'}
+          </td>
+          <td class="num ${e.horasExtras100 > 0 ? 'he100' : ''}">
+            ${e.horasExtras100 > 0 ? `${e.horasExtras100}h<br><small>${fmt(e.valorHorasExtras100)}</small>` : '—'}
+          </td>
+          <td class="num"><strong>${fmt(e.salarioBruto)}</strong></td>
+          <td class="num red">${isPj ? '—' : fmt(e.inss)}</td>
+          <td class="num red">${isPj ? '—' : fmt(e.irrf)}</td>
+          <td class="num ${e.desconto > 0 ? 'red' : ''}">${e.desconto > 0 ? fmt(e.desconto) : '—'}</td>
+          <td class="num green"><strong>${fmt(liquido)}</strong></td>
+          <td class="num blue">${isPj ? '—' : fmt(e.fgts)}</td>
+          <td class="num orange"><strong>${fmt(e.custoTotal)}</strong></td>
+        </tr>`
+    }).join('')
+
+    const html = `<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<style>
+  @page { size: A4 landscape; margin: 12mm 10mm; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', Arial, sans-serif; font-size: 8px; color: #1F2937; }
+
+  .header { display: flex; justify-content: space-between; align-items: flex-start;
+            border-bottom: 2px solid #F5A623; padding-bottom: 8px; margin-bottom: 10px; }
+  .header-left h1 { font-size: 16px; font-weight: 700; color: #111827; }
+  .header-left h2 { font-size: 11px; font-weight: 500; color: #6B7280; margin-top: 2px; }
+  .header-right { text-align: right; }
+  .header-right .company { font-size: 10px; font-weight: 600; color: #374151; }
+  .header-right .meta { font-size: 8px; color: #9CA3AF; margin-top: 2px; }
+  .badge-period { background: #FEF3C7; color: #92400E; border-radius: 4px;
+                  padding: 2px 8px; font-size: 9px; font-weight: 700; }
+
+  .cards { display: grid; grid-template-columns: repeat(4,1fr); gap: 6px; margin-bottom: 10px; }
+  .card { border-radius: 6px; padding: 8px 10px; border: 1px solid; }
+  .card-gray   { background: #F9FAFB; border-color: #E5E7EB; }
+  .card-red    { background: #FEF2F2; border-color: #FECACA; }
+  .card-green  { background: #F0FDF4; border-color: #BBF7D0; }
+  .card-orange { background: #FFF7ED; border-color: #FED7AA; }
+  .card label  { font-size: 7px; text-transform: uppercase; font-weight: 600;
+                 letter-spacing: 0.5px; color: #9CA3AF; display: block; margin-bottom: 2px; }
+  .card .val   { font-size: 12px; font-weight: 700; }
+  .card-gray   .val { color: #374151; }
+  .card-red    .val { color: #DC2626; }
+  .card-green  .val { color: #16A34A; }
+  .card-orange .val { color: #C2410C; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 7.5px; }
+  thead { background: #1F2937; color: white; }
+  thead th { padding: 5px 4px; text-align: right; font-weight: 600;
+             font-size: 7px; text-transform: uppercase; letter-spacing: 0.3px; white-space: nowrap; }
+  thead th:nth-child(1) { text-align: center; width: 22px; }
+  thead th:nth-child(2) { text-align: left; }
+  thead th:nth-child(3) { text-align: center; }
+  tbody td { padding: 4px 4px; border-bottom: 1px solid #F3F4F6; vertical-align: top; }
+  tbody td:nth-child(1) { text-align: center; color: #9CA3AF; }
+  tfoot td { padding: 5px 4px; font-weight: 700; font-size: 8px;
+             background: #F3F4F6; border-top: 2px solid #D1D5DB; }
+  tfoot td:nth-child(1) { text-align: center; }
+
+  .name-cell { text-align: left !important; min-width: 90px; }
+  .num { text-align: right; white-space: nowrap; }
+  .red { color: #DC2626; }
+  .green { color: #16A34A; }
+  .blue { color: #2563EB; }
+  .orange { color: #C2410C; }
+  .he60  { color: #D97706; }
+  .he100 { color: #DC2626; }
+  .sub { font-size: 7px; color: #9CA3AF; }
+  .obra { color: #7C3AED; }
+  .badge { border-radius: 3px; padding: 1px 5px; font-size: 7px; font-weight: 600; }
+  .badge-clt { background: #DBEAFE; color: #1D4ED8; }
+  .badge-pj  { background: #EDE9FE; color: #7C3AED; }
+
+  .footer-section { margin-top: 12px; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .charges-box { background: #FFF7ED; border: 1px solid #FED7AA; border-radius: 6px; padding: 8px 10px; }
+  .charges-box h4 { font-size: 8px; font-weight: 700; color: #92400E; margin-bottom: 6px;
+                    border-bottom: 1px solid #FED7AA; padding-bottom: 3px; }
+  .charges-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 4px; }
+  .charge-item label { font-size: 7px; color: #9CA3AF; display: block; }
+  .charge-item .val  { font-size: 9px; font-weight: 600; color: #374151; }
+
+  .sign-box { display: grid; grid-template-columns: 1fr 1fr; gap: 30px; padding: 10px; }
+  .sign-line { border-top: 1px solid #9CA3AF; padding-top: 4px; text-align: center; margin-top: 20px; }
+  .sign-line span { font-size: 7px; color: #6B7280; }
+
+  .disclaimer { font-size: 7px; color: #9CA3AF; margin-top: 8px; text-align: center;
+                border-top: 1px solid #E5E7EB; padding-top: 6px; }
+</style>
+</head>
+<body>
+  <!-- Cabeçalho -->
+  <div class="header">
+    <div class="header-left">
+      <h1>Folha de Pagamento</h1>
+      <h2>${mesLabel} / ${body.year} &nbsp;·&nbsp; <span class="badge-period">${body.entries.length} colaborador${body.entries.length !== 1 ? 'es' : ''}</span></h2>
+    </div>
+    <div class="header-right">
+      <div class="company">${companyName}</div>
+      ${company?.cnpj ? `<div class="meta">CNPJ: ${company.cnpj}</div>` : ''}
+      ${company?.city ? `<div class="meta">${company.city}${company.state ? ` — ${company.state}` : ''}</div>` : ''}
+      <div class="meta">Emitido em: ${new Date().toLocaleDateString('pt-BR', { day:'2-digit', month:'long', year:'numeric' })}</div>
+    </div>
+  </div>
+
+  <!-- Cards de totais -->
+  <div class="cards">
+    <div class="card card-gray">
+      <label>Salários brutos</label>
+      <div class="val">${fmt(totals.salarioBruto)}</div>
+    </div>
+    <div class="card card-red">
+      <label>Descontos (INSS + IRRF + Outros)</label>
+      <div class="val">${fmt(totals.inss + totals.irrf + totals.descontos)}</div>
+    </div>
+    <div class="card card-green">
+      <label>Salários líquidos</label>
+      <div class="val">${fmt(totals.salarioLiquido)}</div>
+    </div>
+    <div class="card card-orange">
+      <label>Custo total empresa</label>
+      <div class="val">${fmt(totals.custoTotal)}</div>
+    </div>
+  </div>
+
+  <!-- Tabela -->
+  <table>
+    <thead>
+      <tr>
+        <th>#</th>
+        <th style="text-align:left">Colaborador</th>
+        <th style="text-align:center">Tipo</th>
+        <th>Sal. base</th>
+        <th>HE 60%</th>
+        <th>HE 100%</th>
+        <th>Sal. bruto</th>
+        <th style="color:#FCA5A5">INSS</th>
+        <th style="color:#FCA5A5">IRRF</th>
+        <th style="color:#FCA5A5">Descontos</th>
+        <th style="color:#86EFAC">Sal. líquido</th>
+        <th style="color:#93C5FD">FGTS *</th>
+        <th style="color:#FED7AA">Custo total</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${rowsHtml}
+    </tbody>
+    <tfoot>
+      <tr>
+        <td>—</td>
+        <td style="text-align:left">Total (${body.entries.length})</td>
+        <td></td>
+        <td class="num">${fmt(totals.salarioBruto - totals.he60 - totals.he100)}</td>
+        <td class="num he60">${totals.he60 > 0 ? fmt(totals.he60) : '—'}</td>
+        <td class="num he100">${totals.he100 > 0 ? fmt(totals.he100) : '—'}</td>
+        <td class="num">${fmt(totals.salarioBruto)}</td>
+        <td class="num red">${fmt(totals.inss)}</td>
+        <td class="num red">${fmt(totals.irrf)}</td>
+        <td class="num red">${totals.descontos > 0 ? fmt(totals.descontos) : '—'}</td>
+        <td class="num green">${fmt(totals.salarioLiquido)}</td>
+        <td class="num blue">${fmt(totals.fgts)}</td>
+        <td class="num orange">${fmt(totals.custoTotal)}</td>
+      </tr>
+    </tfoot>
+  </table>
+
+  <!-- Rodapé: encargos + assinaturas -->
+  <div class="footer-section">
+    <div class="charges-box">
+      <h4>⚠️ Guias a recolher separadamente (não lançadas na folha)</h4>
+      <div class="charges-grid">
+        <div class="charge-item">
+          <label>FGTS (8%)</label>
+          <div class="val">${fmt(totals.fgts)}</div>
+        </div>
+        <div class="charge-item">
+          <label>INSS empregador (20%+RAT+3ºs)</label>
+          <div class="val">${fmt(totals.encargosPatronais)}</div>
+        </div>
+        <div class="charge-item">
+          <label>INSS empregado (retido)</label>
+          <div class="val">${fmt(totals.inss)}</div>
+        </div>
+        <div class="charge-item">
+          <label>IRRF retido</label>
+          <div class="val">${fmt(totals.irrf)}</div>
+        </div>
+        <div class="charge-item">
+          <label>Provisão férias (~11,11%)</label>
+          <div class="val">${fmt(totals.salarioBruto * 0.1111)}</div>
+        </div>
+        <div class="charge-item">
+          <label>Provisão 13º (~8,33%)</label>
+          <div class="val">${fmt(totals.salarioBruto * 0.0833)}</div>
+        </div>
+      </div>
+    </div>
+
+    <div>
+      <div class="sign-box">
+        <div>
+          <div class="sign-line">
+            <span>Responsável Financeiro / RH</span>
+          </div>
+        </div>
+        <div>
+          <div class="sign-line">
+            <span>Diretor / Responsável Legal</span>
+          </div>
+        </div>
+      </div>
+      <p class="disclaimer">
+        * FGTS e encargos patronais não estão incluídos nos lançamentos da folha — devem ser recolhidos por guias separadas (GFIP/eSocial).
+        Tabela INSS 2024: faixas progressivas 7,5% / 9% / 12% / 14%. IRRF 2024: isenção até R$ 2.259,20.
+      </p>
+    </div>
+  </div>
+</body>
+</html>`
+
+    let browser: any = null
+    try {
+      const puppeteer = await import('puppeteer')
+      browser = await puppeteer.default.launch({
+        headless: true,
+        args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
+      })
+      const page = await browser.newPage()
+      await page.setContent(html, { waitUntil: 'networkidle0' })
+      const pdfBuffer = await page.pdf({
+        format:    'A4',
+        landscape: true,
+        printBackground: true,
+        margin: { top: '12mm', right: '10mm', bottom: '12mm', left: '10mm' },
+      })
+
+      reply.header('Content-Type', 'application/pdf')
+      reply.header('Content-Disposition',
+        `attachment; filename="folha-${body.year}-${String(body.month).padStart(2,'0')}.pdf"`)
+      return reply.send(pdfBuffer)
+    } catch (err: any) {
+      return reply.status(500).send({ error: `Erro ao gerar PDF: ${err.message}` })
+    } finally {
+      if (browser) await browser.close().catch(() => {})
+    }
+  })
+
+  /**
    * POST /api/v1/employees/payroll-launch
-   * Lança folha no financeiro, criando uma transação por obra.
+   * Lança folha no financeiro — UMA transação por colaborador (salário líquido).
+   * Categoria automática "Mão de obra" (EXPENSE).
    */
   app.post('/payroll-launch', async (request, reply) => {
     const req       = request as RequestWithMember
@@ -1312,9 +1715,11 @@ export async function employeeRoutes(app: FastifyInstance) {
       description: string
       entries: {
         employeeId:           string
+        name?:                string
         projectId?:           string | null
         salarioBruto:         number
         salarioLiquido:       number
+        desconto?:            number
         horasExtras60?:       number
         horasExtras100?:      number
         valorHorasExtras60?:  number
@@ -1336,87 +1741,112 @@ export async function employeeRoutes(app: FastifyInstance) {
       'Julho','Agosto','Setembro','Outubro','Novembro','Dezembro']
     const mesLabel = MONTH_LABELS[body.month] ?? String(body.month)
 
-    // Agrupar colaboradores por projectId (null = sem obra)
-    const byProject: Record<string, typeof body.entries> = {}
-    for (const entry of body.entries) {
-      const key = entry.projectId ?? 'null'
-      if (!byProject[key]) byProject[key] = []
-      byProject[key].push(entry)
-    }
-
-    // Buscar categoria de despesa "Folha" se existir
-    const payrollCat = await p.financialCategory.findFirst({
+    // ── Categoria "Mão de obra" — buscar ou criar ──────────────────────────────
+    let maoCat = await p.financialCategory.findFirst({
       where: {
         companyId,
-        isActive: true,
         type: { in: ['EXPENSE', 'BOTH'] },
         OR: [
-          { name: { contains: 'folha', mode: 'insensitive' } },
-          { name: { contains: 'pagamento', mode: 'insensitive' } },
-          { name: { contains: 'salário', mode: 'insensitive' } },
+          { name: { equals: 'Mão de obra',    mode: 'insensitive' } },
+          { name: { equals: 'Mao de obra',     mode: 'insensitive' } },
+          { name: { contains: 'mão de obra',   mode: 'insensitive' } },
         ],
       },
     })
+    if (!maoCat) {
+      maoCat = await p.financialCategory.create({
+        data: {
+          companyId,
+          name:  'Mão de obra',
+          type:  'EXPENSE',
+          color: '#F5A623',
+          icon:  'users',
+        },
+      })
+    }
+
+    // ── Buscar nomes dos colaboradores ─────────────────────────────────────────
+    const empRecs = await p.employee.findMany({
+      where:  { id: { in: body.entries.map(e => e.employeeId) }, companyId },
+      select: { id: true, name: true },
+    })
+    const nameMap: Record<string, string> = Object.fromEntries(
+      empRecs.map((e: any) => [e.id, e.name])
+    )
 
     const referenceDate = new Date(body.year, body.month - 1, 1)
     const dueDate       = new Date(body.year, body.month, 0) // último dia do mês
     const createdTransactions: any[] = []
 
-    for (const [projectKey, entries] of Object.entries(byProject)) {
-      const projectId   = projectKey === 'null' ? null : projectKey
-      const total       = entries.reduce((sum, e) => sum + e.custoTotal, 0)
-      const empNames    = entries.map(e => {
-        const emp = body.entries.find(x => x.employeeId === e.employeeId)
-        return emp?.employeeId ?? e.employeeId
-      })
+    // ── Uma transação por colaborador ──────────────────────────────────────────
+    for (const entry of body.entries) {
+      const empName    = entry.name ?? nameMap[entry.employeeId] ?? entry.employeeId
+      const desconto   = entry.desconto ?? 0
+      const liquido    = parseFloat((entry.salarioLiquido - desconto).toFixed(2))
+      const txHash     = crypto.randomBytes(16).toString('hex')
+      const txNum      = `PAY-${body.year}${String(body.month).padStart(2,'0')}-${entry.employeeId.slice(-6).toUpperCase()}`
 
-      // Buscar nomes
-      const empRecs = await p.employee.findMany({
-        where: { id: { in: entries.map(e => e.employeeId) }, companyId },
-        select: { id: true, name: true },
-      })
-      const nameMap: Record<string, string> = Object.fromEntries(empRecs.map((e: any) => [e.id, e.name]))
-      const names = entries.map(e => nameMap[e.employeeId] ?? e.employeeId).join(', ')
-
-      let projectName = 'Administrativo'
-      if (projectId) {
-        const proj = await prisma.project.findFirst({ where: { id: projectId }, select: { name: true } })
-        if (proj) projectName = proj.name
-      }
-
-      const txHash = crypto.randomBytes(16).toString('hex')
-      const txNum  = `PAY-${body.year}${String(body.month).padStart(2,'0')}-${Date.now()}`
+      // Montar observações detalhadas
+      const obsLines: string[] = [
+        `Folha ${mesLabel}/${body.year}`,
+        `Sal. bruto: R$ ${entry.salarioBruto.toFixed(2)}`,
+      ]
+      if (entry.inss)   obsLines.push(`INSS: R$ ${entry.inss.toFixed(2)}`)
+      if (entry.irrf)   obsLines.push(`IRRF: R$ ${entry.irrf.toFixed(2)}`)
+      if (desconto > 0) obsLines.push(`Outros descontos: R$ ${desconto.toFixed(2)}`)
+      obsLines.push(`Sal. líquido: R$ ${liquido.toFixed(2)}`)
+      if ((entry.horasExtras60 ?? 0) > 0)  obsLines.push(`HE 60%: ${entry.horasExtras60}h (R$ ${(entry.valorHorasExtras60 ?? 0).toFixed(2)})`)
+      if ((entry.horasExtras100 ?? 0) > 0) obsLines.push(`HE 100%: ${entry.horasExtras100}h (R$ ${(entry.valorHorasExtras100 ?? 0).toFixed(2)})`)
+      obsLines.push(`FGTS: R$ ${entry.fgts.toFixed(2)} | Encargos: R$ ${entry.encargosPatronais.toFixed(2)} (guias separadas)`)
 
       const tx = await p.financialTransaction.create({
         data: {
           companyId,
-          createdById:  userId,
-          type:         'EXPENSE',
-          status:       'PENDING',
-          isPaid:       false,
-          description:  `Folha ${mesLabel}/${body.year} — ${projectName} (${entries.length} colab.)`,
-          observations: `Colaboradores: ${names}`,
-          grossAmount:  total,
-          netAmount:    total,
+          createdById:       userId,
+          type:              'EXPENSE',
+          status:            'PENDING',
+          isPaid:            false,
+          description:       `Salário ${mesLabel}/${body.year} — ${empName}`,
+          observations:      obsLines.join('\n'),
+          grossAmount:       entry.salarioBruto,
+          netAmount:         liquido,
           dueDate,
           referenceDate,
-          projectId:    projectId ?? undefined,
-          categoryId:   payrollCat?.id ?? undefined,
-          isPayroll:    true,
-          payrollMonth: body.month,
-          payrollYear:  body.year,
+          projectId:         entry.projectId ?? undefined,
+          categoryId:        maoCat.id,
+          isPayroll:         true,
+          payrollMonth:      body.month,
+          payrollYear:       body.year,
+          payrollEmployeeId: entry.employeeId,
+          employeeId:        entry.employeeId,
           transactionHash:   txHash,
           transactionNumber: txNum,
-          isActive:     true,
-          origin:       'SYSTEM',
+          isActive:          true,
+          origin:            'SYSTEM',
         },
       })
       createdTransactions.push(tx)
+
+      // Audit log individual
+      await createAuditLog({
+        prisma: p, companyId, userId,
+        action:     'CREATE',
+        module:     'COLLABORATORS',
+        entity:     'PayrollEntry',
+        entityId:   entry.employeeId,
+        entityName: empName,
+        description: `Salário ${mesLabel}/${body.year} lançado — Líquido: R$ ${liquido.toFixed(2)}`,
+        request,
+      })
     }
 
-    const totalGeral = body.entries.reduce((sum, e) => sum + e.custoTotal, 0)
+    const totalLiquido = body.entries.reduce((sum, e) => {
+      const desc = e.desconto ?? 0
+      return sum + e.salarioLiquido - desc
+    }, 0)
     const fmt = (n: number) => `R$ ${n.toFixed(2).replace('.', ',').replace(/\B(?=(\d{3})+(?!\d))/g, '.')}`
 
+    // Audit log geral da folha
     await createAuditLog({
       prisma: p, companyId, userId,
       action:     'CREATE',
@@ -1424,14 +1854,14 @@ export async function employeeRoutes(app: FastifyInstance) {
       entity:     'Payroll',
       entityId:   `${body.year}-${body.month}`,
       entityName: `Folha ${mesLabel}/${body.year}`,
-      description: `Folha ${mesLabel}/${body.year} lançada — ${body.entries.length} colaboradores · Total: ${fmt(totalGeral)}`,
+      description: `Folha ${mesLabel}/${body.year} lançada — ${body.entries.length} colaboradores · Total líquido: ${fmt(totalLiquido)}`,
       request,
     })
 
     return reply.status(201).send({
-      success: true,
+      success:             true,
       transactionsCreated: createdTransactions.length,
-      total: totalGeral,
+      total:               totalLiquido,
     })
   })
 }

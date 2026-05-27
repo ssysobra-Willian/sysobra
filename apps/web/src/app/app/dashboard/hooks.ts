@@ -312,3 +312,61 @@ export function useProjectAlerts(): { alerts: ProjectAlerts; loading: boolean } 
   })
   return { alerts: data ?? { budgetAlertCount: 0, delayAlertCount: 0, total: 0 }, loading: isFetching }
 }
+
+// ─── useVacationAlerts ────────────────────────────────────────────────────────
+// Busca alertas de férias: próximas nos próximos 30 dias + vencendo (prazo legal).
+
+export interface VacationAlerts {
+  proximasCount:  number  // férias agendadas nos próximos 30 dias
+  vencendoCount:  number  // colaboradores com prazo de férias vencendo em ≤60 dias
+  vencidasCount:  number  // colaboradores com prazo de férias já vencido (crítico)
+  emFeriasCount:  number  // colaboradores atualmente em férias
+}
+
+export function useVacationAlerts(): { alerts: VacationAlerts; loading: boolean } {
+  const { data, isFetching } = useQuery<VacationAlerts>({
+    queryKey: ['vacation-alerts'],
+    queryFn:  async () => {
+      const companyId = localStorage.getItem('companyId') ?? ''
+      const res = await fetch(`${API}/api/v1/employees/vacations-overview`, {
+        headers: { ...authHeaders(), 'x-company-id': companyId },
+      })
+      if (!res.ok) return { proximasCount: 0, vencendoCount: 0, vencidasCount: 0, emFeriasCount: 0 }
+      const json = await res.json()
+
+      const hoje = new Date()
+      const em30 = new Date(hoje); em30.setDate(em30.getDate() + 30)
+      const em60 = new Date(hoje); em60.setDate(em60.getDate() + 60)
+
+      // Férias agendadas nos próximos 30 dias
+      const agendadas: any[] = json.agendadas ?? []
+      const proximasCount = agendadas.filter((v: any) => {
+        const start = new Date(v.startDate)
+        return start >= hoje && start <= em30
+      }).length
+
+      // Colaboradores em férias agora
+      const emFeriasCount = (json.emFerias ?? []).length
+
+      // Vencimento legal (pendentes/vencendo)
+      const pending: any[] = json.pending ?? []
+      const vencidasCount  = pending.filter((p: any) => {
+        if (!p.deadline) return false
+        return new Date(p.deadline) < hoje
+      }).length
+      const vencendoCount  = pending.filter((p: any) => {
+        if (!p.deadline) return false
+        const d = new Date(p.deadline)
+        return d >= hoje && d <= em60
+      }).length
+
+      return { proximasCount, vencendoCount, vencidasCount, emFeriasCount }
+    },
+    staleTime: 5 * 60_000,
+    enabled:   typeof window !== 'undefined' && !!getToken(),
+  })
+  return {
+    alerts:  data ?? { proximasCount: 0, vencendoCount: 0, vencidasCount: 0, emFeriasCount: 0 },
+    loading: isFetching,
+  }
+}

@@ -253,7 +253,6 @@ export default function ColaboradorPerfilPage() {
   return (
     <div className="max-w-5xl mx-auto space-y-6">
       <Breadcrumb items={[
-        { label: 'Dashboard',     href: '/app/dashboard' },
         { label: 'Colaboradores', href: '/app/colaboradores' },
         { label: employee.name },
       ]} />
@@ -942,35 +941,49 @@ function VacationsPanel({ employee, onReload }: { employee: Employee; onReload: 
   const [saving,  setSaving]  = useState(false)
   const [error,   setError]   = useState('')
 
-  const resetForm = () => { setStartDate(''); setEndDate(''); setDays('30'); setVacStatus('SCHEDULED'); setObservations('') }
+  const resetForm = () => {
+    setStartDate(''); setEndDate(''); setDays('30')
+    setVacStatus('SCHEDULED'); setObservations(''); setError('')
+  }
 
-  // Início + dias → calcular fim
+  // Handler 1: mudou DATA INÍCIO
   const handleStartChange = (val: string) => {
     setStartDate(val)
-    if (val && parseInt(days) > 0) {
-      setEndDate(addDaysToDate(val, parseInt(days)))
-    }
-  }
-
-  const handleDaysChange = (val: string) => {
-    setDays(val)
-    const d = parseInt(val)
-    if (startDate && d > 0) {
-      setEndDate(addDaysToDate(startDate, d))
-    }
-  }
-
-  // Fim → recalcular dias
-  const handleEndChange = (val: string) => {
-    setEndDate(val)
-    if (startDate && val) {
-      const diff = daysBetween(startDate, val)
+    if (!val) return
+    const d = parseInt(days)
+    if (d > 0) {
+      // se já tem dias → calcular data fim
+      setEndDate(addDaysToDate(val, d))
+    } else if (endDate) {
+      // se já tem data fim → calcular dias
+      const diff = daysBetween(val, endDate)
       if (diff > 0) setDays(String(diff))
     }
   }
 
+  // Handler 2: mudou DATA FIM
+  const handleEndChange = (val: string) => {
+    setEndDate(val)
+    if (!val || !startDate) return
+    const diff = daysBetween(startDate, val)
+    if (diff > 0) setDays(String(diff))
+    else setDays('')
+  }
+
+  // Handler 3: mudou DIAS — calcula data fim automaticamente
+  const handleDaysChange = (val: string) => {
+    const num = val === '' ? '' : String(Math.max(1, parseInt(val) || 1))
+    setDays(num)
+    if (!num || !startDate) return
+    setEndDate(addDaysToDate(startDate, parseInt(num)))
+  }
+
+  // Validação
+  const endBeforeStart = startDate && endDate && endDate < startDate
+  const canSave = !!(startDate && endDate && days && parseInt(days) > 0 && !endBeforeStart)
+
   const save = useCallback(async () => {
-    if (!startDate || !endDate || !days) { setError('Datas e dias são obrigatórios'); return }
+    if (!canSave) { setError('Verifique as datas informadas'); return }
     setSaving(true); setError('')
     try {
       const res = await fetch(`${API}/api/v1/employees/${employee.id}/vacations`, {
@@ -987,7 +1000,7 @@ function VacationsPanel({ employee, onReload }: { employee: Employee; onReload: 
       if (!res.ok) throw new Error(d.error)
       setShowAdd(false); resetForm(); onReload()
     } catch (e: any) { setError(e.message) } finally { setSaving(false) }
-  }, [startDate, endDate, days, vacStatus, observations, employee.id, onReload])
+  }, [canSave, startDate, endDate, days, vacStatus, observations, employee.id, onReload])
 
   const remove = useCallback(async (vacationId: string) => {
     if (!confirm('Remover este registro de férias?')) return
@@ -995,9 +1008,10 @@ function VacationsPanel({ employee, onReload }: { employee: Employee; onReload: 
     onReload()
   }, [employee.id, onReload])
 
-  // Descrição do período para preview
-  const periodPreview = startDate && endDate && parseInt(days) > 0
-    ? `${new Date(startDate + 'T00:00').toLocaleDateString('pt-BR')} até ${new Date(endDate + 'T00:00').toLocaleDateString('pt-BR')} (${days} dias corridos)`
+  // Preview formatado do período
+  const numDays = parseInt(days) || 0
+  const periodPreview = startDate && endDate && numDays > 0 && !endBeforeStart
+    ? `${new Date(startDate + 'T00:00').toLocaleDateString('pt-BR')} até ${new Date(endDate + 'T00:00').toLocaleDateString('pt-BR')}`
     : null
 
   return (
@@ -1014,33 +1028,67 @@ function VacationsPanel({ employee, onReload }: { employee: Employee; onReload: 
         <div className="bg-gray-50 rounded-xl p-4 space-y-3 border border-gray-200">
           {error && <p className="text-xs text-red-500">{error}</p>}
 
-          {/* FIX 3 — Cálculo bidirecional */}
-          <div className="grid grid-cols-3 gap-3 items-end">
-            <div>
-              <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Início *</label>
-              <input type="date" value={startDate} onChange={e => handleStartChange(e.target.value)}
-                className="w-full border border-gray-200 rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-300" />
+          {/* Cálculo bidirecional — 3 campos com indicadores visuais */}
+          <div>
+            <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
+              Período de férias <span className="text-red-400">*</span>
+            </label>
+            <div className="grid grid-cols-[1fr_auto_1fr_auto_90px] gap-2 items-end">
+              {/* Data início */}
+              <div>
+                <p className="text-[10px] text-gray-400 mb-1">Data início</p>
+                <input type="date" value={startDate} onChange={e => handleStartChange(e.target.value)}
+                  className={`w-full border rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-300 ${endBeforeStart ? 'border-red-300 bg-red-50' : 'border-gray-200'}`} />
+              </div>
+              {/* Seta → */}
+              <div className="text-gray-300 text-lg pb-1.5">→</div>
+              {/* Data fim */}
+              <div>
+                <p className="text-[10px] text-gray-400 mb-1">Data fim</p>
+                <input type="date" value={endDate}
+                  min={startDate || undefined}
+                  onChange={e => handleEndChange(e.target.value)}
+                  className={`w-full border rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-300 ${endBeforeStart ? 'border-red-300 bg-red-50' : 'border-gray-200'}`} />
+              </div>
+              {/* = */}
+              <div className="text-gray-300 text-lg pb-1.5">=</div>
+              {/* Dias */}
+              <div>
+                <p className="text-[10px] text-gray-400 mb-1">Dias</p>
+                <div className="relative">
+                  <input type="number" min="1" max="365" value={days}
+                    onChange={e => handleDaysChange(e.target.value)}
+                    className="w-full border border-gray-200 rounded-lg pl-2.5 pr-8 py-2 text-sm text-center focus:outline-none focus:ring-2 focus:ring-orange-300" />
+                  <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-gray-400 pointer-events-none">dias</span>
+                </div>
+              </div>
             </div>
-            <div>
-              <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Fim *</label>
-              <input type="date" value={endDate} onChange={e => handleEndChange(e.target.value)}
-                className="w-full border border-gray-200 rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-300" />
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Dias ↔</label>
-              <input type="number" min="1" max="365" value={days} onChange={e => handleDaysChange(e.target.value)}
-                className="w-full border border-gray-200 rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-300" />
-            </div>
+            <p className="text-[11px] text-gray-400 mt-1.5">
+              💡 Preencha qualquer dois campos — o terceiro é calculado automaticamente
+            </p>
           </div>
 
           {/* Preview do período */}
           {periodPreview && (
-            <div className="flex items-center gap-2 px-3 py-2 bg-blue-50 border border-blue-100 rounded-lg">
-              <CalendarDays size={13} className="text-blue-500 flex-shrink-0" />
-              <p className="text-xs text-blue-700 font-medium">Período: {periodPreview}</p>
+            <div className={`flex items-center gap-2 px-3 py-2 rounded-lg border ${
+              numDays >= 30 ? 'bg-amber-50 border-amber-200' : 'bg-blue-50 border-blue-100'
+            }`}>
+              <CalendarDays size={13} className={numDays >= 30 ? 'text-amber-500' : 'text-blue-500'} />
+              <p className={`text-xs font-medium ${numDays >= 30 ? 'text-amber-700' : 'text-blue-700'}`}>
+                {periodPreview} — <strong>{numDays} dias corridos</strong>
+                {numDays >= 30 && <span className="ml-2 text-green-700">✓ Férias completas (CLT)</span>}
+                {numDays < 30 && numDays > 0 && <span className="ml-2 text-amber-600">⚠️ Férias parciais</span>}
+              </p>
             </div>
           )}
-          <p className="text-[11px] text-gray-400">ℹ️ Preencha início + fim OU início + dias — o outro campo é calculado automaticamente</p>
+
+          {/* Alerta de data inválida */}
+          {endBeforeStart && (
+            <div className="flex items-center gap-2 px-3 py-2 bg-red-50 border border-red-200 rounded-lg">
+              <AlertTriangle size={13} className="text-red-500 flex-shrink-0" />
+              <p className="text-xs text-red-700">A data fim não pode ser anterior à data início</p>
+            </div>
+          )}
 
           <div className="grid grid-cols-2 gap-3">
             <div>
@@ -1061,11 +1109,14 @@ function VacationsPanel({ employee, onReload }: { employee: Employee; onReload: 
           </div>
 
           <div className="flex gap-2 justify-end">
-            <button onClick={() => { setShowAdd(false); resetForm() }} className="px-3 py-1.5 text-sm border border-gray-200 rounded-lg text-gray-600 hover:bg-gray-100">Cancelar</button>
-            <button onClick={save} disabled={saving}
+            <button onClick={() => { setShowAdd(false); resetForm() }}
+              className="px-3 py-1.5 text-sm border border-gray-200 rounded-lg text-gray-600 hover:bg-gray-100">
+              Cancelar
+            </button>
+            <button onClick={save} disabled={saving || !canSave}
               className="px-3 py-1.5 text-sm bg-[#F5A623] text-white rounded-lg hover:bg-[#d4891a] disabled:opacity-50 flex items-center gap-1.5">
               {saving ? <Loader2 size={12} className="animate-spin" /> : <Save size={12} />}
-              Salvar
+              Agendar férias
             </button>
           </div>
         </div>

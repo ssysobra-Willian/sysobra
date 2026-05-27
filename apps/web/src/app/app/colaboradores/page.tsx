@@ -211,7 +211,6 @@ export default function ColaboradoresPage() {
     <div className="space-y-6">
       {/* ── Cabeçalho ─────────────────────────────────────────────────── */}
       <Breadcrumb items={[
-        { label: 'Dashboard', href: '/app/dashboard' },
         { label: 'Colaboradores' },
       ]} />
 
