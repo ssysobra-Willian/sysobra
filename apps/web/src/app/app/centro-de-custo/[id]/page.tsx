@@ -18,6 +18,7 @@ import { formatCurrency } from '@/lib/format'
 import { UserAvatar } from '@/components/ui/UserAvatar'
 import { TableActionMenu } from '@/components/ui/TableActionMenu'
 import { Breadcrumb } from '@/components/ui/Breadcrumb'
+import { StageFormModal, type ProjectStage as StagePayload } from '../components/StageFormModal'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
 
@@ -510,6 +511,10 @@ export default function ObraDetailPage() {
   const [rainRecords, setRainRecords] = useState<RainRecord[]>([])
   const [rainPeriod,  setRainPeriod]  = useState<30 | 60 | 90>(60)
   const [rainLoading, setRainLoading] = useState(false)
+
+  // ── Gerenciamento de etapas ───────────────────────────────────────────────
+  const [stageModal, setStageModal]      = useState(false)
+  const [editingStage, setEditingStage]  = useState<StagePayload | null>(null)
 
   // ── Aba Apropriações ──────────────────────────────────────────────────────
   const [allocTxs,      setAllocTxs]      = useState<AllocTx[]>([])
@@ -1306,31 +1311,95 @@ export default function ObraDetailPage() {
           <div className="bg-white rounded-xl border border-gray-200 p-4">
             <div className="flex items-center justify-between mb-3">
               <h4 className="text-sm font-semibold text-gray-700">Etapas ({project.stages.length})</h4>
-              <button onClick={loadProject} className="text-gray-400 hover:text-gray-600">
-                <RefreshCw size={13} />
-              </button>
+              <div className="flex items-center gap-1.5">
+                <button
+                  onClick={() => { setEditingStage(null); setStageModal(true) }}
+                  className="flex items-center gap-1 text-xs text-[#F5A623] border border-[#F5A623]/40 rounded-lg px-2 py-1 hover:bg-orange-50 transition-colors"
+                >
+                  <Plus size={11} /> Adicionar
+                </button>
+                <button onClick={loadProject} className="text-gray-400 hover:text-gray-600 p-1">
+                  <RefreshCw size={13} />
+                </button>
+              </div>
             </div>
             {project.stages.length === 0 ? (
               <p className="text-xs text-gray-400 text-center py-4">Nenhuma etapa cadastrada</p>
             ) : (
               <div className="space-y-2">
-                {project.stages.map(stage => (
-                  <div key={stage.id} className="flex items-center gap-2">
-                    <StageIcon status={stage.status} />
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between mb-0.5">
-                        <span className="text-xs font-medium text-gray-700 truncate">{stage.name}</span>
-                        <span className="text-[10px] text-gray-500 flex-shrink-0 ml-2">{stage.progressPercent.toFixed(0)}%</span>
-                      </div>
-                      <div className="w-full h-1 bg-gray-100 rounded-full overflow-hidden">
-                        <div
-                          className={`h-full rounded-full ${progressBarColor(stage.progressPercent, stage.status)}`}
-                          style={{ width: `${Math.min(100, stage.progressPercent)}%` }}
-                        />
+                {project.stages.map(stage => {
+                  const deviation    = stage.budgetTotal > 0 ? ((stage.realizedValue - stage.budgetTotal) / stage.budgetTotal) * 100 : 0
+                  const isOverBudget = deviation > 5
+                  return (
+                    <div key={stage.id} className="group">
+                      <div className="flex items-start gap-2">
+                        <StageIcon status={stage.status} />
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between mb-0.5">
+                            <span className="text-xs font-medium text-gray-700 truncate">{stage.name}</span>
+                            <div className="flex items-center gap-1.5 flex-shrink-0 ml-2">
+                              <span className="text-[10px] text-gray-500">{stage.progressPercent.toFixed(0)}%</span>
+                              <TableActionMenu
+                                actions={[
+                                  {
+                                    label: 'Editar etapa',
+                                    icon: <Edit2 size={12} />,
+                                    onClick: () => {
+                                      setEditingStage({
+                                        id:              stage.id,
+                                        name:            stage.name,
+                                        code:            stage.code ?? null,
+                                        order:           stage.order ?? 0,
+                                        status:          stage.status,
+                                        budgetMaterial:  stage.budgetMaterial ?? 0,
+                                        budgetLabor:     stage.budgetLabor ?? 0,
+                                        budgetTotal:     stage.budgetTotal ?? 0,
+                                        realizedValue:   stage.realizedValue ?? 0,
+                                        progressPercent: stage.progressPercent ?? 0,
+                                        startDate:       stage.startDate ?? null,
+                                        endDate:         stage.endDate   ?? null,
+                                      })
+                                      setStageModal(true)
+                                    },
+                                  },
+                                ]}
+                              />
+                            </div>
+                          </div>
+                          <div className="w-full h-1 bg-gray-100 rounded-full overflow-hidden">
+                            <div
+                              className={`h-full rounded-full ${progressBarColor(stage.progressPercent, stage.status)}`}
+                              style={{ width: `${Math.min(100, stage.progressPercent)}%` }}
+                            />
+                          </div>
+                          {/* Linha de valores */}
+                          {stage.budgetTotal > 0 && (
+                            <div className="flex items-center gap-2 mt-1 text-[10px]">
+                              <span className="text-gray-400">Orç: {formatCurrency(stage.budgetTotal)}</span>
+                              {stage.realizedValue > 0 && (
+                                <>
+                                  <span className="text-gray-300">·</span>
+                                  <span className={isOverBudget ? 'text-red-500 font-semibold' : 'text-green-600'}>
+                                    {isOverBudget ? '▲' : '▼'} {Math.abs(deviation).toFixed(1)}%
+                                  </span>
+                                </>
+                              )}
+                              {stage.startDate && (
+                                <>
+                                  <span className="text-gray-300">·</span>
+                                  <span className="text-gray-400 hidden sm:inline">
+                                    {new Date(stage.startDate).toLocaleDateString('pt-BR', { day:'2-digit',month:'2-digit' })}
+                                    {stage.endDate ? ` → ${new Date(stage.endDate).toLocaleDateString('pt-BR', { day:'2-digit',month:'2-digit' })}` : ''}
+                                  </span>
+                                </>
+                              )}
+                            </div>
+                          )}
+                        </div>
                       </div>
                     </div>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
             )}
             <p className="text-[10px] text-gray-400 text-center mt-3">↓ Ver tabela completa abaixo</p>
@@ -1511,6 +1580,19 @@ export default function ObraDetailPage() {
           </div>
         </div>
       )}
+
+      {/* Modal de etapa */}
+      <StageFormModal
+        isOpen={stageModal}
+        onClose={() => { setStageModal(false); setEditingStage(null) }}
+        projectId={id}
+        stage={editingStage ?? undefined}
+        onSuccess={() => {
+          setStageModal(false)
+          setEditingStage(null)
+          loadProject()
+        }}
+      />
     </div>
   )
 }

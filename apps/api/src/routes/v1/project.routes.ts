@@ -573,15 +573,24 @@ export async function projectRoutes(app: FastifyInstance) {
   })
 
   // ── POST /:id/stages — criar etapa ───────────────────────────────────────
-  app.post('/:id/stages', { preHandler: [requireCompany] }, async (request, reply) => {
+  app.post('/:id/stages', {
+    preHandler: [requirePermission('projetos', 'edit')],
+  }, async (request, reply) => {
     const req       = request as RequestWithMember
     const companyId = req.companyId!
+    const payload   = request.user as JwtPayload
     const { id }    = request.params as { id: string }
 
     const project = await p.project.findFirst({ where: { id, companyId, isActive: true } })
     if (!project) return reply.status(404).send({ error: 'Obra não encontrada' })
 
     const body = createStageSchema.parse(request.body)
+
+    // Verificar unicidade do nome na obra
+    const existing = await p.projectStage.findFirst({
+      where: { projectId: id, name: body.name },
+    })
+    if (existing) return reply.status(400).send({ error: `Já existe uma etapa com o nome "${body.name}" nesta obra.` })
 
     // Próxima ordem
     const lastStage = await p.projectStage.findFirst({
@@ -612,13 +621,27 @@ export async function projectRoutes(app: FastifyInstance) {
 
     await recalcProject(id, companyId)
 
-    return reply.status(201).send({ stage: serialiseStage(stage) })
+    await prisma.auditLog.create({
+      data: {
+        companyId,
+        userId:   payload.sub,
+        action:   'CREATE',
+        entity:   'ProjectStage',
+        entityId: stage.id,
+        after:    { projectId: id, name: body.name, budgetTotal: mat + labor },
+      },
+    })
+
+    return reply.status(201).send({ stage: serialiseStage(stage), message: 'Etapa criada com sucesso' })
   })
 
   // ── PUT /:id/stages/:stageId — editar etapa ──────────────────────────────
-  app.put('/:id/stages/:stageId', { preHandler: [requireCompany] }, async (request, reply) => {
+  app.put('/:id/stages/:stageId', {
+    preHandler: [requirePermission('projetos', 'edit')],
+  }, async (request, reply) => {
     const req       = request as RequestWithMember
     const companyId = req.companyId!
+    const payload   = request.user as JwtPayload
     const { id, stageId } = request.params as { id: string; stageId: string }
 
     const project = await p.project.findFirst({ where: { id, companyId, isActive: true } })
@@ -628,6 +651,14 @@ export async function projectRoutes(app: FastifyInstance) {
     if (!stage) return reply.status(404).send({ error: 'Etapa não encontrada' })
 
     const body = createStageSchema.partial().parse(request.body)
+
+    // Unicidade do nome (exceto ela mesma)
+    if (body.name && body.name !== stage.name) {
+      const duplicate = await p.projectStage.findFirst({
+        where: { projectId: id, name: body.name, id: { not: stageId } },
+      })
+      if (duplicate) return reply.status(400).send({ error: `Já existe uma etapa com o nome "${body.name}" nesta obra.` })
+    }
 
     const mat   = body.budgetMaterial !== undefined ? body.budgetMaterial : toNum(stage.budgetMaterial)
     const labor = body.budgetLabor    !== undefined ? body.budgetLabor    : toNum(stage.budgetLabor)
@@ -649,7 +680,66 @@ export async function projectRoutes(app: FastifyInstance) {
     const updated = await p.projectStage.update({ where: { id: stageId }, data })
     await recalcProject(id, companyId)
 
+    await prisma.auditLog.create({
+      data: {
+        companyId,
+        userId:   payload.sub,
+        action:   'UPDATE',
+        entity:   'ProjectStage',
+        entityId: stageId,
+        after:    { changes: body, projectId: id },
+      },
+    })
+
     return reply.send({ stage: serialiseStage(updated) })
+  })
+
+  // ── DELETE /:id/stages/:stageId — remover etapa ───────────────────────────
+  app.delete('/:id/stages/:stageId', {
+    preHandler: [requirePermission('projetos', 'edit')],
+  }, async (request, reply) => {
+    const req       = request as RequestWithMember
+    const companyId = req.companyId!
+    const payload   = request.user as JwtPayload
+    const { id, stageId } = request.params as { id: string; stageId: string }
+
+    const project = await p.project.findFirst({ where: { id, companyId, isActive: true } })
+    if (!project) return reply.status(404).send({ error: 'Obra não encontrada' })
+
+    const stage = await p.projectStage.findFirst({ where: { id: stageId, projectId: id } })
+    if (!stage) return reply.status(404).send({ error: 'Etapa não encontrada' })
+
+    // Verificar lançamentos financeiros vinculados
+    const txCount = await p.financialTransaction.count({ where: { stageId, isActive: true } })
+    if (txCount > 0) {
+      return reply.status(400).send({
+        error: 'Esta etapa possui lançamentos financeiros vinculados e não pode ser removida. Transfira os lançamentos para outra etapa antes de remover.',
+      })
+    }
+
+    // Verificar registros no Diário de Obra vinculados
+    const diaryCount = await p.diaryStageEntry.count({ where: { stageId } })
+    if (diaryCount > 0) {
+      return reply.status(400).send({
+        error: 'Esta etapa possui registros no Diário de Obra vinculados e não pode ser removida.',
+      })
+    }
+
+    await p.projectStage.delete({ where: { id: stageId } })
+    await recalcProject(id, companyId)
+
+    await prisma.auditLog.create({
+      data: {
+        companyId,
+        userId:   payload.sub,
+        action:   'DELETE',
+        entity:   'ProjectStage',
+        entityId: stageId,
+        before:   { name: stage.name, projectId: id },
+      },
+    })
+
+    return reply.send({ success: true })
   })
 
   // ── PATCH /:id/stages/:stageId/progress — atualizar progresso ───────────

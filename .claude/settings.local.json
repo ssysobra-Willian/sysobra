@@ -75,7 +75,8 @@
       "PowerShell(node -e \"const p = require\\('./apps/web/package.json'\\); console.log\\('recharts:', p.dependencies['recharts'] ?? 'nao instalado'\\)\")",
       "PowerShell(Set-Location \"C:\\\\projetos\\\\sysobra\"; npx tsc --noEmit --project apps/web/tsconfig.json 2>&1 | Where-Object { $_ -match \"fornecedores\" } | Select-Object -First 20)",
       "PowerShell(node -e \"const p = require\\('./apps/web/package.json'\\); const t = p.dependencies['@tabler/icons-react'] ?? p.devDependencies?.['@tabler/icons-react'] ?? 'nao instalado'; console.log\\('tabler:', t\\)\")",
-      "PowerShell(Set-Location \"C:\\\\projetos\\\\sysobra\"; npx tsc --noEmit --project apps/web/tsconfig.json 2>&1 | Where-Object { $_ -match \"error TS\" } | Select-Object -First 20)"
+      "PowerShell(Set-Location \"C:\\\\projetos\\\\sysobra\"; npx tsc --noEmit --project apps/web/tsconfig.json 2>&1 | Where-Object { $_ -match \"error TS\" } | Select-Object -First 20)",
+      "PowerShell(Set-Location \"C:\\\\projetos\\\\sysobra\"; npx tsc --noEmit --project apps/web/tsconfig.json 2>&1 | Where-Object { $_ -match \"error TS\" } | Select-Object -First 15)"
     ]
   }
 }
