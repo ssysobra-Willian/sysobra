@@ -521,6 +521,7 @@ model Project {
   memberAccesses        MemberProjectAccess[]
   costCenterAllocations CostCenterAllocation[]
   financialTransactions FinancialTransaction[]
+  employees             Employee[]
 
   @@map("projects")
 }
@@ -880,32 +881,108 @@ model Bank {
 // ─────────────────────────────────────────
 
 model Employee {
+  id              String    @id @default(cuid())
+  companyId       String    @map("company_id")
+  code            String    @map("code")
+  name            String
+  cpf             String?
+  rg              String?
+  ctps            String?
+  pis             String?
+  birthDate       DateTime? @map("birth_date")
+  admissionDate   DateTime? @map("admission_date")
+  dismissalDate   DateTime? @map("dismissal_date")
+  email           String?
+  phone           String?
+  address         String?
+  city            String?
+  state           String?
+  zipCode         String?   @map("zip_code")
+  photo           String?
+  position        String?   // legacy — use role
+  role            String?
+  department      String?
+  type            String    @default("CLT")
+  status          String    @default("ACTIVE")
+  salary          Decimal?  @db.Decimal(10, 2)
+  projectId       String?   @map("project_id")
+  bloodType       String?   @map("blood_type")
+  emergencyContact String?  @map("emergency_contact")
+  isActive        Boolean   @default(true) @map("is_active")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  company       Company            @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  project       Project?           @relation(fields: [projectId], references: [id])
+  documents     EmployeeDocument[]
+  trainings     EmployeeTraining[]
+  vacations     EmployeeVacation[]
+  epiDeliveries EpiDelivery[]
+  toolMovements ToolMovement[]     @relation("ToolEmployee")
+
+  @@unique([companyId, code])
+  @@index([companyId, status])
+  @@index([companyId, projectId])
+  @@map("employees")
+}
+
+model EmployeeDocument {
   id           String    @id @default(cuid())
   companyId    String    @map("company_id")
+  employeeId   String    @map("employee_id")
+  type         String
   name         String
-  cpf          String?
-  rg           String?
-  position     String?
-  department   String?
-  salary       Decimal?  @db.Decimal(10, 2)
-  admissionDate DateTime? @map("admission_date")
-  dismissalDate DateTime? @map("dismissal_date")
-  phone        String?
-  email        String?
-  address      String?
-  city         String?
-  state        String?
-  bloodType    String?   @map("blood_type")
-  emergencyContact String? @map("emergency_contact")
+  fileUrl      String?   @map("file_url")
+  issueDate    DateTime? @map("issue_date")
+  expiryDate   DateTime? @map("expiry_date")
+  observations String?
   isActive     Boolean   @default(true) @map("is_active")
   createdAt    DateTime  @default(now()) @map("created_at")
-  updatedAt    DateTime  @updatedAt @map("updated_at")
 
-  company       Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  epiDeliveries EpiDelivery[]
-  toolMovements ToolMovement[] @relation("ToolEmployee")
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
 
-  @@map("employees")
+  @@index([employeeId])
+  @@index([companyId, expiryDate])
+  @@map("employee_documents")
+}
+
+model EmployeeTraining {
+  id             String    @id @default(cuid())
+  companyId      String    @map("company_id")
+  employeeId     String    @map("employee_id")
+  name           String
+  provider       String?
+  workload       Int?
+  completedAt    DateTime  @map("completed_at")
+  expiresAt      DateTime? @map("expires_at")
+  certificateUrl String?   @map("certificate_url")
+  observations   String?
+  isActive       Boolean   @default(true) @map("is_active")
+  createdAt      DateTime  @default(now()) @map("created_at")
+
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@index([employeeId])
+  @@index([companyId, expiresAt])
+  @@map("employee_trainings")
+}
+
+model EmployeeVacation {
+  id           String    @id @default(cuid())
+  companyId    String    @map("company_id")
+  employeeId   String    @map("employee_id")
+  startDate    DateTime  @map("start_date")
+  endDate      DateTime  @map("end_date")
+  days         Int
+  status       String    @default("SCHEDULED")
+  observations String?
+  isActive     Boolean   @default(true) @map("is_active")
+  createdAt    DateTime  @default(now()) @map("created_at")
+
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@index([employeeId])
+  @@map("employee_vacations")
 }
 
 // ─────────────────────────────────────────

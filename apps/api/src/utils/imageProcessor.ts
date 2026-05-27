@@ -17,7 +17,7 @@ export interface ProcessImageOptions {
   inputBuffer: Buffer
   outputDir:   string
   filename:    string   // nome base sem extensão
-  type:        'diary' | 'cover'
+  type:        'diary' | 'cover' | 'avatar'
 }
 
 export interface ProcessImageResult {
@@ -32,8 +32,9 @@ export interface ProcessImageResult {
 // ─── Preset por tipo ──────────────────────────────────────────────────────────
 
 const PRESETS = {
-  diary: { maxWidth: 1920, maxHeight: 1440, quality: 82 },
-  cover: { maxWidth: 1200, maxHeight:  800, quality: 85 },
+  diary:  { maxWidth: 1920, maxHeight: 1440, quality: 82 },
+  cover:  { maxWidth: 1200, maxHeight:  800, quality: 85 },
+  avatar: { maxWidth:  400, maxHeight:  400, quality: 85 },
 }
 
 // ─── processAndSaveImage ──────────────────────────────────────────────────────
