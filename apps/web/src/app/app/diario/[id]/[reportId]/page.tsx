@@ -13,6 +13,7 @@ import { usePermissions }                            from '@/hooks/usePermission
 import type { BadgeVariant }                         from '@/components/ui/Badge'
 import { resolveUploadUrl }                          from '@/lib/upload'
 import { PhotoCarousel }                             from '../../components/PhotoCarousel'
+import { ActivityFeed }                              from '@/components/ui/ActivityFeed'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
 
@@ -726,6 +727,18 @@ export default function RdoDetailPage() {
             )}
           </div>
         </div>
+      </div>
+
+      {/* ── Histórico de auditoria do RDO ─────────────────────────────────── */}
+      <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-5">
+        <ActivityFeed
+          entityId={entry.id}
+          entity="DiaryEntry"
+          limit={20}
+          showHeader
+          title={`Histórico — ${entry.reportNumber ?? ''}`}
+          compact
+        />
       </div>
 
       {/* ── Carrossel de fotos ─────────────────────────────────────────────── */}

@@ -1407,22 +1407,26 @@ model Signature {
 // ─────────────────────────────────────────
 
 model AuditLog {
-  id         String   @id @default(cuid())
-  companyId  String   @map("company_id")
-  userId     String   @map("user_id")
-  action     String
-  entity     String
-  entityId   String   @map("entity_id")
-  before     Json?
-  after      Json?
-  ipAddress  String?  @map("ip_address")
-  userAgent  String?  @map("user_agent")
-  createdAt  DateTime @default(now()) @map("created_at")
+  id          String   @id @default(cuid())
+  companyId   String   @map("company_id")
+  userId      String   @map("user_id")
+  action      String
+  entity      String
+  entityId    String   @map("entity_id")
+  entityName  String?  @map("entity_name")
+  description String?
+  before      Json?
+  after       Json?
+  metadata    Json?
+  ipAddress   String?  @map("ip_address")
+  userAgent   String?  @map("user_agent")
+  createdAt   DateTime @default(now()) @map("created_at")
 
   company Company @relation(fields: [companyId], references: [id])
   user    User    @relation(fields: [userId], references: [id])
 
   @@index([companyId, entity, entityId])
+  @@index([companyId, createdAt])
   @@index([userId])
   @@map("audit_logs")
 }

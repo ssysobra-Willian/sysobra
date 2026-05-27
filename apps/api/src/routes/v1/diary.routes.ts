@@ -641,6 +641,19 @@ export async function diaryRoutes(app: FastifyInstance) {
       where: { id },
       data:  { status: 'APPROVED', approvedById: payload.sub, approvedAt: new Date(), rejectionNote: null },
     })
+
+    await (prisma as any).auditLog.create({
+      data: {
+        companyId:   entry.projectId ? (await p.project.findUnique({ where: { id: entry.projectId }, select: { companyId: true } }))?.companyId ?? req.companyId : req.companyId,
+        userId:      payload.sub,
+        action:      'APPROVE',
+        entity:      'DiaryEntry',
+        entityId:    id,
+        entityName:  entry.reportNumber ?? id,
+        description: `RDO ${entry.reportNumber ?? ''} aprovado`,
+      },
+    }).catch(() => null)
+
     return reply.send({ entry: updated })
   })
 
@@ -666,10 +679,24 @@ export async function diaryRoutes(app: FastifyInstance) {
         rejectedAt:    new Date(),
       },
     })
+
+    await (prisma as any).auditLog.create({
+      data: {
+        companyId:   entry.projectId ? (await p.project.findUnique({ where: { id: entry.projectId }, select: { companyId: true } }))?.companyId ?? req.companyId : req.companyId,
+        userId:      payload.sub,
+        action:      'REJECT',
+        entity:      'DiaryEntry',
+        entityId:    id,
+        entityName:  entry.reportNumber ?? id,
+        description: `RDO ${entry.reportNumber ?? ''} devolvido`,
+        metadata:    { note: rejectionNote.trim() },
+      },
+    }).catch(() => null)
+
     return reply.send({ entry: updated })
   })
 
-  // ── GET /api/v1/diary/reports/:id/submit — enviar para aprovação ──────────
+  // ── POST /api/v1/diary/reports/:id/submit — enviar para aprovação ─────────
   app.post('/reports/:id/submit', { preHandler: [requirePermission('diario_obra', 'create')] }, async (request, reply) => {
     const req     = request as RequestWithMember
     const payload = request.user as JwtPayload
@@ -685,6 +712,19 @@ export async function diaryRoutes(app: FastifyInstance) {
       return reply.status(409).send({ error: 'Relatório não está em rascunho' })
 
     const updated = await p.diaryEntry.update({ where: { id }, data: { status: 'PENDING' } })
+
+    await (prisma as any).auditLog.create({
+      data: {
+        companyId:   req.companyId!,
+        userId:      payload.sub,
+        action:      'SUBMIT',
+        entity:      'DiaryEntry',
+        entityId:    id,
+        entityName:  entry.reportNumber ?? id,
+        description: `RDO ${entry.reportNumber ?? ''} enviado para aprovação`,
+      },
+    }).catch(() => null)
+
     return reply.send({ entry: updated })
   })
 
@@ -1019,11 +1059,18 @@ export async function diaryRoutes(app: FastifyInstance) {
       include: {
         author:     { select: { id: true, name: true, avatarUrl: true } },
         approvedBy: { select: { id: true, name: true } },
-        project:    { select: { id: true, name: true } },
+        project:    { select: { id: true, name: true, stages: { orderBy: { order: 'asc' } } } },
         comments: {
-          where: isInternal ? {} : { isInternal: false },
+          where:   isInternal ? {} : { isInternal: false },
+          include: { author: { select: { id: true, name: true } } },
           orderBy: { createdAt: 'asc' },
         },
+        stageEntries: {
+          include: { stage: { select: { id: true, name: true, progressPercent: true, status: true } } },
+          orderBy: { createdAt: 'asc' },
+        },
+        occurrences: { orderBy: { createdAt: 'asc' } },
+        rainRecord:  true,
       },
     })
     if (!entry) return reply.status(404).send({ error: 'Registro não encontrado' })
@@ -1046,23 +1093,135 @@ export async function diaryRoutes(app: FastifyInstance) {
     if (!isAdminLike && !isOwnEntry) return reply.status(403).send({ error: 'Você só pode editar seus próprios registros' })
     if (!isAdminLike && entry.status === 'APPROVED') return reply.status(409).send({ error: 'Não é possível editar um registro já aprovado' })
 
+    // Recalcula chuva
+    const mMm = body.rainMorningMm   ?? entry.rainMorningMm   ?? 0
+    const aMm = body.rainAfternoonMm ?? entry.rainAfternoonMm ?? 0
+    const nMm = body.rainNightMm     ?? entry.rainNightMm     ?? 0
+    const cfg = await getDiaryConfig(req.companyId!)
+    const { total: totalRainMm, suggested } = calcRain(mMm, aMm, nMm, cfg.rainThreshold)
+
     const updated = await p.diaryEntry.update({
       where: { id },
       data: {
         ...(body.date         && { date: parseDateParam(body.date) }),
+        // Clima legado
         ...(body.weather      !== undefined && { weather:      body.weather }),
         ...(body.temperature  !== undefined && { temperature:  body.temperature }),
         ...(body.workers      !== undefined && { workers:      body.workers }),
         ...(body.activities   !== undefined && { activities:   body.activities }),
         ...(body.observations !== undefined && { observations: body.observations }),
-        ...(body.imageUrls    && { imageUrls: body.imageUrls }),
-        status: 'PENDING',
+        // Clima rico
+        ...(body.weatherMorning   !== undefined && { weatherMorning:   body.weatherMorning   }),
+        ...(body.weatherAfternoon !== undefined && { weatherAfternoon: body.weatherAfternoon }),
+        ...(body.weatherNight     !== undefined && { weatherNight:     body.weatherNight     }),
+        rainMorningMm:        mMm,
+        rainAfternoonMm:      aMm,
+        rainNightMm:          nMm,
+        totalRainMm,
+        ...(body.workableMorning   !== undefined && { workableMorning:   body.workableMorning   }),
+        ...(body.workableAfternoon !== undefined && { workableAfternoon: body.workableAfternoon }),
+        ...(body.workableNight     !== undefined && { workableNight:     body.workableNight     }),
+        ...(body.unworkableConfirmedBy !== undefined && { unworkableConfirmedBy: body.unworkableConfirmedBy }),
+        suggestedUnworkable: suggested,
+        // Conteúdo rico
+        ...(body.generalActivities !== undefined && { generalActivities: body.generalActivities }),
+        ...(body.generalNotes      !== undefined && { generalNotes:      body.generalNotes      }),
+        ...(body.notesPublic       !== undefined && { notesPublic:       body.notesPublic       }),
+        // DDS
+        ...(body.ddsTheme !== undefined && { ddsTheme: body.ddsTheme }),
+        ...(body.ddsDone  !== undefined && { ddsDone:  body.ddsDone  }),
+        ...(body.ddsTime  !== undefined && { ddsTime: body.ddsTime ? new Date(body.ddsTime) : null }),
+        // Mídias
+        ...(body.imageUrls !== undefined && { imageUrls: body.imageUrls }),
+        // Status
+        ...(body.status !== undefined ? { status: body.status } : { status: 'DRAFT' as any }),
+        updatedBy: payload.sub,
       },
       include: {
-        author:  { select: { id: true, name: true } },
-        project: { select: { id: true, name: true } },
+        author:       { select: { id: true, name: true, avatarUrl: true } },
+        project:      { select: { id: true, name: true } },
+        stageEntries: { include: { stage: { select: { id: true, name: true } } } },
+        occurrences:  true,
       },
     })
+
+    // Atualiza stageEntries se fornecidas
+    if (Array.isArray(body.stageEntries)) {
+      // Remove entradas antigas e recria
+      await p.diaryStageEntry.deleteMany({ where: { diaryId: id } })
+      for (const se of body.stageEntries) {
+        const delta = se.currentProgress - se.previousProgress
+        await p.diaryStageEntry.create({
+          data: {
+            diaryId:          id,
+            stageId:          se.stageId,
+            previousProgress: se.previousProgress,
+            currentProgress:  se.currentProgress,
+            progressDelta:    delta,
+            activities:       se.activities ?? '',
+            comments:         se.comments   ?? null,
+          },
+        })
+        await p.projectStage.update({
+          where: { id: se.stageId },
+          data:  { progressPercent: Math.min(100, Math.max(0, se.currentProgress)) },
+        })
+      }
+      await recalcProjectProgress(entry.projectId)
+    }
+
+    // Atualiza ocorrências se fornecidas
+    if (Array.isArray(body.occurrences)) {
+      await p.diaryOccurrence.deleteMany({ where: { diaryId: id } })
+      for (const occ of body.occurrences.filter((o: any) => o.description?.trim())) {
+        await p.diaryOccurrence.create({
+          data: {
+            diaryId:        id,
+            type:           occ.type        ?? 'OTHER',
+            severity:       occ.severity    ?? 'LOW',
+            description:    occ.description,
+            action:         occ.action      ?? null,
+            responsible:    occ.responsible ?? null,
+            visitorName:    occ.visitorName    ?? null,
+            visitorCompany: occ.visitorCompany ?? null,
+            notifyManager:  occ.notifyManager  ?? false,
+          },
+        })
+      }
+    }
+
+    // Atualiza registro pluviométrico
+    const isUnworkable = !(body.workableMorning ?? entry.workableMorning ?? true)
+      || !(body.workableAfternoon ?? entry.workableAfternoon ?? true)
+      || !(body.workableNight     ?? entry.workableNight     ?? true)
+    const existingRain = await p.diaryRainRecord.findUnique({ where: { diaryId: id } })
+    if (existingRain) {
+      await p.diaryRainRecord.update({
+        where: { diaryId: id },
+        data: {
+          morningMm:   mMm,
+          afternoonMm: aMm,
+          nightMm:     nMm,
+          totalMm:     totalRainMm,
+          isUnworkable,
+          unworkableReason: isUnworkable ? (body.unworkableConfirmedBy ?? null) : null,
+        },
+      })
+    }
+
+    // Audit log
+    await (prisma as any).auditLog.create({
+      data: {
+        companyId:   req.companyId!,
+        userId:      payload.sub,
+        action:      'UPDATE',
+        entity:      'DiaryEntry',
+        entityId:    id,
+        entityName:  entry.reportNumber ?? id,
+        description: `RDO ${entry.reportNumber ?? ''} atualizado`,
+      },
+    }).catch(() => null)
+
     return reply.send({ entry: updated })
   })
 
@@ -1097,12 +1256,26 @@ export async function diaryRoutes(app: FastifyInstance) {
       where: { id },
       data: { status: 'APPROVED', approvedById: payload.sub, approvedAt: new Date(), rejectionNote: null },
     })
+
+    await (prisma as any).auditLog.create({
+      data: {
+        companyId:   req.companyId!,
+        userId:      payload.sub,
+        action:      'APPROVE',
+        entity:      'DiaryEntry',
+        entityId:    id,
+        entityName:  entry.reportNumber ?? id,
+        description: `Registro ${entry.reportNumber ?? ''} aprovado`,
+      },
+    }).catch(() => null)
+
     return reply.send({ entry: updated })
   })
 
   // ── POST /api/v1/diary/entries/:id/reject ────────────────────────────────
   app.post('/entries/:id/reject', { preHandler: [requirePermission('diario_obra', 'approve')] }, async (request, reply) => {
     const req  = request as RequestWithMember
+    const payload = request.user as JwtPayload
     const { id } = request.params as { id: string }
     const { rejectionNote } = request.body as { rejectionNote?: string }
 
@@ -1113,6 +1286,20 @@ export async function diaryRoutes(app: FastifyInstance) {
     if (entry.status !== 'PENDING') return reply.status(409).send({ error: 'Registro não está pendente' })
 
     const updated = await p.diaryEntry.update({ where: { id }, data: { status: 'REJECTED', rejectionNote: rejectionNote.trim() } })
+
+    await (prisma as any).auditLog.create({
+      data: {
+        companyId:   req.companyId!,
+        userId:      payload.sub,
+        action:      'REJECT',
+        entity:      'DiaryEntry',
+        entityId:    id,
+        entityName:  entry.reportNumber ?? id,
+        description: `Registro ${entry.reportNumber ?? ''} devolvido`,
+        metadata:    { note: rejectionNote.trim() },
+      },
+    }).catch(() => null)
+
     return reply.send({ entry: updated })
   })
 
@@ -1142,6 +1329,20 @@ export async function diaryRoutes(app: FastifyInstance) {
         isInternal:   actualInternal,
       },
     })
+
+    await (prisma as any).auditLog.create({
+      data: {
+        companyId:   req.companyId!,
+        userId:      payload.sub,
+        action:      'COMMENT',
+        entity:      'DiaryEntry',
+        entityId:    id,
+        entityName:  entry.reportNumber ?? id,
+        description: `Comentário adicionado ao RDO ${entry.reportNumber ?? ''}`,
+        metadata:    { isInternal: actualInternal, preview: content.trim().slice(0, 80) },
+      },
+    }).catch(() => null)
+
     return reply.status(201).send({ comment })
   })
 

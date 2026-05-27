@@ -1,5 +1,6 @@
 'use client'
 
+import Link from 'next/link'
 import { useState, useRef } from 'react'
 import {
   ComposedChart, AreaChart, BarChart,
@@ -21,6 +22,7 @@ import { ChartModal, ChartDropdown, ZoomBtn, makeChartTooltip, useChartExport, e
 import type { BillGroup, Transaction, ExpenseCategory, CashflowPoint, BalancePoint } from './data'
 import { formatCurrency, formatCurrencyCompact } from '@/lib/format'
 import { UserAvatar } from '@/components/ui/UserAvatar'
+import { ActivityFeed } from '@/components/ui/ActivityFeed'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -329,7 +331,7 @@ function AlertsCard({
               <p className={`text-xs font-semibold ${a.scheme.text}`}>{a.title}</p>
               <p className="text-[11px] text-gray-500 mt-0.5">{a.desc}</p>
               {a.action && a.href && (
-                <a href={a.href} className={`text-[11px] font-medium mt-1 hover:underline ${a.scheme.text}`}>{a.action}</a>
+                <Link href={a.href} className={`text-[11px] font-medium mt-1 hover:underline ${a.scheme.text}`}>{a.action}</Link>
               )}
             </div>
           </div>
@@ -738,6 +740,15 @@ export default function DashboardPage() {
             overdueReceivable={{ count: accountsReceivable[0]?.count ?? 0, amount: accountsReceivable[0]?.valor ?? 0 }}
           />
         </div>
+      </div>
+
+      {/* ── Linha 5: Histórico de auditoria ─────────────────────────────── */}
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+        <ActivityFeed
+          limit={15}
+          showHeader
+          title="Histórico de atividades"
+        />
       </div>
 
       {/* ── Modais fullscreen ─────────────────────────────────────────── */}

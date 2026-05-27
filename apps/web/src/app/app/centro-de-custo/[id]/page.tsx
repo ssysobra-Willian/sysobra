@@ -20,6 +20,7 @@ import { TableActionMenu } from '@/components/ui/TableActionMenu'
 import { Breadcrumb } from '@/components/ui/Breadcrumb'
 import { StageFormModal, type ProjectStage as StagePayload } from '../components/StageFormModal'
 import { toImageUrl }  from '@/lib/imageUrl'
+import { ActivityFeed } from '@/components/ui/ActivityFeed'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
 
@@ -490,7 +491,7 @@ function progressBarColor(pct: number, status: string) {
 
 // ─── Abas ─────────────────────────────────────────────────────────────────────
 
-const TABS = ['Resumo', 'Apropriações', 'Pluviometria', 'Compras', 'Medições', 'Documentos'] as const
+const TABS = ['Resumo', 'Apropriações', 'Pluviometria', 'Compras', 'Medições', 'Documentos', 'Histórico'] as const
 type Tab = typeof TABS[number]
 
 // ─── Componente principal ─────────────────────────────────────────────────────
@@ -1244,6 +1245,17 @@ export default function ObraDetailPage() {
               {(tab === 'Compras' || tab === 'Medições' || tab === 'Documentos') && (
                 <div className="py-8 text-center">
                   <p className="text-sm text-gray-400">Em desenvolvimento</p>
+                </div>
+              )}
+
+              {tab === 'Histórico' && (
+                <div className="py-4">
+                  <ActivityFeed
+                    projectId={id}
+                    limit={30}
+                    showHeader={false}
+                    title="Histórico da obra"
+                  />
                 </div>
               )}
             </div>
