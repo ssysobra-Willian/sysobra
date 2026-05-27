@@ -8,6 +8,7 @@ import {
   JwtPayload,
 } from '../../middlewares/auth.middleware'
 import { generatePdf } from '../../utils/pdf'
+import { PDF_COLORS, getPdfHeader, getPdfFooter, buildPdfDocument } from '../../utils/pdfTemplate'
 
 const p = prisma as any
 
@@ -26,6 +27,17 @@ async function getProjectOfCompany(projectId: string, companyId: string) {
       startDate: true, expectedEndDate: true, progressPercent: true,
       client:      { select: { id: true, name: true } },
       responsible: { select: { id: true, name: true, avatarUrl: true } },
+      company:     { select: { id: true, name: true, cnpj: true, logo: true } },
+      // Etapas: retornar sempre (necessário para aba Etapas do Diário)
+      stages: {
+        where:   { status: { not: 'CANCELLED' } },
+        orderBy: { order: 'asc' },
+        select: {
+          id: true, name: true, code: true, order: true,
+          progressPercent: true, status: true,
+          budgetTotal: true, startDate: true, endDate: true,
+        },
+      },
     },
   })
 }
@@ -890,34 +902,104 @@ export async function diaryRoutes(app: FastifyInstance) {
     let acc = 0
     const acumulado = records.map((r: any) => { acc += r.totalMm; return Math.round(acc * 10) / 10 })
 
+    const periodLabel2 = q.startDate && q.endDate
+      ? `${new Date(q.startDate).toLocaleDateString('pt-BR')} a ${new Date(q.endDate).toLocaleDateString('pt-BR')}`
+      : 'Todo o período'
+
     const html = `<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
   <meta charset="utf-8">
   <style>
-    body { font-family: Arial, sans-serif; padding: 32px; background: white; color: #111; }
-    h1 { font-size: 18px; font-weight: 800; color: #111827; margin-bottom: 4px; }
-    .subtitle { color: #6B7280; font-size: 12px; margin-bottom: 24px; }
-    .cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 24px; }
-    .card { background: #F9FAFB; border: 1px solid #E5E7EB; border-radius: 8px; padding: 12px 16px; }
-    .card-label { font-size: 11px; color: #6B7280; margin-bottom: 4px; text-transform: uppercase; letter-spacing: .04em; }
-    .card-value { font-size: 20px; font-weight: 700; color: #111827; }
-    .footer { margin-top: 20px; font-size: 10px; color: #9CA3AF; text-align: right; }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif; background: #fff; color: #111827; }
+    @page { size: A4 landscape; margin: 0; }
+
+    /* Header */
+    .doc-header {
+      background: #111827; color: #fff;
+      padding: 16px 32px; display: flex; align-items: center; justify-content: space-between;
+    }
+    .doc-header .logo { font-size: 18px; font-weight: 800; letter-spacing: 2px; color: #fff; }
+    .doc-header .logo span { color: #F5A623; }
+    .doc-header .right { text-align: right; }
+    .doc-header .title { font-size: 13px; font-weight: 700; color: #F5A623; text-transform: uppercase; letter-spacing: .06em; }
+    .doc-header .sub { font-size: 10px; color: rgba(255,255,255,.55); margin-top: 2px; }
+    .stripe { height: 4px; background: linear-gradient(90deg, #F5A623 0%, #D4860F 100%); }
+
+    /* Body */
+    .body { padding: 20px 32px 24px; }
+
+    /* Cards */
+    .cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 20px; }
+    .card {
+      background: #F3F4F6; border-radius: 8px; padding: 12px 14px;
+      border-left: 3px solid #F5A623;
+    }
+    .card-label { font-size: 9px; color: #6B7280; text-transform: uppercase; letter-spacing: .05em; margin-bottom: 4px; }
+    .card-value { font-size: 20px; font-weight: 800; color: #111827; }
+    .card-unit  { font-size: 11px; color: #6B7280; margin-left: 2px; }
+
+    /* Footer */
+    .doc-footer {
+      background: #F3F4F6; border-top: 3px solid #F5A623;
+      padding: 8px 32px; display: flex; justify-content: space-between; align-items: center;
+      font-size: 9px; color: #6B7280;
+      position: fixed; bottom: 0; left: 0; right: 0;
+    }
+    .doc-footer .logo-sm { font-weight: 800; color: #111827; letter-spacing: 1px; font-size: 10px; }
+    .doc-footer .logo-sm span { color: #F5A623; }
+
+    .chart-wrap { padding-bottom: 60px; }
   </style>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
 </head>
 <body>
-  <h1>Relatório Pluviométrico — ${proj.name}${proj.code ? ' (' + proj.code + ')' : ''}</h1>
-  <p class="subtitle">Período: ${q.startDate ? new Date(q.startDate).toLocaleDateString('pt-BR') : 'início'} a ${q.endDate ? new Date(q.endDate).toLocaleDateString('pt-BR') : 'hoje'} · Gerado em ${new Date().toLocaleDateString('pt-BR')}</p>
+  <div class="doc-header">
+    <div>
+      <div class="logo">SYS<span>O</span>BRA</div>
+      <div class="sub">Sistema de Gestão de Obras</div>
+    </div>
+    <div class="right">
+      <div class="title">Gráfico Pluviométrico</div>
+      <div class="sub">${proj.name}${proj.code ? ' · ' + proj.code : ''}</div>
+      <div class="sub" style="margin-top:2px;">${periodLabel2}</div>
+    </div>
+  </div>
+  <div class="stripe"></div>
 
-  <div class="cards">
-    <div class="card"><div class="card-label">Acumulado total</div><div class="card-value">${Math.round(totalMm * 10) / 10} mm</div></div>
-    <div class="card"><div class="card-label">Dias com chuva</div><div class="card-value">${rainyDays}</div></div>
-    <div class="card"><div class="card-label">Dias impraticáveis</div><div class="card-value" style="color:${unworkable > 0 ? '#dc2626' : '#111'}">${unworkable}</div></div>
-    <div class="card"><div class="card-label">Maior evento</div><div class="card-value">${maxDay ? maxDay.totalMm.toFixed(1) + ' mm' : '—'}</div></div>
+  <div class="body">
+    <div class="cards">
+      <div class="card">
+        <div class="card-label">Acumulado total</div>
+        <div class="card-value">${Math.round(totalMm * 10) / 10}<span class="card-unit">mm</span></div>
+      </div>
+      <div class="card">
+        <div class="card-label">Dias com chuva</div>
+        <div class="card-value">${rainyDays}<span class="card-unit">dias</span></div>
+      </div>
+      <div class="card">
+        <div class="card-label">Dias impraticáveis</div>
+        <div class="card-value" style="color:${unworkable > 0 ? '#DC2626' : '#111827'};">
+          ${unworkable}<span class="card-unit">dias</span>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-label">Maior evento</div>
+        <div class="card-value">${maxDay ? maxDay.totalMm.toFixed(1) : '0'}<span class="card-unit">mm</span></div>
+      </div>
+    </div>
+
+    <div class="chart-wrap">
+      <canvas id="chart" width="1050" height="360"></canvas>
+    </div>
   </div>
 
-  <canvas id="chart" width="900" height="380"></canvas>
+  <div class="doc-footer">
+    <div class="logo-sm">SYS<span>O</span>BRA · Sistema de Gestão de Obras</div>
+    <div>${proj.name}</div>
+    <div>Gerado em ${new Date().toLocaleDateString('pt-BR')} às ${new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</div>
+  </div>
 
   <script>
     const ctx = document.getElementById('chart')
@@ -930,7 +1012,7 @@ export async function diaryRoutes(app: FastifyInstance) {
             type: 'bar',
             label: 'Precipitação (mm)',
             data: ${JSON.stringify(mmPorDia)},
-            backgroundColor: ${JSON.stringify(records.map((r: any) => r.isUnworkable ? '#ef4444' : '#3b82f6'))},
+            backgroundColor: ${JSON.stringify(records.map((r: any) => r.isUnworkable ? '#EF4444' : '#F5A623'))},
             borderRadius: 3,
             yAxisID: 'y'
           },
@@ -938,7 +1020,7 @@ export async function diaryRoutes(app: FastifyInstance) {
             type: 'line',
             label: 'Acumulado (mm)',
             data: ${JSON.stringify(acumulado)},
-            borderColor: '#F5A623',
+            borderColor: '#111827',
             backgroundColor: 'transparent',
             borderWidth: 2,
             pointRadius: 2,
@@ -950,16 +1032,15 @@ export async function diaryRoutes(app: FastifyInstance) {
       options: {
         responsive: false,
         animation: false,
-        plugins: { legend: { position: 'top', labels: { font: { size: 11 } } } },
+        plugins: { legend: { position: 'top', labels: { font: { size: 11 }, color: '#374151' } } },
         scales: {
-          y:  { beginAtZero: true, title: { display: true, text: 'mm' }, ticks: { font: { size: 10 } } },
-          y2: { beginAtZero: true, position: 'right', title: { display: true, text: 'acum. mm' }, grid: { drawOnChartArea: false }, ticks: { font: { size: 10 } } },
-          x:  { ticks: { font: { size: 9 }, maxRotation: 45 } }
+          y:  { beginAtZero: true, title: { display: true, text: 'mm', color: '#6B7280' }, ticks: { font: { size: 10 }, color: '#6B7280' }, grid: { color: '#F3F4F6' } },
+          y2: { beginAtZero: true, position: 'right', title: { display: true, text: 'acum. mm', color: '#6B7280' }, grid: { drawOnChartArea: false }, ticks: { font: { size: 10 }, color: '#6B7280' } },
+          x:  { ticks: { font: { size: 9 }, maxRotation: 45, color: '#6B7280' }, grid: { color: '#F3F4F6' } }
         }
       }
     })
   </script>
-  <p class="footer">Documento gerado pelo SYSOBRA · ${proj.name}</p>
 </body>
 </html>`
 
@@ -1059,7 +1140,21 @@ export async function diaryRoutes(app: FastifyInstance) {
       include: {
         author:     { select: { id: true, name: true, avatarUrl: true } },
         approvedBy: { select: { id: true, name: true } },
-        project:    { select: { id: true, name: true, stages: { orderBy: { order: 'asc' } } } },
+        project: {
+          select: {
+            id: true, name: true, code: true,
+            // Etapas incluídas para o formulário de edição do RDO
+            stages: {
+              where:   { status: { not: 'CANCELLED' } },
+              orderBy: { order: 'asc' },
+              select: {
+                id: true, name: true, code: true, order: true,
+                progressPercent: true, status: true,
+                budgetTotal: true, startDate: true, endDate: true,
+              },
+            },
+          },
+        },
         comments: {
           where:   isInternal ? {} : { isInternal: false },
           include: { author: { select: { id: true, name: true } } },
@@ -1074,7 +1169,32 @@ export async function diaryRoutes(app: FastifyInstance) {
       },
     })
     if (!entry) return reply.status(404).send({ error: 'Registro não encontrado' })
-    return reply.send({ entry })
+
+    // Serializa Decimal → number nas etapas do projeto
+    const serialised: any = { ...entry }
+    if (serialised.project?.stages) {
+      serialised.project = {
+        ...serialised.project,
+        stages: serialised.project.stages.map((s: any) => ({
+          ...s,
+          progressPercent: parseFloat(String(s.progressPercent ?? 0)),
+          budgetTotal:     parseFloat(String(s.budgetTotal     ?? 0)),
+        })),
+      }
+    }
+    if (serialised.stageEntries) {
+      serialised.stageEntries = serialised.stageEntries.map((se: any) => ({
+        ...se,
+        previousProgress: parseFloat(String(se.previousProgress ?? 0)),
+        currentProgress:  parseFloat(String(se.currentProgress  ?? 0)),
+        stage: se.stage ? {
+          ...se.stage,
+          progressPercent: parseFloat(String(se.stage.progressPercent ?? 0)),
+        } : null,
+      }))
+    }
+
+    return reply.send({ entry: serialised })
   })
 
   // ── PUT /api/v1/diary/entries/:id ─────────────────────────────────────────
@@ -1581,198 +1701,274 @@ const STATUS_LABEL: Record<string, string> = {
 }
 
 function buildDiaryPdfHtml(entry: any, proj: any, company: any): string {
-  const fmtCurrency = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
-  const fmtDate     = (d: Date | string) => new Date(d).toLocaleDateString('pt-BR')
-  const genAt       = new Date().toLocaleString('pt-BR')
+  const fmtDate = (d: Date | string) => new Date(d).toLocaleDateString('pt-BR')
 
-  const logoBlock = company?.logo
-    ? `<img src="${company.logo}" alt="Logo" style="height:40px;object-fit:contain;" />`
-    : `<span style="font-size:20px;font-weight:800;color:#1d4ed8;">${company?.name ?? 'SYSOBRA'}</span>`
+  const statusColors: Record<string, { bg: string; color: string }> = {
+    APPROVED: { bg: '#DCFCE7', color: '#166534' },
+    REJECTED: { bg: '#FEE2E2', color: '#991B1B' },
+    PENDING:  { bg: '#FEF3C7', color: '#92400E' },
+    DRAFT:    { bg: PDF_COLORS.gray100, color: PDF_COLORS.gray700 },
+  }
+  const sc = statusColors[entry.status] ?? statusColors.DRAFT
+  const statusBadge = `<span class="badge" style="background:${sc.bg};color:${sc.color};">${STATUS_LABEL[entry.status] ?? entry.status}</span>`
 
   const weatherRow = (period: string, cond: string | null, rain: number, workable: boolean) => `
-    <tr>
-      <td style="padding:6px 8px;font-weight:600;">${period}</td>
-      <td style="padding:6px 8px;">${cond ? (WEATHER_LABEL[cond] ?? cond) : '—'}</td>
-      <td style="padding:6px 8px;text-align:right;">${rain > 0 ? rain + ' mm' : '—'}</td>
-      <td style="padding:6px 8px;text-align:center;">
-        <span style="padding:2px 8px;border-radius:99px;font-size:10px;font-weight:600;background:${workable ? '#dcfce7' : '#fee2e2'};color:${workable ? '#16a34a' : '#dc2626'};">
-          ${workable ? 'Praticável' : 'Impraticável'}
-        </span>
-      </td>
+    <tr class="${!workable ? 'row-impraticavel' : ''}">
+      <td style="font-weight:600;">${period}</td>
+      <td>${cond ? (WEATHER_LABEL[cond] ?? cond) : '—'}</td>
+      <td class="right">${rain > 0 ? rain + ' mm' : '—'}</td>
+      <td class="center"><span class="badge ${workable ? 'badge-success' : 'badge-danger'}">${workable ? 'Praticável' : 'Impraticável'}</span></td>
     </tr>`
 
-  const stageRows = (entry.stageEntries ?? []).map((se: any, i: number) => `
-    <tr style="background:${i%2===0?'#fff':'#f9fafb'}">
-      <td style="padding:6px 8px;">${se.stage?.name ?? '—'}</td>
-      <td style="padding:6px 8px;text-align:right;">${se.previousProgress?.toFixed(1) ?? 0}%</td>
-      <td style="padding:6px 8px;text-align:right;font-weight:600;">${se.currentProgress?.toFixed(1) ?? 0}%</td>
-      <td style="padding:6px 8px;text-align:right;color:${se.progressDelta>=0?'#16a34a':'#dc2626'};">${se.progressDelta>=0?'+':''}${se.progressDelta?.toFixed(1) ?? 0}%</td>
-      <td style="padding:6px 8px;font-size:11px;">${se.activities || '—'}</td>
+  const stageRows = (entry.stageEntries ?? []).map((se: any) => `
+    <tr>
+      <td>${se.stage?.name ?? '—'}</td>
+      <td class="right">${se.previousProgress?.toFixed(1) ?? 0}%</td>
+      <td class="right" style="font-weight:700;">${se.currentProgress?.toFixed(1) ?? 0}%</td>
+      <td class="right" style="font-weight:600;color:${(se.progressDelta ?? 0) >= 0 ? PDF_COLORS.success : PDF_COLORS.danger};">
+        ${(se.progressDelta ?? 0) >= 0 ? '+' : ''}${se.progressDelta?.toFixed(1) ?? 0}%
+      </td>
+      <td style="font-size:11px;">${se.activities || '—'}</td>
     </tr>`).join('')
 
-  const occurrenceRows = (entry.occurrences ?? []).map((o: any, i: number) => `
-    <tr style="background:${i%2===0?'#fff':'#f9fafb'}">
-      <td style="padding:6px 8px;font-size:11px;">${o.type}</td>
-      <td style="padding:6px 8px;font-size:11px;">${o.severity}</td>
-      <td style="padding:6px 8px;font-size:11px;">${o.description}</td>
-      <td style="padding:6px 8px;font-size:11px;">${o.action || '—'}</td>
+  const occurrenceRows = (entry.occurrences ?? []).map((o: any) => `
+    <tr>
+      <td style="font-size:11px;">${o.type}</td>
+      <td style="font-size:11px;">${o.severity}</td>
+      <td style="font-size:11px;">${o.description}</td>
+      <td style="font-size:11px;">${o.action || '—'}</td>
     </tr>`).join('')
 
-  return `<!DOCTYPE html>
-<html lang="pt-BR"><head><meta charset="UTF-8"/>
-<title>RDO ${entry.reportNumber ?? ''} — ${proj?.name ?? ''}</title>
-<style>
-* { box-sizing:border-box;margin:0;padding:0; }
-body { font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#111;font-size:13px; }
-@page { size:A4;margin:18mm; }
-table { border-collapse:collapse;width:100%; }
-th { background:#1d4ed8;color:#fff;padding:7px 8px;font-size:11px;text-align:left; }
-td { border-bottom:1px solid #f3f4f6;vertical-align:top; }
-h2 { font-size:13px;color:#1d4ed8;margin:20px 0 8px;padding-bottom:4px;border-bottom:2px solid #dbeafe; }
-.footer { margin-top:24px;padding-top:10px;border-top:1px solid #e5e7eb;color:#9ca3af;font-size:10px;display:flex;justify-content:space-between; }
-</style></head><body>
-
-<table style="margin-bottom:18px;">
-  <tr>
-    <td style="width:55%;">${logoBlock}
-      <div style="font-size:10px;color:#6b7280;margin-top:4px;">${company?.name ?? ''} ${company?.cnpj ? '— CNPJ: '+company.cnpj : ''}</div>
-    </td>
-    <td style="text-align:right;vertical-align:top;">
-      <div style="font-size:17px;font-weight:700;color:#1d4ed8;">RELATÓRIO DIÁRIO DE OBRA</div>
-      <div style="font-size:14px;font-weight:700;color:#374151;">RDO Nº ${entry.reportNumber ?? '—'}</div>
-      <div style="font-size:11px;color:#6b7280;margin-top:4px;">Data: <strong>${fmtDate(entry.date)}</strong></div>
-      <div style="font-size:11px;color:#6b7280;">Responsável: <strong>${entry.author?.name ?? '—'}</strong></div>
-      <div style="margin-top:4px;">
-        <span style="background:${entry.status==='APPROVED'?'#dcfce7':entry.status==='REJECTED'?'#fee2e2':'#fef3c7'};color:${entry.status==='APPROVED'?'#16a34a':entry.status==='REJECTED'?'#dc2626':'#d97706'};padding:2px 8px;border-radius:99px;font-size:10px;font-weight:600;">
-          ${STATUS_LABEL[entry.status] ?? entry.status}
-        </span>
+  const body = `
+    <!-- Identificação da obra -->
+    <div class="section">
+      <div class="section-title">1. Identificação da Obra</div>
+      <div class="info-grid">
+        <div class="info-item"><span class="label">Obra</span><span class="value">${proj?.name ?? '—'}</span></div>
+        <div class="info-item"><span class="label">Código</span><span class="value">${proj?.code ?? '—'}</span></div>
+        <div class="info-item"><span class="label">Responsável</span><span class="value">${entry.author?.name ?? '—'}</span></div>
+        <div class="info-item"><span class="label">Data</span><span class="value">${fmtDate(entry.date)}</span></div>
+        <div class="info-item"><span class="label">Cliente</span><span class="value">${proj?.client?.name ?? '—'}</span></div>
+        <div class="info-item"><span class="label">Endereço</span><span class="value">${[proj?.address, proj?.city, proj?.state].filter(Boolean).join(', ') || '—'}</span></div>
       </div>
-    </td>
-  </tr>
-</table>
+    </div>
 
-<h2>1. Identificação da Obra</h2>
-<table><tbody>
-  <tr><td style="padding:5px 8px;width:30%;color:#6b7280;">Obra</td><td style="padding:5px 8px;font-weight:600;">${proj?.name ?? '—'}</td><td style="padding:5px 8px;width:20%;color:#6b7280;">Código</td><td style="padding:5px 8px;">${proj?.code ?? '—'}</td></tr>
-  <tr><td style="padding:5px 8px;color:#6b7280;">Endereço</td><td colspan="3" style="padding:5px 8px;">${[proj?.address, proj?.city, proj?.state].filter(Boolean).join(', ') || '—'}</td></tr>
-  <tr><td style="padding:5px 8px;color:#6b7280;">Cliente</td><td style="padding:5px 8px;">${proj?.client?.name ?? '—'}</td><td style="padding:5px 8px;color:#6b7280;">Responsável</td><td style="padding:5px 8px;">${proj?.responsible?.name ?? '—'}</td></tr>
-</tbody></table>
+    <!-- Condições climáticas -->
+    <div class="section">
+      <div class="section-title">2. Condições Climáticas</div>
+      <table>
+        <thead><tr>
+          <th>Período</th><th>Condição</th><th class="right">Chuva (mm)</th><th class="center">Praticabilidade</th>
+        </tr></thead>
+        <tbody>
+          ${weatherRow('Manhã', entry.weatherMorning,   Number(entry.rainMorningMm   ?? 0), entry.workableMorning   !== false)}
+          ${weatherRow('Tarde', entry.weatherAfternoon, Number(entry.rainAfternoonMm ?? 0), entry.workableAfternoon !== false)}
+          ${weatherRow('Noite', entry.weatherNight,     Number(entry.rainNightMm     ?? 0), entry.workableNight     !== false)}
+        </tbody>
+        <tfoot><tr>
+          <td colspan="2">Total do dia</td>
+          <td class="right">${Number(entry.totalRainMm ?? 0).toFixed(1)} mm</td>
+          <td></td>
+        </tr></tfoot>
+      </table>
+    </div>
 
-<h2>2. Condições Climáticas</h2>
-<table><thead><tr><th>Período</th><th>Condição</th><th class="right" style="text-align:right;">Chuva (mm)</th><th style="text-align:center;">Praticabilidade</th></tr></thead>
-<tbody>
-  ${weatherRow('Manhã',  entry.weatherMorning,   Number(entry.rainMorningMm   ?? 0), entry.workableMorning   !== false)}
-  ${weatherRow('Tarde',  entry.weatherAfternoon, Number(entry.rainAfternoonMm ?? 0), entry.workableAfternoon !== false)}
-  ${weatherRow('Noite',  entry.weatherNight,     Number(entry.rainNightMm     ?? 0), entry.workableNight     !== false)}
-  <tr style="background:#f9fafb;font-weight:700;"><td colspan="2" style="padding:6px 8px;">Total do dia</td><td style="padding:6px 8px;text-align:right;">${Number(entry.totalRainMm ?? 0)} mm</td><td></td></tr>
-</tbody></table>
+    ${(entry.stageEntries ?? []).length > 0 ? `
+    <div class="section">
+      <div class="section-title">3. Progresso por Etapa</div>
+      <table>
+        <thead><tr><th>Etapa</th><th class="right">Anterior</th><th class="right">Atual</th><th class="right">Evolução</th><th>Atividades</th></tr></thead>
+        <tbody>${stageRows}</tbody>
+      </table>
+    </div>` : ''}
 
-${(entry.stageEntries ?? []).length > 0 ? `
-<h2>3. Progresso por Etapa</h2>
-<table><thead><tr><th>Etapa</th><th style="text-align:right;">Anterior</th><th style="text-align:right;">Atual</th><th style="text-align:right;">Evolução</th><th>Atividades</th></tr></thead>
-<tbody>${stageRows}</tbody></table>` : ''}
+    ${entry.generalActivities ? `
+    <div class="section">
+      <div class="section-title">4. Atividades Gerais</div>
+      <div class="text-block">${entry.generalActivities}</div>
+    </div>` : ''}
 
-${entry.generalActivities ? `<h2>4. Atividades Gerais</h2><div style="background:#f9fafb;padding:10px 12px;border-radius:6px;font-size:12px;line-height:1.6;">${entry.generalActivities}</div>` : ''}
+    ${(entry.occurrences ?? []).length > 0 ? `
+    <div class="section">
+      <div class="section-title">5. Ocorrências</div>
+      <table>
+        <thead><tr><th>Tipo</th><th>Severidade</th><th>Descrição</th><th>Providência</th></tr></thead>
+        <tbody>${occurrenceRows}</tbody>
+      </table>
+    </div>` : ''}
 
-${(entry.occurrences ?? []).length > 0 ? `
-<h2>5. Ocorrências</h2>
-<table><thead><tr><th>Tipo</th><th>Severidade</th><th>Descrição</th><th>Providência</th></tr></thead>
-<tbody>${occurrenceRows}</tbody></table>` : ''}
+    ${entry.ddsDone || entry.ddsTheme ? `
+    <div class="section">
+      <div class="section-title">6. DDS — Diálogo Diário de Segurança</div>
+      <div class="highlight-box">
+        <h3>✅ DDS Realizado</h3>
+        <p>Tema: <strong>${entry.ddsTheme ?? 'Não especificado'}</strong>
+        ${entry.ddsTime ? ` — Realizado às ${new Date(entry.ddsTime).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}` : ''}</p>
+      </div>
+    </div>` : ''}
 
-${entry.generalNotes ? `<h2>6. Observações Gerais</h2><div style="background:#fffbeb;padding:10px 12px;border-radius:6px;font-size:12px;line-height:1.6;">${entry.generalNotes}</div>` : ''}
+    ${entry.generalNotes ? `
+    <div class="section">
+      <div class="section-title">7. Observações Gerais</div>
+      <div class="text-block-warn">${entry.generalNotes}</div>
+    </div>` : ''}
 
-<div class="footer">
-  <span>Gerado pelo <strong>SYSOBRA</strong> em ${genAt}</span>
-  <span>${company?.name ?? 'SYSOBRA'}</span>
-</div>
-</body></html>`
+    <!-- Assinaturas -->
+    <div class="signatures">
+      <div class="signature-box">
+        <div class="signature-line"></div>
+        <div class="signature-name">${entry.author?.name ?? 'Responsável'}</div>
+        <div class="signature-role">Autor do RDO</div>
+      </div>
+      <div class="signature-box">
+        <div class="signature-line"></div>
+        <div class="signature-name">_____________________</div>
+        <div class="signature-role">Fiscal / Engenheiro</div>
+      </div>
+      <div class="signature-box">
+        <div class="signature-line"></div>
+        <div class="signature-name">_____________________</div>
+        <div class="signature-role">Gerente da Obra</div>
+      </div>
+    </div>
+  `
+
+  const header = getPdfHeader({
+    title:       'RELATÓRIO DIÁRIO DE OBRA',
+    docNumber:   `RDO Nº ${entry.reportNumber ?? '—'}`,
+    company:     { name: company?.name ?? 'SYSOBRA', document: company?.cnpj ? `CNPJ: ${company.cnpj}` : null, logo: company?.logo },
+    date:        fmtDate(entry.date),
+    statusBadge,
+  })
+
+  return buildPdfDocument({
+    title:  `RDO ${entry.reportNumber ?? ''} — ${proj?.name ?? ''}`,
+    header,
+    body,
+    footer: getPdfFooter(company?.name ?? 'SYSOBRA'),
+  })
 }
 
 function buildRainReportHtml(proj: any, records: any[], summary: any, startDate?: string, endDate?: string): string {
   const company = proj.company
-  const genAt   = new Date().toLocaleString('pt-BR')
-  const logoBlock = company?.logo
-    ? `<img src="${company.logo}" alt="Logo" style="height:36px;object-fit:contain;" />`
-    : `<span style="font-size:18px;font-weight:800;color:#1d4ed8;">${company?.name ?? 'SYSOBRA'}</span>`
 
-  const fmtDate = (d: Date | string) => new Date(d).toLocaleDateString('pt-BR')
-
-  const rows = records.map((r: any, i: number) => `
-    <tr style="background:${i%2===0?'#fff':'#f9fafb'}">
-      <td style="padding:6px 8px;">${fmtDate(r.date)}</td>
-      <td style="padding:6px 8px;text-align:right;">${r.morningMm > 0 ? r.morningMm+' mm' : '—'}</td>
-      <td style="padding:6px 8px;text-align:right;">${r.afternoonMm > 0 ? r.afternoonMm+' mm' : '—'}</td>
-      <td style="padding:6px 8px;text-align:right;">${r.nightMm > 0 ? r.nightMm+' mm' : '—'}</td>
-      <td style="padding:6px 8px;text-align:right;font-weight:600;">${r.totalMm} mm</td>
-      <td style="padding:6px 8px;text-align:center;"><span style="padding:2px 6px;border-radius:99px;font-size:10px;font-weight:600;background:${r.isUnworkable?'#fee2e2':'#dcfce7'};color:${r.isUnworkable?'#dc2626':'#16a34a'};">${r.isUnworkable?'Impraticável':'Praticável'}</span></td>
-    </tr>`).join('')
+  const fmtDate = (d: Date | string) => {
+    const dt = typeof d === 'string' ? new Date(d) : d
+    return dt.toLocaleDateString('pt-BR', { timeZone: 'UTC' })
+  }
 
   const periodLabel = startDate && endDate
     ? `${new Date(startDate).toLocaleDateString('pt-BR')} a ${new Date(endDate).toLocaleDateString('pt-BR')}`
     : 'Todo o período'
 
-  return `<!DOCTYPE html>
-<html lang="pt-BR"><head><meta charset="UTF-8"/>
-<title>Relatório Pluviométrico — ${proj.name}</title>
-<style>
-* { box-sizing:border-box;margin:0;padding:0; }
-body { font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#111;font-size:13px; }
-@page { size:A4;margin:18mm; }
-table { border-collapse:collapse;width:100%; }
-th { background:#1d4ed8;color:#fff;padding:7px 8px;font-size:11px;text-align:left; }
-td { border-bottom:1px solid #f3f4f6;vertical-align:top; }
-h2 { font-size:13px;color:#1d4ed8;margin:18px 0 8px;padding-bottom:4px;border-bottom:2px solid #dbeafe; }
-.card { background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:12px 16px;margin-bottom:12px; }
-.footer { margin-top:24px;padding-top:10px;border-top:1px solid #e5e7eb;color:#9ca3af;font-size:10px;display:flex;justify-content:space-between; }
-</style></head><body>
+  const rainyDays = records.filter((r: any) => r.totalMm > 0).length
 
-<table style="margin-bottom:18px;">
-  <tr>
-    <td style="width:55%;">${logoBlock}</td>
-    <td style="text-align:right;vertical-align:top;">
-      <div style="font-size:16px;font-weight:700;color:#1d4ed8;">RELATÓRIO PLUVIOMÉTRICO</div>
-      <div style="font-size:12px;color:#374151;margin-top:4px;">Obra: <strong>${proj.name}</strong> ${proj.code ? '('+proj.code+')' : ''}</div>
-      <div style="font-size:11px;color:#6b7280;">Período: ${periodLabel}</div>
-    </td>
-  </tr>
-</table>
+  const rows = records.map((r: any) => {
+    const praticavel = !r.isUnworkable
+    const rowCls = praticavel ? '' : 'class="row-impraticavel"'
+    return `<tr ${rowCls}>
+      <td>${fmtDate(r.date)}</td>
+      <td class="right">${r.morningMm > 0 ? r.morningMm + ' mm' : '—'}</td>
+      <td class="right">${r.afternoonMm > 0 ? r.afternoonMm + ' mm' : '—'}</td>
+      <td class="right">${r.nightMm > 0 ? r.nightMm + ' mm' : '—'}</td>
+      <td class="right" style="font-weight:700;">${r.totalMm} mm</td>
+      <td class="center">
+        <span class="badge ${praticavel ? 'badge-success' : 'badge-danger'}">${praticavel ? 'Praticável' : 'Impraticável'}</span>
+      </td>
+    </tr>`
+  }).join('')
 
-<h2>Resumo Executivo</h2>
-<table><tbody>
-  <tr><td style="padding:6px 8px;width:35%;color:#6b7280;">Total de precipitação</td><td style="padding:6px 8px;font-weight:700;font-size:15px;">${Math.round(summary.totalMm * 10) / 10} mm</td></tr>
-  <tr><td style="padding:6px 8px;color:#6b7280;">Dias com chuva (> 0mm)</td><td style="padding:6px 8px;">${records.filter((r: any) => r.totalMm > 0).length} dias</td></tr>
-  <tr><td style="padding:6px 8px;color:#6b7280;">Dias impraticáveis</td><td style="padding:6px 8px;font-weight:600;color:#dc2626;">${summary.unworkable} dias</td></tr>
-  <tr><td style="padding:6px 8px;color:#6b7280;">Total de registros</td><td style="padding:6px 8px;">${records.length} dias com relatório</td></tr>
-</tbody></table>
+  const header = getPdfHeader({
+    title:    'RELATÓRIO PLUVIOMÉTRICO',
+    company:  { name: company?.name ?? 'SYSOBRA', document: company?.cnpj ?? null, logo: company?.logo ?? null },
+    date:     periodLabel,
+  })
 
-<div style="margin-top:20px;padding:16px 20px;border:2px solid #1d4ed8;border-radius:10px;background:#dbeafe;">
-  <h3 style="color:#1d4ed8;font-size:13px;margin-bottom:10px;">📋 Embasamento para Aditivo de Prazo</h3>
-  <p style="font-size:12px;line-height:1.7;color:#374151;">
-    Com base nos registros pluviométricos da obra <strong>${proj.name}</strong>, foram identificados
-    <strong>${summary.unworkable} dias impraticáveis</strong> no período analisado, com precipitação
-    total acumulada de <strong>${Math.round(summary.totalMm * 10) / 10} mm</strong>.<br/><br/>
-    Conforme documentação técnica e legislação pertinente às condições climáticas em obras de construção civil,
-    solicita-se reconhecimento formal de <strong>${summary.unworkable} dias de aditivo de prazo</strong>
-    em razão das condições adversas de chuva que inviabilizaram a execução dos serviços.
-  </p>
-</div>
+  const footer = getPdfFooter(company?.name ?? 'SYSOBRA')
 
-<h2>Histórico Diário de Precipitação</h2>
-<table>
-  <thead><tr><th>Data</th><th style="text-align:right;">Manhã</th><th style="text-align:right;">Tarde</th><th style="text-align:right;">Noite</th><th style="text-align:right;">Total</th><th style="text-align:center;">Praticabilidade</th></tr></thead>
-  <tbody>${rows}</tbody>
-  <tfoot>
-    <tr style="background:#f3f4f6;font-weight:700;">
-      <td colspan="4" style="padding:7px 8px;">TOTAL ACUMULADO</td>
-      <td style="padding:7px 8px;text-align:right;">${Math.round(summary.totalMm * 10) / 10} mm</td>
-      <td style="padding:7px 8px;text-align:center;color:#dc2626;">${summary.unworkable} dias imp.</td>
-    </tr>
-  </tfoot>
-</table>
+  const body = `
+    <!-- Resumo executivo -->
+    <div class="section">
+      <div class="section-title">Resumo Executivo</div>
+      <div class="metrics-grid">
+        <div class="metric-card">
+          <div class="m-label">Precipitação total</div>
+          <div class="m-value">${Math.round(summary.totalMm * 10) / 10}<span class="m-unit">mm</span></div>
+        </div>
+        <div class="metric-card">
+          <div class="m-label">Dias com chuva</div>
+          <div class="m-value">${rainyDays}<span class="m-unit">dias</span></div>
+        </div>
+        <div class="metric-card">
+          <div class="m-label">Dias impraticáveis</div>
+          <div class="m-value" style="color:${summary.unworkable > 0 ? PDF_COLORS.danger : PDF_COLORS.dark};">
+            ${summary.unworkable}<span class="m-unit">dias</span>
+          </div>
+        </div>
+        <div class="metric-card">
+          <div class="m-label">Registros totais</div>
+          <div class="m-value">${records.length}<span class="m-unit">dias</span></div>
+        </div>
+      </div>
+    </div>
 
-<div class="footer">
-  <span>Gerado pelo <strong>SYSOBRA</strong> em ${genAt}</span>
-  <span>${company?.name ?? 'SYSOBRA'}</span>
-</div>
-</body></html>`
+    <!-- Info da obra -->
+    <div class="section">
+      <div class="section-title">Identificação da Obra</div>
+      <div class="info-grid">
+        <div class="info-item">
+          <span class="label">Obra</span>
+          <span class="value">${proj.name}</span>
+        </div>
+        ${proj.code ? `<div class="info-item"><span class="label">Código</span><span class="value">${proj.code}</span></div>` : ''}
+        <div class="info-item">
+          <span class="label">Período analisado</span>
+          <span class="value">${periodLabel}</span>
+        </div>
+      </div>
+    </div>
+
+    ${summary.unworkable > 0 ? `
+    <!-- Bloco de aditivo -->
+    <div class="section">
+      <div class="highlight-box">
+        <h3>📋 Embasamento para Aditivo de Prazo</h3>
+        <p>
+          Com base nos registros pluviométricos da obra <strong>${proj.name}</strong>, foram identificados
+          <strong>${summary.unworkable} dias impraticáveis</strong> no período analisado, com precipitação
+          total acumulada de <strong>${Math.round(summary.totalMm * 10) / 10} mm</strong>.<br/><br/>
+          Conforme documentação técnica e legislação pertinente às condições climáticas em obras de construção civil,
+          solicita-se reconhecimento formal de <strong>${summary.unworkable} dias de aditivo de prazo</strong>
+          em razão das condições adversas de chuva que inviabilizaram a execução dos serviços.
+        </p>
+      </div>
+    </div>` : ''}
+
+    <!-- Tabela de registros -->
+    <div class="section">
+      <div class="section-title">Histórico Diário de Precipitação</div>
+      <table>
+        <thead>
+          <tr>
+            <th>Data</th>
+            <th class="right">Manhã</th>
+            <th class="right">Tarde</th>
+            <th class="right">Noite</th>
+            <th class="right">Total</th>
+            <th class="center">Praticabilidade</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+        <tfoot>
+          <tr>
+            <td colspan="4">TOTAL ACUMULADO</td>
+            <td class="right">${Math.round(summary.totalMm * 10) / 10} mm</td>
+            <td class="center" style="color:${PDF_COLORS.danger};">${summary.unworkable} dias imp.</td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+  `
+
+  return buildPdfDocument({ title: `Relatório Pluviométrico — ${proj.name}`, header, body, footer })
 }

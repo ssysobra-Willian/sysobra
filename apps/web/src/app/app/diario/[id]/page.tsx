@@ -543,23 +543,36 @@ export default function DiarioProjectPage() {
       {tab === 'stages' && (
         <div className="bg-white rounded-2xl border border-gray-200 shadow-sm divide-y divide-gray-100">
           {!project?.stages?.length ? (
-            <p className="p-8 text-center text-sm text-gray-400">Nenhuma etapa cadastrada.</p>
+            <div className="p-8 text-center">
+              <p className="text-sm text-gray-400 mb-3">Nenhuma etapa cadastrada nesta obra.</p>
+              <a
+                href={`/app/centro-de-custo/${projectId}`}
+                className="inline-flex items-center gap-1.5 text-sm font-medium text-[#F5A623] hover:underline"
+              >
+                Cadastrar etapas no Centro de Custo →
+              </a>
+            </div>
           ) : (
-            (project.stages ?? []).map((stage) => (
-              <div key={stage.id} className="px-5 py-4">
-                <div className="flex items-center justify-between mb-2">
-                  <p className="text-sm font-medium text-gray-800">{stage.name}</p>
-                  <span className="text-sm font-bold text-gray-700">{Number(stage.progressPercent).toFixed(0)}%</span>
+            (project.stages ?? []).map((stage) => {
+              const pct = Math.min(100, Number(stage.progressPercent) || 0)
+              return (
+                <div key={stage.id} className="px-5 py-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="text-sm font-medium text-gray-800">{stage.name}</p>
+                    <span className={`text-sm font-bold ${pct >= 100 ? 'text-green-600' : 'text-gray-700'}`}>
+                      {pct.toFixed(0)}%
+                    </span>
+                  </div>
+                  <div className="w-full h-2.5 bg-gray-100 rounded-full overflow-hidden">
+                    <div className="h-full rounded-full transition-all"
+                      style={{
+                        width: `${pct}%`,
+                        background: pct >= 100 ? '#16a34a' : '#F5A623',
+                      }} />
+                  </div>
                 </div>
-                <div className="w-full h-2.5 bg-gray-100 rounded-full overflow-hidden">
-                  <div className="h-full rounded-full transition-all"
-                    style={{
-                      width: `${Math.min(100, Number(stage.progressPercent))}%`,
-                      background: Number(stage.progressPercent) >= 100 ? '#16a34a' : '#F5A623',
-                    }} />
-                </div>
-              </div>
-            ))
+              )
+            })
           )}
         </div>
       )}

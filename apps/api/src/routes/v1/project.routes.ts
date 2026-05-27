@@ -573,6 +573,29 @@ export async function projectRoutes(app: FastifyInstance) {
     return reply.send({ success: true })
   })
 
+  // ── GET /:id/stages — listar etapas (usado pelo formulário do RDO) ─────────
+  app.get('/:id/stages', { preHandler: [requireCompany] }, async (request, reply) => {
+    const req       = request as RequestWithMember
+    const companyId = req.companyId!
+    const { id }    = request.params as { id: string }
+
+    const project = await p.project.findFirst({ where: { id, companyId, isActive: true } })
+    if (!project) return reply.status(404).send({ error: 'Obra não encontrada' })
+
+    const stages = await p.projectStage.findMany({
+      where:   { projectId: id, status: { not: 'CANCELLED' } },
+      orderBy: { order: 'asc' },
+      select: {
+        id: true, name: true, code: true, order: true,
+        progressPercent: true, status: true,
+        budgetTotal: true, budgetMaterial: true, budgetLabor: true,
+        startDate: true, endDate: true,
+      },
+    })
+
+    return reply.send({ stages: stages.map(serialiseStage) })
+  })
+
   // ── POST /:id/stages — criar etapa ───────────────────────────────────────
   app.post('/:id/stages', {
     preHandler: [requirePermission('projetos', 'edit')],

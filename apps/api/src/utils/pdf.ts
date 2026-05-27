@@ -1,4 +1,5 @@
 import puppeteer from 'puppeteer'
+import { PDF_COLORS, PDF_BASE_STYLES, getPdfHeader, getPdfFooter } from './pdfTemplate'
 
 // ─── Formatadores ─────────────────────────────────────────────────────────────
 
@@ -87,10 +88,7 @@ export type ReportData = SupplierReportData | ClientReportData | RawHtmlData
 type StructuredReportData = SupplierReportData | ClientReportData
 
 function buildHtml(data: StructuredReportData): string {
-  const isSupplier = data.kind === 'supplier'
-  const accentColor = isSupplier ? '#2563eb' : '#16a34a'
-  const accentLight = isSupplier ? '#dbeafe' : '#dcfce7'
-  const accentText  = isSupplier ? '#1d4ed8' : '#15803d'
+  const isSupplier  = data.kind === 'supplier'
   const entityLabel = isSupplier ? 'Fornecedor' : 'Cliente'
   const txLabel     = isSupplier ? 'Compras / Serviços' : 'Recebimentos'
   const negLabel    = isSupplier ? 'Descontos' : 'Retenções'
@@ -101,59 +99,43 @@ function buildHtml(data: StructuredReportData): string {
     ? (data as SupplierReportData).discountPercentage
     : (data as ClientReportData).retentionPercentage
 
-  const c     = data.company
-  const genAt = new Date().toLocaleString('pt-BR')
-
-  // Company header block
-  const logoBlock = c.logo
-    ? `<img src="${c.logo}" alt="Logo" style="height:48px;max-width:200px;object-fit:contain;" />`
-    : `<div style="font-size:22px;font-weight:800;color:${accentColor};">SYSOBRA</div>`
-
-  const addrParts = [c.address, c.city, c.state].filter(Boolean).join(', ')
+  const c = data.company
 
   // Variation badge
   const varBadge = (v: number) => {
-    const color = v > 0 ? '#16a34a' : v < 0 ? '#dc2626' : '#6b7280'
+    const color = v > 0 ? PDF_COLORS.success : v < 0 ? PDF_COLORS.danger : PDF_COLORS.gray500
     return `<span style="color:${color};font-size:11px;">${fmtPct(v, true)}</span>`
   }
 
-  // Metric card row
-  const metricRow = (label: string, value: string, varVal?: number) => `
-    <tr>
-      <td style="padding:6px 8px;color:#6b7280;font-size:12px;">${label}</td>
-      <td style="padding:6px 8px;text-align:right;font-weight:600;font-size:13px;">${value}</td>
-      ${varVal !== undefined ? `<td style="padding:6px 8px;text-align:right;">${varBadge(varVal)}</td>` : '<td></td>'}
-    </tr>`
-
-  // Transaction rows
+  // Transaction rows using shared CSS classes
   const txRows = data.transactions.map((t, i) => {
-    const bg = i % 2 === 0 ? '#ffffff' : '#f9fafb'
-    const statusColor = t.isPaid ? '#16a34a' : '#d97706'
+    const bg = i % 2 === 0 ? PDF_COLORS.white : PDF_COLORS.gray100
     const statusLabel = isSupplier ? (t.isPaid ? 'Pago' : 'Pendente') : (t.isPaid ? 'Recebido' : 'Pendente')
+    const badgeCls    = t.isPaid ? 'badge-success' : 'badge-warning'
     return `
       <tr style="background:${bg};">
-        <td style="padding:7px 8px;font-size:11px;color:#374151;">${fmtDate(t.referenceDate)}</td>
-        <td style="padding:7px 8px;font-size:11px;color:#111827;max-width:240px;">${t.description || '—'}</td>
-        <td style="padding:7px 8px;font-size:11px;text-align:right;color:#374151;">${t.category?.name ?? '—'}</td>
+        <td style="padding:7px 8px;font-size:11px;">${fmtDate(t.referenceDate)}</td>
+        <td style="padding:7px 8px;font-size:11px;max-width:240px;">${t.description || '—'}</td>
+        <td style="padding:7px 8px;font-size:11px;text-align:right;">${t.category?.name ?? '—'}</td>
         <td style="padding:7px 8px;font-size:11px;text-align:right;">${fmt(t.grossAmount)}</td>
-        <td style="padding:7px 8px;font-size:11px;text-align:right;color:#dc2626;">${t.retentionAmount > 0 ? '−' + fmt(t.retentionAmount) : '—'}</td>
+        <td style="padding:7px 8px;font-size:11px;text-align:right;color:${PDF_COLORS.danger};">${t.retentionAmount > 0 ? '−' + fmt(t.retentionAmount) : '—'}</td>
         <td style="padding:7px 8px;font-size:11px;text-align:right;font-weight:600;">${fmt(t.netAmount)}</td>
         <td style="padding:7px 8px;font-size:11px;text-align:center;">
-          <span style="background:${t.isPaid ? '#dcfce7' : '#fef3c7'};color:${statusColor};padding:2px 8px;border-radius:99px;font-size:10px;font-weight:600;">${statusLabel}</span>
+          <span class="badge ${badgeCls}">${statusLabel}</span>
         </td>
       </tr>`
   }).join('')
 
-  // Totals row
+  // Totals
   const totGross = data.transactions.reduce((s, t) => s + t.grossAmount, 0)
   const totRet   = data.transactions.reduce((s, t) => s + t.retentionAmount, 0)
   const totNet   = data.transactions.reduce((s, t) => s + t.netAmount, 0)
 
-  // Negotiation argument block (supplier only)
-  const negotiationBlock = isSupplier ? `
-    <div style="margin-top:28px;padding:20px 24px;border:1.5px solid ${accentColor};border-radius:10px;background:${accentLight};">
-      <h3 style="margin:0 0 12px;color:${accentText};font-size:14px;">💼 Argumentos de Negociação</h3>
-      <ul style="margin:0;padding-left:18px;color:#374151;font-size:12px;line-height:1.8;">
+  // Insight block (supplier = negotiation, client = relationship)
+  const insightBlock = isSupplier ? `
+    <div class="highlight-box" style="margin-top:20px;">
+      <h3>💼 Argumentos de Negociação</h3>
+      <ul>
         <li>Volume total movimentado no período: <strong>${fmt(data.totalGross)}</strong></li>
         <li>Número de transações: <strong>${data.transactionCount}</strong></li>
         <li>Ticket médio atual: <strong>${fmt(data.averageTicket)}</strong></li>
@@ -163,13 +145,10 @@ function buildHtml(data: StructuredReportData): string {
           ? `<li>Maior compra registrada: <strong>${fmt((data as SupplierReportData).largestTransaction!.amount)}</strong></li>`
           : ''}
       </ul>
-    </div>` : ''
-
-  // Client relationship block
-  const relationshipBlock = !isSupplier ? `
-    <div style="margin-top:28px;padding:20px 24px;border:1.5px solid ${accentColor};border-radius:10px;background:${accentLight};">
-      <h3 style="margin:0 0 12px;color:${accentText};font-size:14px;">🤝 Análise de Relacionamento</h3>
-      <ul style="margin:0;padding-left:18px;color:#374151;font-size:12px;line-height:1.8;">
+    </div>` : `
+    <div class="highlight-box" style="margin-top:20px;">
+      <h3>🤝 Análise de Relacionamento</h3>
+      <ul>
         <li>Total faturado no período: <strong>${fmt(data.totalGross)}</strong></li>
         <li>Total líquido recebido: <strong>${fmt(data.totalNet)}</strong></li>
         <li>Retenções aplicadas: <strong>${fmt((data as ClientReportData).totalRetentions)}</strong> (${fmtPct(negPct)})</li>
@@ -179,94 +158,100 @@ function buildHtml(data: StructuredReportData): string {
           ? `<li>Maior recebimento: <strong>${fmt((data as ClientReportData).largestTransaction!.amount)}</strong></li>`
           : ''}
       </ul>
-    </div>` : ''
+    </div>`
+
+  const header = getPdfHeader({
+    title:    `RELATÓRIO DE ${entityLabel.toUpperCase()}`,
+    company:  { name: c.name, document: c.cnpj ?? null, logo: c.logo ?? null },
+    date:     data.periodLabel,
+    statusBadge: `<span style="display:inline-block;padding:2px 8px;border-radius:99px;font-size:10px;font-weight:700;background:${PDF_COLORS.primaryLight};color:${PDF_COLORS.primaryDark};">${entityLabel}: ${data.entityName}</span>`,
+  })
+  const footer = getPdfFooter(c.name)
+
+  const body = `
+    <!-- Métricas do período -->
+    <div class="section">
+      <div class="section-title">Resumo do Período</div>
+      <div class="info-grid" style="grid-template-columns: repeat(4, 1fr);">
+        <div class="info-item">
+          <span class="label">Total Bruto</span>
+          <span class="value">${fmt(data.totalGross)}</span>
+          ${varBadge(data.variations.grossVariation)}
+        </div>
+        <div class="info-item">
+          <span class="label">${negLabel}</span>
+          <span class="value">${fmt(negAmt)}${negPct > 0 ? ` (${fmtPct(negPct)})` : ''}</span>
+        </div>
+        <div class="info-item">
+          <span class="label">Total Líquido</span>
+          <span class="value">${fmt(data.totalNet)}</span>
+          ${varBadge(data.variations.netVariation)}
+        </div>
+        <div class="info-item">
+          <span class="label">Nº de ${txLabel}</span>
+          <span class="value">${data.transactionCount}</span>
+          ${varBadge(data.variations.countVariation)}
+        </div>
+      </div>
+      <div class="info-grid" style="grid-template-columns: repeat(3, 1fr); margin-top: 8px;">
+        <div class="info-item">
+          <span class="label">Ticket Médio</span>
+          <span class="value">${fmt(data.averageTicket)}</span>
+        </div>
+        <div class="info-item">
+          <span class="label">${isSupplier ? 'Juros / Encargos' : 'Juros Recebidos'}</span>
+          <span class="value">${fmt(isSupplier ? (data as SupplierReportData).totalInterest : (data as ClientReportData).totalInterest)}</span>
+        </div>
+        ${data.largestTransaction ? `
+        <div class="info-item">
+          <span class="label">Maior Transação</span>
+          <span class="value">${fmt(data.largestTransaction.amount)} — ${fmtDate(data.largestTransaction.date)}</span>
+        </div>` : ''}
+      </div>
+    </div>
+
+    ${insightBlock}
+
+    <!-- Histórico de transações -->
+    <div class="section" style="margin-top:20px;">
+      <div class="section-title">Histórico de ${txLabel}</div>
+      <table>
+        <thead>
+          <tr>
+            <th>Data</th>
+            <th>Descrição</th>
+            <th class="right">Categoria</th>
+            <th class="right">Bruto</th>
+            <th class="right">${negLabel}</th>
+            <th class="right">Líquido</th>
+            <th class="center">Status</th>
+          </tr>
+        </thead>
+        <tbody>${txRows}</tbody>
+        <tfoot>
+          <tr>
+            <td colspan="3">TOTAL</td>
+            <td class="right">${fmt(totGross)}</td>
+            <td class="right" style="color:${PDF_COLORS.danger};">${totRet > 0 ? '−' + fmt(totRet) : '—'}</td>
+            <td class="right">${fmt(totNet)}</td>
+            <td></td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+  `
 
   return `<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
   <meta charset="UTF-8" />
-  <title>Relatório de Relacionamento — ${data.entityName}</title>
-  <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; color: #111827; background: #fff; font-size: 13px; }
-    @page { size: A4; margin: 20mm 18mm; }
-    table { border-collapse: collapse; width: 100%; }
-    th { background: ${accentColor}; color: #fff; padding: 8px; font-size: 11px; text-align: left; }
-    th.right { text-align: right; }
-    td { border-bottom: 1px solid #f3f4f6; vertical-align: middle; }
-    .section { margin-top: 28px; }
-    .section h2 { font-size: 14px; color: ${accentText}; margin-bottom: 10px; padding-bottom: 6px; border-bottom: 2px solid ${accentLight}; }
-    .footer { margin-top: 32px; padding-top: 12px; border-top: 1px solid #e5e7eb; color: #9ca3af; font-size: 10px; display: flex; justify-content: space-between; }
-  </style>
+  <title>Relatório de ${entityLabel} — ${data.entityName}</title>
+  <style>${PDF_BASE_STYLES}</style>
 </head>
 <body>
-  <!-- Header -->
-  <table style="margin-bottom:20px;">
-    <tr>
-      <td style="width:60%;">${logoBlock}
-        ${addrParts ? `<div style="font-size:10px;color:#6b7280;margin-top:4px;">${addrParts}</div>` : ''}
-        ${c.cnpj ? `<div style="font-size:10px;color:#6b7280;">CNPJ: ${c.cnpj}</div>` : ''}
-      </td>
-      <td style="text-align:right;vertical-align:top;">
-        <div style="font-size:18px;font-weight:700;color:${accentColor};">Relatório de ${entityLabel}</div>
-        <div style="font-size:12px;color:#6b7280;margin-top:4px;">${entityLabel}: <strong style="color:#111827;">${data.entityName}</strong></div>
-        <div style="font-size:12px;color:#6b7280;">Período: <strong style="color:#111827;">${data.periodLabel}</strong></div>
-      </td>
-    </tr>
-  </table>
-
-  <!-- Summary metrics -->
-  <div class="section">
-    <h2>📊 Resumo do Período</h2>
-    <table>
-      <tbody>
-        ${metricRow('Total Bruto', fmt(data.totalGross), data.variations.grossVariation)}
-        ${metricRow(negLabel, fmt(negAmt) + (negPct > 0 ? ` (${fmtPct(negPct)})` : ''), undefined)}
-        ${metricRow('Total Líquido', fmt(data.totalNet), data.variations.netVariation)}
-        ${isSupplier ? metricRow('Juros / Encargos', fmt((data as SupplierReportData).totalInterest), undefined) : metricRow('Juros Recebidos', fmt((data as ClientReportData).totalInterest), undefined)}
-        ${metricRow('Nº de ' + txLabel, String(data.transactionCount), data.variations.countVariation)}
-        ${metricRow('Ticket Médio', fmt(data.averageTicket), undefined)}
-        ${data.largestTransaction ? metricRow('Maior Transação', fmt(data.largestTransaction.amount) + ' — ' + fmtDate(data.largestTransaction.date), undefined) : ''}
-      </tbody>
-    </table>
-  </div>
-
-  ${negotiationBlock}
-  ${relationshipBlock}
-
-  <!-- Transaction table -->
-  <div class="section">
-    <h2>📋 Histórico de ${txLabel}</h2>
-    <table>
-      <thead>
-        <tr>
-          <th>Data</th>
-          <th>Descrição</th>
-          <th>Categoria</th>
-          <th class="right">Bruto</th>
-          <th class="right">${negLabel}</th>
-          <th class="right">Líquido</th>
-          <th style="text-align:center;">Status</th>
-        </tr>
-      </thead>
-      <tbody>${txRows}</tbody>
-      <tfoot>
-        <tr style="background:#f9fafb;font-weight:700;">
-          <td colspan="3" style="padding:8px;font-size:12px;color:#374151;">TOTAL</td>
-          <td style="padding:8px;text-align:right;font-size:12px;">${fmt(totGross)}</td>
-          <td style="padding:8px;text-align:right;font-size:12px;color:#dc2626;">${totRet > 0 ? '−' + fmt(totRet) : '—'}</td>
-          <td style="padding:8px;text-align:right;font-size:12px;">${fmt(totNet)}</td>
-          <td></td>
-        </tr>
-      </tfoot>
-    </table>
-  </div>
-
-  <!-- Footer -->
-  <div class="footer">
-    <span>Gerado pelo <strong>SYSOBRA</strong> — ${genAt}</span>
-    <span>${c.name}</span>
-  </div>
+  ${header}
+  <div class="doc-body">${body}</div>
+  ${footer}
 </body>
 </html>`
 }

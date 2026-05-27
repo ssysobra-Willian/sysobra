@@ -83,7 +83,8 @@
       "Bash(New-Item -ItemType Directory -Force -Path \"apps\\\\web\\\\src\\\\app\\\\api\\\\uploads\\\\[...path]\")",
       "PowerShell(cd C:\\\\projetos\\\\sysobra; $env:DATABASE_URL = \"postgresql://sysobra:sysobra123@127.0.0.1:5432/sysobra\"; npx prisma migrate dev --name add-audit-log-fields --schema packages/database/prisma/schema.prisma 2>&1 | Select-Object -Last 20)",
       "PowerShell(cd C:\\\\projetos\\\\sysobra; $env:DATABASE_URL = \"postgresql://sysobra:sysobra123@127.0.0.1:5432/sysobra\"; npx prisma db push --schema packages/database/prisma/schema.prisma --accept-data-loss 2>&1 | Select-Object -Last 20)",
-      "PowerShell(cd C:\\\\projetos\\\\sysobra; $env:DATABASE_URL = \"postgresql://sysobra:sysobra123@127.0.0.1:5432/sysobra\"; npx prisma generate --schema packages/database/prisma/schema.prisma 2>&1 | Select-Object -Last 10)"
+      "PowerShell(cd C:\\\\projetos\\\\sysobra; $env:DATABASE_URL = \"postgresql://sysobra:sysobra123@127.0.0.1:5432/sysobra\"; npx prisma generate --schema packages/database/prisma/schema.prisma 2>&1 | Select-Object -Last 10)",
+      "Bash(New-Item -ItemType Directory -Force \"C:\\\\projetos\\\\sysobra\\\\apps\\\\web\\\\src\\\\app\\\\app\\\\dashboard\\\\atividades\")"
     ]
   }
 }

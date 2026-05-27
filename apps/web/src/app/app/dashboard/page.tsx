@@ -116,7 +116,7 @@ function MetricCard({ title, value, label, trendUp, trendPct, loading, icon: Ico
 
 // ─── AccountsCard ─────────────────────────────────────────────────────────────
 
-function AccountsCard({ title, items, loading }: { title: string; items: BillGroup[]; loading: boolean }) {
+function AccountsCard({ title, items, loading, href }: { title: string; items: BillGroup[]; loading: boolean; href: string }) {
   if (loading) return (
     <Panel className="flex flex-col h-full">
       <PanelHeader title={title} /><SkeletonRows n={3} />
@@ -125,7 +125,7 @@ function AccountsCard({ title, items, loading }: { title: string; items: BillGro
   const total = items.reduce((s, i) => s + i.valor, 0)
   return (
     <Panel className="flex flex-col h-full">
-      <PanelHeader title={title} actions={<button className="text-xs text-[#F5A623] hover:underline font-medium">Ver todas</button>} />
+      <PanelHeader title={title} actions={<Link href={href} className="text-xs text-[#F5A623] hover:underline font-medium">Ver todas</Link>} />
       <div className="px-5 pb-5 flex-1 flex flex-col justify-between">
         <ul className="space-y-3 mb-4">
           {items.map((item) => (
@@ -167,102 +167,25 @@ function ActionIcon({ action, deleted }: { action: string; deleted: boolean }) {
   )
 }
 
-// ─── ActivitiesCard (paginado) ────────────────────────────────────────────────
+// ─── ActivitiesCard ───────────────────────────────────────────────────────────
 
-const ACT_PER_PAGE = 7
-
-function ActivitiesCard({ activities, loading }: { activities: Transaction[]; loading: boolean }) {
-  const [page, setPage] = useState(1)
-  const total    = activities.length
-  const pages    = Math.max(1, Math.ceil(total / ACT_PER_PAGE))
-  const safePage = Math.min(page, pages)
-  const slice    = activities.slice((safePage - 1) * ACT_PER_PAGE, safePage * ACT_PER_PAGE)
-
+function ActivitiesCard({ loading }: { loading: boolean }) {
   return (
     <Panel className="flex flex-col">
-      <PanelHeader title="Atividades recentes"
-        actions={<button className="text-xs text-[#F5A623] hover:underline font-medium">Ver todas</button>} />
-      {loading ? <SkeletonRows n={7} /> : (
-        <>
-          <div className="px-5 pb-0 overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b border-gray-100">
-                  <th className="pb-2 text-left text-[11px] font-semibold text-gray-400 uppercase whitespace-nowrap">Data/Hora</th>
-                  <th className="pb-2 text-left text-[11px] font-semibold text-gray-400 uppercase hidden sm:table-cell whitespace-nowrap">Usuário</th>
-                  <th className="pb-2 text-left text-[11px] font-semibold text-gray-400 uppercase">Descrição</th>
-                  <th className="pb-2 text-left text-[11px] font-semibold text-gray-400 uppercase hidden lg:table-cell whitespace-nowrap">Módulo</th>
-                  <th className="pb-2 text-right text-[11px] font-semibold text-gray-400 uppercase whitespace-nowrap">Valor</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-50">
-                {slice.length === 0 ? (
-                  <tr><td colSpan={5} className="py-8 text-center text-xs text-gray-400">Nenhuma atividade no período.</td></tr>
-                ) : slice.map((a) => (
-                  <tr key={a.id} className="hover:bg-gray-50 transition-colors">
-                    {/* Data e hora */}
-                    <td className="py-2.5 pr-3 whitespace-nowrap">
-                      <p className="text-xs text-gray-700 font-mono leading-tight">
-                        {a.date.slice(5).split('-').reverse().join('/')}
-                      </p>
-                      <p className="text-[10px] text-gray-400 font-mono leading-tight">{a.time}</p>
-                    </td>
-                    {/* Avatar + nome do usuário */}
-                    <td className="py-2.5 pr-3 hidden sm:table-cell">
-                      {a.createdBy ? (
-                        <div className="flex items-center gap-1.5">
-                          <UserAvatar name={a.createdBy.name} avatarUrl={a.createdBy.avatarUrl} size="xs" />
-                          <span className="text-[11px] text-gray-500 truncate max-w-[80px]">{a.createdBy.name.split(' ')[0]}</span>
-                        </div>
-                      ) : (
-                        <span className="text-[11px] text-gray-400">—</span>
-                      )}
-                    </td>
-                    {/* Ícone + descrição */}
-                    <td className="py-2.5 pr-3">
-                      <div className="flex items-center gap-1.5">
-                        <ActionIcon action={a.action} deleted={a.deleted} />
-                        <span className={`text-xs line-clamp-1 ${a.deleted ? 'text-gray-400 line-through' : 'text-gray-700'}`}>
-                          {a.description}
-                        </span>
-                      </div>
-                    </td>
-                    {/* Módulo */}
-                    <td className="py-2.5 pr-3 hidden lg:table-cell">
-                      <span className="text-[11px] bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full whitespace-nowrap">{a.module}</span>
-                    </td>
-                    {/* Valor */}
-                    <td className={`py-2.5 text-right text-xs font-semibold tabular-nums whitespace-nowrap ${
-                      a.type === 'entrada' ? 'text-green-600' : 'text-red-500'}`}>
-                      {a.type === 'entrada' ? '+' : '-'}{fmt(a.amount)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          {total > ACT_PER_PAGE && (
-            <div className="flex items-center justify-between px-5 py-3 border-t border-gray-100 mt-1">
-              <p className="text-xs text-gray-400">{(safePage-1)*ACT_PER_PAGE+1}–{Math.min(safePage*ACT_PER_PAGE, total)} de {total}</p>
-              <div className="flex gap-1">
-                <button disabled={safePage<=1} onClick={()=>setPage(p=>p-1)}
-                  className="p-1.5 rounded-lg text-gray-400 hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed">
-                  <ChevronLeft size={14} />
-                </button>
-                {Array.from({length:pages},(_,i)=>i+1).map((n)=>(
-                  <button key={n} onClick={()=>setPage(n)}
-                    className={`w-6 h-6 rounded-lg text-xs font-medium transition-colors ${n===safePage?'bg-[#F5A623] text-white':'text-gray-500 hover:bg-gray-100'}`}>
-                    {n}
-                  </button>
-                ))}
-                <button disabled={safePage>=pages} onClick={()=>setPage(p=>p+1)}
-                  className="p-1.5 rounded-lg text-gray-400 hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed">
-                  <ChevronRight size={14} />
-                </button>
-              </div>
-            </div>
-          )}
-        </>
+      <PanelHeader
+        title="Atividades recentes"
+        actions={
+          <Link href="/app/dashboard/atividades" className="text-xs text-[#F5A623] hover:underline font-medium">
+            Ver todas
+          </Link>
+        }
+      />
+      {loading ? (
+        <SkeletonRows n={5} />
+      ) : (
+        <div className="px-5 pb-5">
+          <ActivityFeed limit={5} showHeader={false} compact />
+        </div>
       )}
     </Panel>
   )
@@ -336,9 +259,9 @@ function AlertsCard({
             </div>
           </div>
         ))}
-        <button className="text-xs text-center text-gray-400 hover:text-[#F5A623] font-medium transition-colors mt-auto pt-1">
+        <Link href="/app/financeiro?tab=alertas" className="text-xs text-center text-gray-400 hover:text-[#F5A623] font-medium transition-colors mt-auto pt-1">
           Ver todos os alertas →
-        </button>
+        </Link>
       </div>
     </Panel>
   )
@@ -671,7 +594,7 @@ export default function DashboardPage() {
         </Panel>
 
         <DonutCard categories={expenseCategories} loading={loading} />
-        <AccountsCard title="Contas a pagar" items={accountsPayable} loading={loading} />
+        <AccountsCard title="Contas a pagar" items={accountsPayable} loading={loading} href="/app/financeiro/contas-pagar" />
       </div>
 
       {/* ── Linha 3: Evolução (50%) + TOP Obras (25%) + AR (25%) ─────── */}
@@ -726,12 +649,12 @@ export default function DashboardPage() {
           )}
         </Panel>
 
-        <AccountsCard title="Contas a receber" items={accountsReceivable} loading={loading} />
+        <AccountsCard title="Contas a receber" items={accountsReceivable} loading={loading} href="/app/financeiro/contas-receber" />
       </div>
 
       {/* ── Linha 4: Atividades (60%) + Alertas (40%) ─────────────────── */}
       <div className="grid grid-cols-1 xl:grid-cols-5 gap-4">
-        <div className="xl:col-span-3"><ActivitiesCard activities={activities} loading={loading} /></div>
+        <div className="xl:col-span-3"><ActivitiesCard loading={loading} /></div>
         <div className="xl:col-span-2">
           <AlertsCard
             budgetAlertCount={projectAlerts.budgetAlertCount}
@@ -740,15 +663,6 @@ export default function DashboardPage() {
             overdueReceivable={{ count: accountsReceivable[0]?.count ?? 0, amount: accountsReceivable[0]?.valor ?? 0 }}
           />
         </div>
-      </div>
-
-      {/* ── Linha 5: Histórico de auditoria ─────────────────────────────── */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
-        <ActivityFeed
-          limit={15}
-          showHeader
-          title="Histórico de atividades"
-        />
       </div>
 
       {/* ── Modais fullscreen ─────────────────────────────────────────── */}

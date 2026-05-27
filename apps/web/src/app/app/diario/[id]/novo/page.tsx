@@ -467,8 +467,20 @@ export default function NovoRdoPage() {
         </Section>
 
         {/* ── Seção 3: Progresso por etapa ───────────────────────────────── */}
-        {stages.length > 0 && (
-          <Section number={3} title="Progresso por Etapa">
+        <Section number={3} title="Progresso por Etapa">
+          {stages.length === 0 ? (
+            <div className="text-center py-4">
+              <p className="text-sm text-gray-400 mb-2">Nenhuma etapa cadastrada nesta obra.</p>
+              <a
+                href={`/app/centro-de-custo/${projectId}`}
+                target="_blank"
+                rel="noreferrer"
+                className="text-sm font-medium text-[#F5A623] hover:underline"
+              >
+                Cadastrar etapas no Centro de Custo →
+              </a>
+            </div>
+          ) : (
             <div className="space-y-4">
               {stageEntries.map((se, idx) => {
                 const stage = stages.find((s) => s.id === se.stageId)
@@ -516,11 +528,11 @@ export default function NovoRdoPage() {
                 )
               })}
             </div>
-          </Section>
-        )}
+          )}
+        </Section>
 
         {/* ── Seção 4: Atividades gerais ─────────────────────────────────── */}
-        <Section number={stages.length > 0 ? 4 : 3} title="Atividades Gerais">
+        <Section number={4} title="Atividades Gerais">
           <Textarea
             label="Atividades executadas no dia"
             rows={4}
@@ -531,7 +543,7 @@ export default function NovoRdoPage() {
         </Section>
 
         {/* ── Seção 5: Ocorrências ───────────────────────────────────────── */}
-        <Section number={stages.length > 0 ? 5 : 4} title="Ocorrências">
+        <Section number={5} title="Ocorrências">
           {occurrences.length === 0 ? (
             <p className="text-sm text-gray-400 mb-3">Nenhuma ocorrência adicionada.</p>
           ) : (
@@ -622,7 +634,7 @@ export default function NovoRdoPage() {
         </Section>
 
         {/* ── Seção 6: DDS ──────────────────────────────────────────────── */}
-        <Section number={stages.length > 0 ? 6 : 5} title="DDS — Diálogo Diário de Segurança">
+        <Section number={6} title="DDS — Diálogo Diário de Segurança">
           <div className="flex flex-wrap items-center gap-4 mb-4">
             <label className="flex items-center gap-3 cursor-pointer">
               <input
@@ -690,7 +702,7 @@ export default function NovoRdoPage() {
         </Section>
 
         {/* ── Seção 7: Observações gerais ────────────────────────────────── */}
-        <Section number={stages.length > 0 ? 7 : 6} title="Observações Gerais">
+        <Section number={7} title="Observações Gerais">
           <Textarea
             label="Observações e anotações gerais"
             rows={3}
@@ -710,7 +722,7 @@ export default function NovoRdoPage() {
         </Section>
 
         {/* ── Seção 8: Fotos ─────────────────────────────────────────────── */}
-        <Section number={stages.length > 0 ? 8 : 7} title="Fotos">
+        <Section number={8} title="Fotos">
           <PhotoUpload
             photos={photos}
             onChange={setPhotos}
