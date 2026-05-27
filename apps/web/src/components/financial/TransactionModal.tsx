@@ -331,9 +331,18 @@ export function TransactionModal({ open, onClose, onSaved, editId, token, defaul
 
   if (!open) return null
 
-  const filteredCats = categories.filter((c) =>
-    c.type === form.type || c.type === 'BOTH'
-  )
+  // Deduplicar por nome (mesma empresa pode ter duplicatas transitórias)
+  const filteredCats = (() => {
+    const seen = new Set<string>()
+    return categories
+      .filter((c) => c.type === form.type || c.type === 'BOTH')
+      .filter((c) => {
+        const key = c.name.trim().toLowerCase()
+        if (seen.has(key)) return false
+        seen.add(key)
+        return true
+      })
+  })()
 
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto">

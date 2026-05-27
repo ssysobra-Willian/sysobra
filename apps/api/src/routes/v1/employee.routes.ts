@@ -1798,45 +1798,57 @@ export async function employeeRoutes(app: FastifyInstance) {
       'Julho','Agosto','Setembro','Outubro','Novembro','Dezembro']
     const mesLabel = MONTH_LABELS[body.month] ?? String(body.month)
 
-    // ── Categoria "Mão de obra" — buscar ou criar ──────────────────────────────
-    // Primeiro: corrigir categoria com nome errado (ex: "users Mão de obra")
-    const wrongCat = await (p as any).financialCategory.findFirst({
-      where: { companyId, name: { contains: 'users', mode: 'insensitive' } },
-    })
-    if (wrongCat) {
-      await (p as any).financialCategory.update({
-        where: { id: wrongCat.id },
-        data:  { name: 'Mão de obra', icon: null },
-      })
-    }
-
-    let maoCat = await (p as any).financialCategory.findFirst({
+    // ── Categoria "Mão de obra" — deduplicar e garantir exatamente uma ─────────
+    // Buscar TODAS as variações (inclusive nomes errados com "users")
+    const allMaoCats = await (p as any).financialCategory.findMany({
       where: {
         companyId,
-        type: { in: ['EXPENSE', 'BOTH'] },
         OR: [
-          { name: { equals: 'Mão de obra',  mode: 'insensitive' } },
-          { name: { equals: 'Mao de obra',  mode: 'insensitive' } },
-          { name: { contains: 'mão de obra', mode: 'insensitive' } },
+          { name: { contains: 'mão de obra',  mode: 'insensitive' } },
+          { name: { contains: 'mao de obra',  mode: 'insensitive' } },
+          { name: { contains: 'users',        mode: 'insensitive' } },
         ],
       },
+      orderBy: { createdAt: 'asc' },
     })
-    if (!maoCat) {
+
+    let maoCat: any
+
+    if (allMaoCats.length === 0) {
+      // Criar pela primeira vez
       maoCat = await (p as any).financialCategory.create({
         data: {
           companyId,
           name:  'Mão de obra',
           type:  'EXPENSE',
           color: '#F5A623',
-          icon:  null,     // sem ícone — evita renderização como texto no frontend
+          icon:  null,
         },
       })
-    } else if (maoCat.icon === 'users') {
-      // Corrigir ícone antigo que aparecia como texto
-      await (p as any).financialCategory.update({
-        where: { id: maoCat.id },
-        data:  { icon: null },
-      })
+    } else {
+      // Manter o mais antigo, remover duplicados
+      maoCat = allMaoCats[0]
+
+      if (allMaoCats.length > 1) {
+        const duplicateIds = allMaoCats.slice(1).map((c: any) => c.id)
+        // Redirecionar transações dos duplicados para o canonical
+        await (p as any).financialTransaction.updateMany({
+          where: { companyId, categoryId: { in: duplicateIds } },
+          data:  { categoryId: maoCat.id },
+        })
+        // Remover os duplicados
+        await (p as any).financialCategory.deleteMany({
+          where: { id: { in: duplicateIds } },
+        })
+      }
+
+      // Garantir nome e icon corretos no canonical
+      if (maoCat.name !== 'Mão de obra' || maoCat.icon != null) {
+        await (p as any).financialCategory.update({
+          where: { id: maoCat.id },
+          data:  { name: 'Mão de obra', icon: null },
+        })
+      }
     }
 
     // ── Buscar nomes dos colaboradores ─────────────────────────────────────────
