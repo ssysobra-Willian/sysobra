@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, Suspense } from 'react'
+import Image from 'next/image'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { saveCompanySession } from '@/lib/auth-cookies'
@@ -147,11 +148,15 @@ function CadastroForm() {
       {/* Header */}
       <header className="bg-[#1a1a1a] px-6 py-4">
         <div className="max-w-6xl mx-auto flex items-center justify-between">
-          <Link href="/" className="flex items-center gap-2">
-            <div className="h-9 w-9 rounded-lg bg-[#F5A623] flex items-center justify-center">
-              <span className="text-white font-bold text-lg">S</span>
-            </div>
-            <span className="text-white font-bold text-xl">SYSOBRA</span>
+          <Link href="/" className="flex items-center">
+            <Image
+              src="/logo-dark.png"
+              alt="SYSOBRA"
+              width={160}
+              height={36}
+              style={{ height: 36, width: 'auto', objectFit: 'contain' }}
+              priority
+            />
           </Link>
           <span className="text-gray-400 text-sm">Criar conta</span>
         </div>

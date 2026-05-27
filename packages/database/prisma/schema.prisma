@@ -151,9 +151,65 @@ enum SignatureStatus {
 
 /// Status de aprovação do registro diário
 enum DiaryStatus {
+  DRAFT    // Rascunho — não enviado para aprovação
   PENDING  // Preenchido, aguardando aprovação do gestor
   APPROVED // Aprovado pelo gestor
   REJECTED // Devolvido para correção
+}
+
+/// Condição climática por período
+enum WeatherCondition {
+  SUNNY    // Ensolarado
+  CLOUDY   // Nublado
+  OVERCAST // Encoberto
+  RAINY    // Chuvoso
+  STORMY   // Tempestade
+}
+
+/// Tipo de ocorrência no diário
+enum OccurrenceType {
+  ACCIDENT       // Acidente
+  INCIDENT       // Incidente
+  VISIT          // Visita
+  INSPECTION     // Fiscalização / Vistoria
+  STOPPAGE       // Paralisação
+  NONCONFORMITY  // Não conformidade
+  OTHER          // Outro
+}
+
+/// Severidade da ocorrência
+enum OccurrenceSeverity {
+  LOW      // Baixa
+  MEDIUM   // Média
+  HIGH     // Alta
+  CRITICAL // Crítica
+}
+
+/// Categoria temática do DDS
+enum DdsCategory {
+  HEIGHT_WORK      // Trabalho em altura
+  EXCAVATION       // Escavação e fundações
+  ELECTRICAL       // Elétrica e choques
+  SCAFFOLDING      // Andaimes e plataformas
+  TOOLS            // Ferramentas e equipamentos
+  PPE              // EPIs e equipamentos de proteção
+  FIRE             // Prevenção de incêndio
+  CHEMICAL         // Produtos químicos e FISPQ
+  ERGONOMICS       // Ergonomia e postura
+  TRAFFIC          // Sinalização e trânsito
+  HOUSEKEEPING     // Organização e limpeza (5S)
+  LIFTING          // Içamento e movimentação de cargas
+  CONCRETE         // Concretagem e formas
+  MASONRY          // Alvenaria e revestimentos
+  ROOFING          // Telhados e coberturas
+  CONFINED_SPACE   // Espaço confinado
+  FIRST_AID        // Primeiros socorros
+  ACCIDENT_REPORT  // Comunicação de acidentes
+  GENERAL_SAFETY   // Segurança geral
+  HEALTH           // Saúde e bem-estar
+  ENVIRONMENT      // Meio ambiente
+  QUALITY          // Qualidade na obra
+  OTHER            // Outros
 }
 
 // ─── Enums do módulo Financeiro ──────────────────────────────────────────────
@@ -252,9 +308,11 @@ model User {
   signatures     Signature[]
   epiDeliveries  EpiDelivery[]   @relation("EpiResponsible")
   toolMovements  ToolMovement[]  @relation("ToolResponsible")
-  diaryEntries   DiaryEntry[]    @relation("DiaryAuthor")
-  diaryApprovals DiaryEntry[]    @relation("DiaryApprover")
-  diaryComments  DiaryComment[]
+  diaryEntries    DiaryEntry[]    @relation("DiaryAuthor")
+  diaryApprovals  DiaryEntry[]    @relation("DiaryApprover")
+  diaryRejections DiaryEntry[]    @relation("DiaryRejector")
+  diaryComments   DiaryComment[]
+  ddsThemesCreated DdsTheme[]     @relation("DdsCreatedBy")
   problemComments ProblemComment[]
   financialTransactions FinancialTransaction[] @relation("FinancialCreatedBy")
   financialAuditLogs    FinancialAuditLog[]
@@ -457,6 +515,7 @@ model Project {
   toolMovements         ToolMovement[]
   problems              Problem[]
   diaryEntries          DiaryEntry[]
+  diaryRainRecords      DiaryRainRecord[]
   documents             Document[]
   purchaseMaps          PurchaseMap[]
   memberAccesses        MemberProjectAccess[]
@@ -487,6 +546,7 @@ model ProjectStage {
 
   project               Project                @relation(fields: [projectId], references: [id], onDelete: Cascade)
   costCenterAllocations CostCenterAllocation[]
+  diaryStageEntries     DiaryStageEntry[]
 
   @@map("project_stages")
 }
@@ -1127,28 +1187,139 @@ model DiaryEntry {
   projectId    String      @map("project_id")
   authorId     String      @map("author_id")
   date         DateTime    @default(now())
+
+  // ── Número sequencial por obra ──────────────────────────────────
+  reportNumber     String?  @map("report_number")       // RDO-001, RDO-002…
+  isComplement     Boolean  @default(false) @map("is_complement")
+  parentReportId   String?  @map("parent_report_id")    // ID do RDO principal do mesmo dia
+  complementLetter String?  @map("complement_letter")   // A, B, C…
+
+  // ── Condições climáticas por período ────────────────────────────
+  weatherMorning   WeatherCondition? @map("weather_morning")
+  weatherAfternoon WeatherCondition? @map("weather_afternoon")
+  weatherNight     WeatherCondition? @map("weather_night")
+
+  // ── Medição pluviométrica (mm) por período ───────────────────────
+  rainMorningMm   Float @default(0) @map("rain_morning_mm")
+  rainAfternoonMm Float @default(0) @map("rain_afternoon_mm")
+  rainNightMm     Float @default(0) @map("rain_night_mm")
+  totalRainMm     Float @default(0) @map("total_rain_mm")   // calculado: soma dos 3
+
+  // ── Praticabilidade por período ──────────────────────────────────
+  workableMorning       Boolean @default(true) @map("workable_morning")
+  workableAfternoon     Boolean @default(true) @map("workable_afternoon")
+  workableNight         Boolean @default(true) @map("workable_night")
+  suggestedUnworkable   Boolean @default(false) @map("suggested_unworkable")
+  unworkableConfirmedBy String? @map("unworkable_confirmed_by")
+
+  // ── Campos legados (mantidos para backward compat) ───────────────
   weather      String?
   temperature  Decimal?    @db.Decimal(4, 1)
   workers      Int?
-  activities   String?
-  observations String?
-  imageUrls    String[]    @map("image_urls")
-  /// Status de aprovação: PENDING (padrão), APPROVED, REJECTED
-  status       DiaryStatus @default(PENDING)
-  /// Usuário que aprovou ou rejeitou
-  approvedById String?     @map("approved_by_id")
-  approvedAt   DateTime?   @map("approved_at")
-  /// Justificativa de rejeição (preenchida quando status = REJECTED)
-  rejectionNote String?    @map("rejection_note")
-  createdAt    DateTime    @default(now()) @map("created_at")
-  updatedAt    DateTime    @updatedAt @map("updated_at")
 
-  project      Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  author       User           @relation("DiaryAuthor", fields: [authorId], references: [id])
-  approvedBy   User?          @relation("DiaryApprover", fields: [approvedById], references: [id])
-  comments     DiaryComment[]
+  // ── Conteúdo do relatório ────────────────────────────────────────
+  generalActivities String? @db.Text @map("general_activities") // resumo geral
+  generalNotes      String? @db.Text @map("general_notes")
+  notesPublic       Boolean @default(false) @map("notes_public")
+  activities   String? @db.Text
+  observations String? @db.Text
+
+  // ── DDS ─────────────────────────────────────────────────────────
+  ddsTheme String?   @map("dds_theme")
+  ddsDone  Boolean   @default(false) @map("dds_done")
+  ddsTime  DateTime? @map("dds_time")
+
+  // ── Mídias ──────────────────────────────────────────────────────
+  imageUrls String[] @map("image_urls")
+
+  // ── Aprovação / Rejeição ─────────────────────────────────────────
+  status        DiaryStatus @default(DRAFT)
+  approvedById  String?     @map("approved_by_id")
+  approvedAt    DateTime?   @map("approved_at")
+  rejectedById  String?     @map("rejected_by_id")
+  rejectedAt    DateTime?   @map("rejected_at")
+  rejectionNote String?     @map("rejection_note")
+
+  // ── Auditoria ───────────────────────────────────────────────────
+  updatedBy String? @map("updated_by")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt      @map("updated_at")
+
+  project    Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  author     User           @relation("DiaryAuthor",   fields: [authorId],    references: [id])
+  approvedBy User?          @relation("DiaryApprover", fields: [approvedById], references: [id])
+  rejectedBy User?          @relation("DiaryRejector", fields: [rejectedById], references: [id])
+  parentReport      DiaryEntry?  @relation("DiaryComplements", fields: [parentReportId], references: [id])
+  complementReports DiaryEntry[] @relation("DiaryComplements")
+  comments      DiaryComment[]
+  stageEntries  DiaryStageEntry[]
+  occurrences   DiaryOccurrence[]
+  rainRecord    DiaryRainRecord?
 
   @@map("diary_entries")
+}
+
+/// Progresso por etapa registrado em cada relatório diário
+model DiaryStageEntry {
+  id               String   @id @default(cuid())
+  diaryId          String   @map("diary_id")
+  stageId          String   @map("stage_id")
+  previousProgress Float    @default(0) @map("previous_progress")  // % anterior (puxado do ProjectStage)
+  currentProgress  Float    @default(0) @map("current_progress")   // % atual informado
+  progressDelta    Float    @default(0) @map("progress_delta")      // diferença calculada
+  activities       String   @default("") @db.Text
+  comments         String?  @db.Text
+  photos           String[] @default([])
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  diary DiaryEntry   @relation(fields: [diaryId], references: [id], onDelete: Cascade)
+  stage ProjectStage @relation(fields: [stageId], references: [id], onDelete: Cascade)
+
+  @@unique([diaryId, stageId])
+  @@map("diary_stage_entries")
+}
+
+/// Ocorrências registradas no relatório diário
+model DiaryOccurrence {
+  id             String             @id @default(cuid())
+  diaryId        String             @map("diary_id")
+  type           OccurrenceType     @default(OTHER)
+  severity       OccurrenceSeverity @default(LOW)
+  description    String             @db.Text
+  action         String?            @db.Text   // providência tomada
+  responsible    String?
+  visitorName    String?            @map("visitor_name")
+  visitorCompany String?            @map("visitor_company")
+  visitorPurpose String?            @map("visitor_purpose")
+  photos         String[]           @default([])
+  notifyManager  Boolean            @default(false) @map("notify_manager")
+  createdAt      DateTime           @default(now()) @map("created_at")
+
+  diary DiaryEntry @relation(fields: [diaryId], references: [id], onDelete: Cascade)
+
+  @@map("diary_occurrences")
+}
+
+/// Histórico pluviométrico vinculado ao relatório diário
+model DiaryRainRecord {
+  id               String   @id @default(cuid())
+  companyId        String   @map("company_id")
+  projectId        String   @map("project_id")
+  diaryId          String   @unique @map("diary_id")
+  date             DateTime
+  morningMm        Float    @default(0) @map("morning_mm")
+  afternoonMm      Float    @default(0) @map("afternoon_mm")
+  nightMm          Float    @default(0) @map("night_mm")
+  totalMm          Float    @default(0) @map("total_mm")
+  isUnworkable     Boolean  @default(false) @map("is_unworkable")
+  unworkableReason String?  @map("unworkable_reason")
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  project Project    @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  diary   DiaryEntry @relation(fields: [diaryId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, date])
+  @@map("diary_rain_records")
 }
 
 /// Comentários em registros do diário (internos e externos/clientes)
@@ -1275,18 +1446,23 @@ model GlobalMaterial {
 }
 
 model DdsTheme {
-  id          String   @id @default(cuid())
-  companyId   String?  @map("company_id")
+  id          String      @id @default(cuid())
+  companyId   String?     @map("company_id")        // null = DDS do sistema; preenchido = DDS da empresa
   title       String
-  content     String   @db.Text
-  category    String?
-  imageUrl    String?  @map("image_url")
-  isGlobal    Boolean  @default(false) @map("is_global")
-  isActive    Boolean  @default(true) @map("is_active")
-  createdAt   DateTime @default(now()) @map("created_at")
-  updatedAt   DateTime @updatedAt @map("updated_at")
+  content     String      @db.Text
+  category    DdsCategory @default(OTHER)
+  tags        String[]    @default([])
+  duration    Int         @default(15)              // duração sugerida em minutos
+  order       Int         @default(0)
+  imageUrl    String?     @map("image_url")
+  isActive    Boolean     @default(true) @map("is_active")
+  createdById String?     @map("created_by_id")
+  createdAt   DateTime    @default(now()) @map("created_at")
+  updatedAt   DateTime    @updatedAt @map("updated_at")
 
-  company Company? @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  company   Company? @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  createdBy User?    @relation("DdsCreatedBy", fields: [createdById], references: [id])
 
+  @@index([companyId, category])
   @@map("dds_themes")
 }

@@ -8,6 +8,7 @@ import {
   RequestWithMember,
   JwtPayload,
 } from '../../middlewares/auth.middleware'
+import { generatePdf, type SupplierReportData } from '../../utils/pdf'
 
 // ─── Validação CPF ────────────────────────────────────────────────────────────
 
@@ -475,5 +476,118 @@ export async function supplierRoutes(app: FastifyInstance) {
         category:        t.category,
       })),
     })
+  })
+
+  // ── GET /api/v1/suppliers/:id/relationship-report ─────────────────────────
+  app.get('/:id/relationship-report', {
+    preHandler: [requirePermission('financeiro', 'view')],
+  }, async (request, reply) => {
+    const req = request as RequestWithMember
+    const { companyId } = req
+    const { id } = request.params as { id: string }
+    const q = request.query as { startDate?: string; endDate?: string }
+
+    const [supplier, company] = await Promise.all([
+      (prisma as any).supplier.findFirst({ where: { id, companyId } }),
+      prisma.company.findUnique({ where: { id: companyId }, select: { name: true, cnpj: true, logo: true, address: true, city: true, state: true, phone: true, email: true } }),
+    ])
+    if (!supplier) return reply.status(404).send({ error: 'Fornecedor não encontrado' })
+
+    const now   = new Date()
+    const start = q.startDate ? new Date(q.startDate) : new Date(now.getFullYear(), 0, 1)
+    const end   = q.endDate   ? new Date(q.endDate)   : new Date(now.getFullYear(), 11, 31, 23, 59, 59)
+
+    const diffMs   = end.getTime() - start.getTime()
+    const prevEnd   = new Date(start.getTime() - 1)
+    const prevStart = new Date(prevEnd.getTime() - diffMs)
+
+    const txWhere = (s: Date, e: Date) => ({
+      companyId,
+      supplierId: id,
+      isActive:   true,
+      type:       'EXPENSE' as const,
+      referenceDate: { gte: s, lte: e },
+    })
+
+    const toN = (v: any) => Number(v ?? 0)
+
+    const [txs, prevTxs] = await Promise.all([
+      (prisma as any).financialTransaction.findMany({
+        where:   txWhere(start, end),
+        orderBy: { referenceDate: 'desc' },
+        select: {
+          id: true, description: true, isPaid: true, referenceDate: true,
+          grossAmount: true, netAmount: true, retentionAmount: true, interestAmount: true,
+          category: { select: { name: true, color: true } },
+        },
+      }),
+      (prisma as any).financialTransaction.findMany({
+        where:  txWhere(prevStart, prevEnd),
+        select: { grossAmount: true, netAmount: true },
+      }),
+    ])
+
+    const totalGross     = txs.reduce((s: number, t: any) => s + toN(t.grossAmount),    0)
+    const totalNet       = txs.reduce((s: number, t: any) => s + toN(t.netAmount),       0)
+    const totalDiscounts = txs.reduce((s: number, t: any) => s + toN(t.retentionAmount), 0)
+    const totalInterest  = txs.reduce((s: number, t: any) => s + toN(t.interestAmount),  0)
+    const count          = txs.length
+
+    const prevGross = prevTxs.reduce((s: number, t: any) => s + toN(t.grossAmount), 0)
+    const prevNet   = prevTxs.reduce((s: number, t: any) => s + toN(t.netAmount),   0)
+    const prevCount = prevTxs.length
+
+    const largest = txs.reduce((mx: any, t: any) =>
+      (!mx || toN(t.netAmount) > toN(mx.netAmount)) ? t : mx, null)
+
+    const variation = (curr: number, prev: number) =>
+      prev === 0 ? 0 : Math.round(((curr - prev) / prev) * 100 * 10) / 10
+
+    const periodLabel = `${start.toLocaleDateString('pt-BR')} – ${end.toLocaleDateString('pt-BR')}`
+
+    const reportData: SupplierReportData = {
+      kind:               'supplier',
+      company:            company ?? { name: 'SYSOBRA' },
+      entityName:         supplier.name,
+      periodLabel,
+      totalGross:         Math.round(totalGross     * 100) / 100,
+      totalNet:           Math.round(totalNet       * 100) / 100,
+      totalDiscounts:     Math.round(totalDiscounts * 100) / 100,
+      totalInterest:      Math.round(totalInterest  * 100) / 100,
+      transactionCount:   count,
+      averageTicket:      count > 0 ? Math.round((totalNet / count) * 100) / 100 : 0,
+      discountPercentage: totalGross > 0 ? Math.round((totalDiscounts / totalGross) * 10000) / 100 : 0,
+      largestTransaction: largest
+        ? { amount: toN(largest.netAmount), date: largest.referenceDate, description: largest.description }
+        : null,
+      variations: {
+        grossVariation: variation(totalGross, prevGross),
+        netVariation:   variation(totalNet,   prevNet),
+        countVariation: variation(count,      prevCount),
+      },
+      transactions: txs.map((t: any) => ({
+        id:              t.id,
+        description:     t.description,
+        referenceDate:   t.referenceDate,
+        isPaid:          t.isPaid,
+        grossAmount:     toN(t.grossAmount),
+        netAmount:       toN(t.netAmount),
+        retentionAmount: toN(t.retentionAmount),
+        interestAmount:  toN(t.interestAmount),
+        category:        t.category,
+      })),
+    }
+
+    try {
+      const pdfBuffer = await generatePdf(reportData)
+      const filename = `relatorio-fornecedor-${supplier.name.replace(/\s+/g, '-').toLowerCase()}.pdf`
+      reply
+        .header('Content-Type', 'application/pdf')
+        .header('Content-Disposition', `attachment; filename="${filename}"`)
+        .send(pdfBuffer)
+    } catch (err) {
+      request.log.error(err, 'PDF generation failed')
+      return reply.status(500).send({ error: 'Falha ao gerar PDF' })
+    }
   })
 }

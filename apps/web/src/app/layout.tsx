@@ -10,8 +10,13 @@ export const metadata: Metadata = {
     default: 'SYSOBRA — Gestão de Obras',
     template: '%s | SYSOBRA',
   },
-  description: 'SaaS de gestão de obras para construtoras brasileiras',
+  description: 'Sistema completo de gestão para construtoras',
   keywords: ['gestão de obras', 'construtora', 'construção civil', 'SaaS'],
+  icons: {
+    icon:     '/favicon.ico',
+    shortcut: '/favicon.ico',
+    apple:    '/logo-icon.png',
+  },
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

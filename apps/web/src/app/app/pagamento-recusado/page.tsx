@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import Image from 'next/image'
 import Link from 'next/link'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
@@ -57,11 +58,8 @@ export default function PagamentoRecusadoPage() {
       {/* Header */}
       <header className="bg-[#1a1a1a] px-6 py-4 flex-shrink-0">
         <div className="max-w-6xl mx-auto flex items-center justify-between">
-          <Link href="/" className="flex items-center gap-2">
-            <div className="h-9 w-9 rounded-lg bg-[#F5A623] flex items-center justify-center">
-              <span className="text-white font-bold text-lg">S</span>
-            </div>
-            <span className="text-white font-bold text-xl">SYSOBRA</span>
+          <Link href="/" className="flex items-center">
+            <Image src="/logo-dark.png" alt="SYSOBRA" width={160} height={36} style={{ height: 36, width: 'auto', objectFit: 'contain' }} priority />
           </Link>
           <span className="text-xs border border-red-500/40 text-red-400 px-2.5 py-1 rounded-full font-medium">
             ❌ Pagamento Recusado

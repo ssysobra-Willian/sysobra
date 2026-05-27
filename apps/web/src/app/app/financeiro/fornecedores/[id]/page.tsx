@@ -196,7 +196,7 @@ export default function FornecedorDetailPage() {
   // ── Métricas ────────────────────────────────────────────────────────────────
   const [metrics,        setMetrics]        = useState<SupplierMetrics | null>(null)
   const [metricsLoading, setMetricsLoading] = useState(false)
-  const [periodKey,      setPeriodKey]      = useState<string>('month')
+  const [periodKey,      setPeriodKey]      = useState<string>('year')
   const [customStart,    setCustomStart]    = useState('')
   const [customEnd,      setCustomEnd]      = useState('')
 
@@ -206,7 +206,7 @@ export default function FornecedorDetailPage() {
     if (periodKey === 'year')     return yearRange(0)
     if (periodKey === 'lastyear') return yearRange(1)
     if (periodKey === 'custom' && customStart && customEnd) return { start: customStart, end: customEnd }
-    return currentMonth()
+    return yearRange(0)
   }
 
   const loadMetrics = useCallback(async () => {
@@ -702,45 +702,27 @@ export default function FornecedorDetailPage() {
                         )}
                       </div>
                       <button
-                        onClick={() => {
-                          const w = window.open('', '_blank')
-                          if (!w) return
+                        onClick={async () => {
                           const { start, end } = getPeriodDates()
-                          w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8">
-                          <title>Relatório de Relacionamento — ${metrics.supplierName}</title>
-                          <style>body{font-family:Arial,sans-serif;max-width:800px;margin:40px auto;padding:20px;color:#1f2937}
-                          h1{color:#1d4ed8;font-size:22px}h2{color:#374151;font-size:16px;margin-top:24px}
-                          table{width:100%;border-collapse:collapse;margin-top:12px}
-                          th{background:#f3f4f6;padding:8px;text-align:left;font-size:12px;text-transform:uppercase}
-                          td{padding:8px;border-bottom:1px solid #e5e7eb;font-size:13px}
-                          .big{font-size:28px;font-weight:bold;color:#1d4ed8}
-                          .green{color:#16a34a}.red{color:#dc2626}.sub{font-size:12px;color:#6b7280}
-                          @media print{button{display:none}}</style></head><body>
-                          <h1>Relatório de Relacionamento Comercial</h1>
-                          <p class="sub">Fornecedor: <strong>${metrics.supplierName}</strong> &nbsp;|&nbsp; Período: ${start} a ${end}</p>
-                          <h2>Resumo executivo</h2>
-                          <table><tr><th>Indicador</th><th>Valor</th></tr>
-                          <tr><td>Total bruto gasto</td><td class="big">${fmt(metrics.totalGross)}</td></tr>
-                          <tr><td>Descontos obtidos</td><td class="green">${fmt(metrics.totalDiscounts)} (${metrics.discountPercentage.toFixed(1)}%)</td></tr>
-                          <tr><td>Juros e acréscimos</td><td class="red">${fmt(metrics.totalInterest)}</td></tr>
-                          <tr><td>Total líquido pago</td><td><strong>${fmt(metrics.totalNet)}</strong></td></tr>
-                          <tr><td>Quantidade de compras</td><td>${metrics.transactionCount}</td></tr>
-                          <tr><td>Ticket médio</td><td>${fmt(metrics.averageTicket)}</td></tr></table>
-                          <h2>Proposta de negociação</h2>
-                          <p>Baseado no histórico de <strong>${fmt(metrics.totalGross)}</strong> em compras:</p>
-                          <ul><li>Desconto médio atual: <strong>${metrics.discountPercentage.toFixed(1)}%</strong></li>
-                          <li>Meta de desconto proposta: <strong>${(metrics.discountPercentage + 2).toFixed(1)}%</strong></li></ul>
-                          <h2>Histórico de transações</h2>
-                          <table><tr><th>Data</th><th>Descrição</th><th>Bruto</th><th>Desconto</th><th>Líquido</th><th>Status</th></tr>
-                          ${metrics.transactions.map(t => `<tr><td>${fmtDate(t.referenceDate)}</td><td>${t.description}</td><td>${fmt(t.grossAmount)}</td><td class="green">${t.retentionAmount>0?'−'+fmt(t.retentionAmount):'—'}</td><td>${fmt(t.netAmount)}</td><td>${t.isPaid?'Pago':'Pendente'}</td></tr>`).join('')}
-                          </table><br><p class="sub">Gerado pelo SYSOBRA em ${new Date().toLocaleString('pt-BR')}</p>
-                          <button onclick="window.print()">🖨️ Imprimir / Salvar PDF</button>
-                          </body></html>`)
-                          w.document.close()
+                          const tkn = localStorage.getItem('token') ?? ''
+                          const url = `${API}/api/v1/suppliers/${id}/relationship-report?startDate=${start}&endDate=${end}`
+                          try {
+                            const res = await fetch(url, { headers: { Authorization: `Bearer ${tkn}` } })
+                            if (!res.ok) throw new Error('Erro ao gerar PDF')
+                            const blob = await res.blob()
+                            const href = URL.createObjectURL(blob)
+                            const a = document.createElement('a')
+                            a.href = href
+                            a.download = `relatorio-fornecedor-${metrics.supplierName.replace(/\s+/g,'-').toLowerCase()}.pdf`
+                            a.click()
+                            URL.revokeObjectURL(href)
+                          } catch {
+                            alert('Não foi possível gerar o PDF. Tente novamente.')
+                          }
                         }}
                         className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold px-4 py-2 rounded-xl transition-colors"
                       >
-                        <Download size={13} /> Gerar relatório de relacionamento
+                        <Download size={13} /> Baixar PDF do relatório
                       </button>
                     </div>
                   </>

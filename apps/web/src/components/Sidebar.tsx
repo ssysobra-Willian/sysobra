@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import Image from 'next/image'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import {
@@ -101,17 +102,42 @@ function SidebarContent({ collapsed, onToggleCollapsed, showCloseButton, onClose
       {/* ── Logo + botões de controle ────────────────────────────────── */}
       <div className="flex items-center justify-between px-4 py-5 border-b border-white/10">
         {!collapsed ? (
-          <Link href="/app/dashboard" className="flex items-center gap-2 min-w-0">
-            <div className="h-8 w-8 rounded-md bg-[#F5A623] flex items-center justify-center flex-shrink-0">
-              <span className="text-white font-bold text-sm">S</span>
-            </div>
-            <span className="text-white font-bold text-sm tracking-wide">SYSOBRA</span>
+          <Link href="/app/dashboard" className="flex items-center min-w-0">
+            <Image
+              src="/logo-dark.png"
+              alt="SYSOBRA"
+              width={140}
+              height={32}
+              style={{ height: 32, width: 'auto', objectFit: 'contain' }}
+              priority
+              onError={(e) => {
+                const target = e.target as HTMLImageElement
+                target.style.display = 'none'
+                const span = document.createElement('span')
+                span.className = 'text-white font-bold text-sm tracking-wide'
+                span.textContent = 'SYSOBRA'
+                target.parentNode?.appendChild(span)
+              }}
+            />
           </Link>
         ) : (
           <Link href="/app/dashboard" className="mx-auto">
-            <div className="h-8 w-8 rounded-md bg-[#F5A623] flex items-center justify-center">
-              <span className="text-white font-bold text-sm">S</span>
-            </div>
+            <Image
+              src="/logo-icon.png"
+              alt="S"
+              width={32}
+              height={32}
+              style={{ height: 32, width: 32, objectFit: 'contain' }}
+              priority
+              onError={(e) => {
+                const target = e.target as HTMLImageElement
+                target.style.display = 'none'
+                const div = document.createElement('div')
+                div.className = 'h-8 w-8 rounded-md bg-[#F5A623] flex items-center justify-center'
+                div.innerHTML = '<span class="text-white font-bold text-sm">S</span>'
+                target.parentNode?.appendChild(div)
+              }}
+            />
           </Link>
         )}
 

@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState, Suspense } from 'react'
+import Image from 'next/image'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { saveCompanySession, updateSubStatus } from '@/lib/auth-cookies'
@@ -329,11 +330,8 @@ function PageShell({ children }: { children: React.ReactNode }) {
     <div className="min-h-screen bg-gray-50 flex flex-col">
       <header className="bg-[#1a1a1a] px-6 py-4 flex-shrink-0">
         <div className="max-w-6xl mx-auto">
-          <Link href="/" className="flex items-center gap-2 w-fit">
-            <div className="h-9 w-9 rounded-lg bg-[#F5A623] flex items-center justify-center">
-              <span className="text-white font-bold text-lg">S</span>
-            </div>
-            <span className="text-white font-bold text-xl">SYSOBRA</span>
+          <Link href="/" className="flex items-center">
+            <Image src="/logo-dark.png" alt="SYSOBRA" width={160} height={36} style={{ height: 36, width: 'auto', objectFit: 'contain' }} priority />
           </Link>
         </div>
       </header>

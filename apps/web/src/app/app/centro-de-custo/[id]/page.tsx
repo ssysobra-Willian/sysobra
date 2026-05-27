@@ -459,6 +459,12 @@ export default function ObraDetailPage() {
   const [progressVal,   setProgressVal]   = useState('')
   const [realizedVal,   setRealizedVal]   = useState('')
   const [savingProgress, setSavingProgress] = useState(false)
+  const [diaryData, setDiaryData] = useState<{
+    totalReports: number
+    lastReport: { date: string; reportNumber: string | null; status: string } | null
+    unworkableDays: number
+    totalRainMm: number
+  } | null>(null)
 
   const loadProject = useCallback(async () => {
     setLoading(true)
@@ -490,6 +496,29 @@ export default function ObraDetailPage() {
   }, [id, router])
 
   useEffect(() => { loadProject() }, [loadProject])
+
+  // Carrega resumo do Diário de Obra para esta obra
+  useEffect(() => {
+    const token     = localStorage.getItem('token') || ''
+    const companyId = localStorage.getItem('companyId') || ''
+    if (!token || !id) return
+    fetch(`${API}/api/v1/diary/projects?search=${encodeURIComponent(id)}`, {
+      headers: { Authorization: `Bearer ${token}`, 'x-company-id': companyId },
+    })
+      .then((r) => r.json())
+      .then((d) => {
+        const proj = (d.projects ?? []).find((p: any) => p.id === id)
+        if (proj) {
+          setDiaryData({
+            totalReports:   proj.totalReports,
+            lastReport:     proj.lastReport,
+            unworkableDays: proj.unworkableDays,
+            totalRainMm:    proj.totalRainMm,
+          })
+        }
+      })
+      .catch(() => {/* silencioso */})
+  }, [id])
 
   const handleProgressSave = async () => {
     if (!progressStage) return
@@ -882,6 +911,82 @@ export default function ObraDetailPage() {
               </div>
             )}
             <p className="text-[10px] text-gray-400 text-center mt-3">↓ Ver tabela completa abaixo</p>
+          </div>
+
+          {/* Diário de Obra */}
+          <div className="bg-white rounded-xl border border-gray-200 p-4">
+            <div className="flex items-center justify-between mb-3">
+              <h4 className="text-sm font-semibold text-gray-700 flex items-center gap-1.5">
+                📋 Diário de Obra
+              </h4>
+              <Link
+                href={`/app/diario/${id}`}
+                className="text-[11px] text-[#F5A623] hover:text-[#d4891a] font-medium flex items-center gap-1"
+              >
+                Ver RDOs <ExternalLink size={10} />
+              </Link>
+            </div>
+            {diaryData ? (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-gray-500">Total de relatórios</span>
+                  <span className="text-sm font-semibold text-gray-800">{diaryData.totalReports}</span>
+                </div>
+                {diaryData.lastReport && (
+                  <div className="flex items-start justify-between gap-2">
+                    <span className="text-xs text-gray-500">Último RDO</span>
+                    <div className="text-right">
+                      <p className="text-xs font-medium text-gray-700">
+                        {diaryData.lastReport.reportNumber ?? '—'} — {new Date(diaryData.lastReport.date).toLocaleDateString('pt-BR')}
+                      </p>
+                      <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${
+                        diaryData.lastReport.status === 'APPROVED' ? 'bg-green-100 text-green-700' :
+                        diaryData.lastReport.status === 'REJECTED' ? 'bg-red-100 text-red-700' :
+                        diaryData.lastReport.status === 'DRAFT'    ? 'bg-gray-100 text-gray-600' :
+                        'bg-amber-100 text-amber-700'
+                      }`}>
+                        {diaryData.lastReport.status === 'APPROVED' ? 'Aprovado' :
+                         diaryData.lastReport.status === 'REJECTED' ? 'Devolvido' :
+                         diaryData.lastReport.status === 'DRAFT'    ? 'Rascunho' : 'Aguard. aprov.'}
+                      </span>
+                    </div>
+                  </div>
+                )}
+                {/* Mini resumo pluviométrico */}
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-gray-500">🌧 Chuva acumulada</span>
+                  <span className="text-xs font-medium text-gray-700">{diaryData.totalRainMm.toFixed(0)} mm</span>
+                </div>
+                {diaryData.unworkableDays > 0 && (
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-red-500">⛔ Dias impraticáveis</span>
+                    <span className="text-xs font-semibold text-red-600">{diaryData.unworkableDays} dias</span>
+                  </div>
+                )}
+                {/* Link para pluviometria completa */}
+                <Link href={`/app/diario/${id}`}
+                  className="flex items-center gap-1 text-[11px] text-blue-500 hover:text-blue-700 font-medium mt-1">
+                  <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                  </svg>
+                  Ver gráfico pluviométrico completo →
+                </Link>
+                <Link href={`/app/diario/${id}/novo`} className="block mt-2">
+                  <button className="w-full text-xs font-semibold py-1.5 px-3 bg-[#F5A623] text-white rounded-lg hover:bg-[#d4891a] transition-colors">
+                    + Novo RDO
+                  </button>
+                </Link>
+              </div>
+            ) : (
+              <div className="text-center py-3">
+                <p className="text-xs text-gray-400 mb-2">Nenhum RDO registrado</p>
+                <Link href={`/app/diario/${id}/novo`}>
+                  <button className="text-xs font-semibold py-1.5 px-3 bg-[#F5A623] text-white rounded-lg hover:bg-[#d4891a] transition-colors">
+                    + Novo RDO
+                  </button>
+                </Link>
+              </div>
+            )}
           </div>
 
           {/* RT (Responsável Técnico) */}

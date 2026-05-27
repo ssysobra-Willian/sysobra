@@ -56,7 +56,14 @@
       "Bash(New-Item -ItemType Directory -Force -Path \"C:\\\\projetos\\\\sysobra\\\\apps\\\\web\\\\src\\\\app\\\\app\\\\financeiro\\\\clientes\")",
       "Bash(Out-Null)",
       "Bash(New-Item -ItemType Directory -Force -Path \"C:\\\\projetos\\\\sysobra\\\\apps\\\\web\\\\src\\\\app\\\\app\\\\financeiro\\\\clientes\\\\[id]\")",
-      "Bash(Write-Host \"dirs created\")"
+      "Bash(Write-Host \"dirs created\")",
+      "Bash(New-Item -ItemType Directory -Force \"C:\\\\projetos\\\\sysobra\\\\apps\\\\web\\\\src\\\\app\\\\app\\\\diario\\\\[id]\\\\[reportId]\")",
+      "Bash(Write-Host \"OK\")",
+      "PowerShell(docker cp \"C:\\\\projetos\\\\sysobra\\\\packages\\\\database\\\\prisma\\\\migrations\\\\20260526130000_diary_refactor\\\\migration.sql\" sysobra_postgres:/tmp/migration.sql)",
+      "PowerShell(Invoke-RestMethod -Uri \"http://localhost:3001/health\" -Method GET | ConvertTo-Json)",
+      "PowerShell(docker cp \"C:\\\\projetos\\\\sysobra\\\\packages\\\\database\\\\prisma\\\\migrations\\\\20260526200000_diary_complement_dds\\\\migration.sql\" sysobra_postgres:/tmp/migration2.sql)",
+      "PowerShell(Get-ChildItem \"C:\\\\projetos\\\\sysobra\\\\packages\\\\database\\\\prisma\" -Recurse | Where-Object { $_.Name -match \"seed\" } | Select-Object FullName)",
+      "PowerShell(Invoke-RestMethod -Uri \"http://localhost:3001/health\" | ConvertTo-Json)"
     ]
   }
 }
