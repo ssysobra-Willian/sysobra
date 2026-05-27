@@ -295,6 +295,25 @@ export async function employeeRoutes(app: FastifyInstance) {
       locationName?:  string
       locationType?:  string
       locationFixed?: string
+      // Dados PJ
+      pjCnpj?:         string
+      pjRazaoSocial?:  string
+      pjNomeFantasia?: string
+      pjEmail?:        string
+      pjPhone?:        string
+      // Dados bancários
+      bankType?:         string
+      bankPixKey?:       string
+      bankPixKeyType?:   string
+      bankName?:         string
+      bankCode?:         string
+      bankAgency?:       string
+      bankAgencyDigit?:  string
+      bankAccount?:      string
+      bankAccountDigit?: string
+      bankAccountType?:  string
+      bankHolderName?:   string
+      bankHolderDoc?:    string
     }
 
     if (!body.name || !body.admissionDate || !body.type || !body.role) {
@@ -353,6 +372,25 @@ export async function employeeRoutes(app: FastifyInstance) {
         locationName:  body.locationName ?? null,
         locationType:  body.locationType  ?? null,
         locationFixed: body.locationFixed ?? null,
+        // Dados PJ
+        pjCnpj:        body.pjCnpj        ? body.pjCnpj.replace(/\D/g, '') : null,
+        pjRazaoSocial: body.pjRazaoSocial  ?? null,
+        pjNomeFantasia:body.pjNomeFantasia ?? null,
+        pjEmail:       body.pjEmail        ?? null,
+        pjPhone:       body.pjPhone        ? body.pjPhone.replace(/\D/g, '') : null,
+        // Dados bancários
+        bankType:        body.bankType        ?? null,
+        bankPixKey:      body.bankPixKey      ?? null,
+        bankPixKeyType:  body.bankPixKeyType  ?? null,
+        bankName:        body.bankName        ?? null,
+        bankCode:        body.bankCode        ?? null,
+        bankAgency:      body.bankAgency      ?? null,
+        bankAgencyDigit: body.bankAgencyDigit ?? null,
+        bankAccount:     body.bankAccount     ?? null,
+        bankAccountDigit:body.bankAccountDigit ?? null,
+        bankAccountType: body.bankAccountType  ?? null,
+        bankHolderName:  body.bankHolderName  ?? null,
+        bankHolderDoc:   body.bankHolderDoc   ? body.bankHolderDoc.replace(/\D/g, '') : null,
         status:        'ACTIVE',
         isActive:      true,
       },
@@ -455,6 +493,25 @@ export async function employeeRoutes(app: FastifyInstance) {
         locationName:  body.locationName !== undefined ? (body.locationName || null) : undefined,
         locationType:  body.locationType  !== undefined ? (body.locationType  || null) : undefined,
         locationFixed: body.locationFixed !== undefined ? (body.locationFixed || null) : undefined,
+        // Dados PJ (limpar dígitos do CNPJ)
+        pjCnpj:        body.pjCnpj        !== undefined ? (body.pjCnpj ? body.pjCnpj.replace(/\D/g, '') : null) : undefined,
+        pjRazaoSocial: body.pjRazaoSocial  !== undefined ? (body.pjRazaoSocial  || null) : undefined,
+        pjNomeFantasia:body.pjNomeFantasia !== undefined ? (body.pjNomeFantasia || null) : undefined,
+        pjEmail:       body.pjEmail        !== undefined ? (body.pjEmail        || null) : undefined,
+        pjPhone:       body.pjPhone        !== undefined ? (body.pjPhone ? body.pjPhone.replace(/\D/g, '') : null) : undefined,
+        // Dados bancários
+        bankType:        body.bankType        !== undefined ? (body.bankType        || null) : undefined,
+        bankPixKey:      body.bankPixKey      !== undefined ? (body.bankPixKey      || null) : undefined,
+        bankPixKeyType:  body.bankPixKeyType  !== undefined ? (body.bankPixKeyType  || null) : undefined,
+        bankName:        body.bankName        !== undefined ? (body.bankName        || null) : undefined,
+        bankCode:        body.bankCode        !== undefined ? (body.bankCode        || null) : undefined,
+        bankAgency:      body.bankAgency      !== undefined ? (body.bankAgency      || null) : undefined,
+        bankAgencyDigit: body.bankAgencyDigit !== undefined ? (body.bankAgencyDigit || null) : undefined,
+        bankAccount:     body.bankAccount     !== undefined ? (body.bankAccount     || null) : undefined,
+        bankAccountDigit:body.bankAccountDigit !== undefined ? (body.bankAccountDigit || null) : undefined,
+        bankAccountType: body.bankAccountType  !== undefined ? (body.bankAccountType  || null) : undefined,
+        bankHolderName:  body.bankHolderName  !== undefined ? (body.bankHolderName  || null) : undefined,
+        bankHolderDoc:   body.bankHolderDoc   !== undefined ? (body.bankHolderDoc ? body.bankHolderDoc.replace(/\D/g, '') : null) : undefined,
       },
       include: { project: { select: { id: true, name: true, code: true } } },
     })

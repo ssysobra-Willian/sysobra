@@ -8,7 +8,7 @@ import {
   Upload, User, FileText, GraduationCap, Shield,
   CalendarDays, HardHat, Clock, Plus, Trash2, Download,
   CheckCircle, AlertTriangle, X, Save, ArrowRightLeft,
-  Eye, ExternalLink, FileImage, MapPin, History,
+  Eye, ExternalLink, FileImage, MapPin, History, DollarSign,
 } from 'lucide-react'
 import { Breadcrumb }             from '@/components/ui/Breadcrumb'
 import { EmployeeFormModal }      from '../components/EmployeeFormModal'
@@ -48,6 +48,25 @@ interface Employee {
   locationName?:    string | null
   lastTransferDate?: string | null
   project?:         { id: string; name: string; code: string | null } | null
+  // Dados PJ
+  pjCnpj?:          string | null
+  pjRazaoSocial?:   string | null
+  pjNomeFantasia?:  string | null
+  pjEmail?:         string | null
+  pjPhone?:         string | null
+  // Dados bancários
+  bankType?:         string | null
+  bankPixKey?:       string | null
+  bankPixKeyType?:   string | null
+  bankName?:         string | null
+  bankCode?:         string | null
+  bankAgency?:       string | null
+  bankAgencyDigit?:  string | null
+  bankAccount?:      string | null
+  bankAccountDigit?: string | null
+  bankAccountType?:  string | null
+  bankHolderName?:   string | null
+  bankHolderDoc?:    string | null
   documents:        EmployeeDoc[]
   trainings:        EmployeeTraining[]
   vacations:        EmployeeVacation[]
@@ -445,6 +464,124 @@ export default function ColaboradorPerfilPage() {
                       </div>
                     ))}
                   </div>
+                </section>
+              </>
+            )}
+
+            {/* ── Dados PJ (somente tipo PJ) ──────────────────────────── */}
+            {employee.type === 'PJ' && (employee.pjCnpj || employee.pjRazaoSocial || employee.pjNomeFantasia || employee.pjEmail || employee.pjPhone) && (
+              <>
+                <div className="border-t border-gray-100" />
+                <section>
+                  <h3 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
+                    <FileText size={14} className="text-amber-500" />
+                    Dados da empresa PJ
+                  </h3>
+                  <div className="bg-amber-50 border border-amber-100 rounded-xl p-4">
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+                      {[
+                        { label: 'CNPJ',           value: employee.pjCnpj        ?? '—' },
+                        { label: 'Razão social',    value: employee.pjRazaoSocial ?? '—' },
+                        { label: 'Nome fantasia',   value: employee.pjNomeFantasia ?? '—' },
+                        { label: 'E-mail PJ',       value: employee.pjEmail       ?? '—' },
+                        { label: 'Telefone PJ',     value: employee.pjPhone       ?? '—' },
+                      ].filter(f => f.value !== '—').map(f => (
+                        <div key={f.label}>
+                          <p className="text-[10px] text-amber-600 uppercase font-semibold tracking-wide mb-0.5">{f.label}</p>
+                          <p className="text-sm text-gray-800 break-all">{f.value}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </section>
+              </>
+            )}
+
+            {/* ── Dados bancários ─────────────────────────────────────── */}
+            {employee.bankType && employee.bankType !== 'NONE' && (
+              <>
+                <div className="border-t border-gray-100" />
+                <section>
+                  <h3 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
+                    <DollarSign size={14} className="text-[#F5A623]" />
+                    Dados bancários
+                    <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${
+                      employee.bankType === 'PIX' ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700'
+                    }`}>
+                      {employee.bankType === 'PIX' ? '⚡ PIX' : '🏦 TED/DOC'}
+                    </span>
+                  </h3>
+
+                  {employee.bankType === 'PIX' && (
+                    <div className="bg-green-50 border border-green-100 rounded-xl p-4">
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+                        <div>
+                          <p className="text-[10px] text-green-700 uppercase font-semibold tracking-wide mb-0.5">Tipo de chave</p>
+                          <p className="text-sm text-gray-800">
+                            {{ CPF: 'CPF', CNPJ: 'CNPJ', EMAIL: 'E-mail', PHONE: 'Telefone', EVP: 'Chave aleatória' }[employee.bankPixKeyType ?? ''] ?? employee.bankPixKeyType ?? '—'}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] text-green-700 uppercase font-semibold tracking-wide mb-0.5">Chave PIX</p>
+                          <p className="text-sm text-gray-800 break-all font-mono">{employee.bankPixKey ?? '—'}</p>
+                        </div>
+                        {employee.bankHolderName && (
+                          <div>
+                            <p className="text-[10px] text-green-700 uppercase font-semibold tracking-wide mb-0.5">Titular</p>
+                            <p className="text-sm text-gray-800">{employee.bankHolderName}</p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {employee.bankType === 'TED_DOC' && (
+                    <div className="bg-blue-50 border border-blue-100 rounded-xl p-4">
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+                        {employee.bankName && (
+                          <div>
+                            <p className="text-[10px] text-blue-700 uppercase font-semibold tracking-wide mb-0.5">Banco</p>
+                            <p className="text-sm text-gray-800">
+                              {employee.bankCode ? `${employee.bankCode} — ` : ''}{employee.bankName}
+                            </p>
+                          </div>
+                        )}
+                        {(employee.bankAgency) && (
+                          <div>
+                            <p className="text-[10px] text-blue-700 uppercase font-semibold tracking-wide mb-0.5">Agência</p>
+                            <p className="text-sm text-gray-800 font-mono">
+                              {employee.bankAgency}{employee.bankAgencyDigit ? `-${employee.bankAgencyDigit}` : ''}
+                            </p>
+                          </div>
+                        )}
+                        {(employee.bankAccount) && (
+                          <div>
+                            <p className="text-[10px] text-blue-700 uppercase font-semibold tracking-wide mb-0.5">Conta</p>
+                            <p className="text-sm text-gray-800 font-mono">
+                              {employee.bankAccount}{employee.bankAccountDigit ? `-${employee.bankAccountDigit}` : ''}
+                              {employee.bankAccountType && (
+                                <span className="ml-1 text-[10px] text-gray-400 font-sans">
+                                  ({employee.bankAccountType === 'CORRENTE' ? 'Corrente' : employee.bankAccountType === 'POUPANCA' ? 'Poupança' : employee.bankAccountType})
+                                </span>
+                              )}
+                            </p>
+                          </div>
+                        )}
+                        {employee.bankHolderName && (
+                          <div>
+                            <p className="text-[10px] text-blue-700 uppercase font-semibold tracking-wide mb-0.5">Titular</p>
+                            <p className="text-sm text-gray-800">{employee.bankHolderName}</p>
+                          </div>
+                        )}
+                        {employee.bankHolderDoc && (
+                          <div>
+                            <p className="text-[10px] text-blue-700 uppercase font-semibold tracking-wide mb-0.5">CPF/CNPJ titular</p>
+                            <p className="text-sm text-gray-800 font-mono">{employee.bankHolderDoc}</p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
                 </section>
               </>
             )}

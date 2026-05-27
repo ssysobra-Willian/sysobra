@@ -8,6 +8,10 @@ import {
   ArrowRight, Save, FileDown, Clock,
 } from 'lucide-react'
 import { Breadcrumb } from '@/components/ui/Breadcrumb'
+import {
+  calcularINSS, calcularIRRF, isencaoIRRF,
+  labelTabelaIRRF, labelTabelaINSS, INSS_INFO, IRRF_INFO,
+} from '@/lib/payroll'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
 
@@ -28,6 +32,7 @@ interface PayrollEntry {
   valorHorasExtras:    number
   salarioBruto:        number
   inss:                number
+  irrfBase:            number
   irrf:                number
   salarioLiquido:      number
   fgts:                number
@@ -61,80 +66,57 @@ function fmtDateTime(iso: string) {
   })
 }
 
-/** INSS progressivo 2024 — tabela empregado */
-function calcularINSS(salarioBruto: number): number {
-  const faixas = [
-    { limite: 1412.00,  aliquota: 0.075 },
-    { limite: 2666.68,  aliquota: 0.09  },
-    { limite: 4000.03,  aliquota: 0.12  },
-    { limite: 7786.02,  aliquota: 0.14  },
-  ]
-  let inss = 0; let anterior = 0
-  for (const faixa of faixas) {
-    const base = Math.min(salarioBruto, faixa.limite) - anterior
-    if (base <= 0) break
-    inss += base * faixa.aliquota
-    anterior = faixa.limite
-    if (salarioBruto <= faixa.limite) break
-  }
-  return parseFloat(inss.toFixed(2))
-}
-
-/** IRRF 2024 — dedução padrão (sem dependentes) */
-function calcularIRRF(baseCalculo: number): number {
-  if (baseCalculo <= 2259.20) return 0
-  if (baseCalculo <= 2826.65) return parseFloat((baseCalculo * 0.075 - 169.44).toFixed(2))
-  if (baseCalculo <= 3751.05) return parseFloat((baseCalculo * 0.15  - 381.44).toFixed(2))
-  if (baseCalculo <= 4664.68) return parseFloat((baseCalculo * 0.225 - 662.77).toFixed(2))
-  return parseFloat((baseCalculo * 0.275 - 896.00).toFixed(2))
-}
-
 /**
- * Recalcula uma entrada com horas extras 60%/100% + desconto + INSS + IRRF 2024.
+ * Recalcula uma entrada com horas extras 60%/100% + desconto + dependentes.
+ * Usa INSS 2025 (Portaria MPS 1.367/2024) e IRRF 2025/2026 (Lei 14.848/2024)
+ * importados de @/lib/payroll.
  */
 function calcEntry(
-  base:      PayrollEntry,
-  he60:      number,
-  he100:     number,
-  projectId: string | null,
-  desconto:  number,
+  base:       PayrollEntry,
+  he60:       number,
+  he100:      number,
+  projectId:  string | null,
+  desconto:   number,
+  dependentes: number,
+  ano:        number,
 ): PayrollEntry {
   const salario   = base.salarioBase
   const valorHora = salario / 220
 
-  const valorHE60    = parseFloat((he60  * valorHora * 1.60).toFixed(2))
-  const valorHE100   = parseFloat((he100 * valorHora * 2.00).toFixed(2))
-  const valorHETotal = parseFloat((valorHE60 + valorHE100).toFixed(2))
-  const salarioBruto = parseFloat((salario + valorHETotal).toFixed(2))
+  const valorHE60    = Math.round(he60  * valorHora * 1.60 * 100) / 100
+  const valorHE100   = Math.round(he100 * valorHora * 2.00 * 100) / 100
+  const valorHETotal = Math.round((valorHE60 + valorHE100) * 100) / 100
+  const salarioBruto = Math.round((salario + valorHETotal) * 100) / 100
 
   if (base.type === 'PJ' || base.type === 'THIRD_PARTY') {
-    const liquido = parseFloat((salario - desconto).toFixed(2))
+    const liquido = Math.round((salarioBruto - desconto) * 100) / 100
     return {
       ...base,
       horasExtras60: he60, horasExtras100: he100,
       valorHorasExtras60: 0, valorHorasExtras100: 0, valorHorasExtras: 0,
-      salarioBruto: salario, inss: 0, irrf: 0,
+      salarioBruto, inss: 0, irrfBase: 0, irrf: 0,
       salarioLiquido: liquido,
-      fgts: 0, encargosPatronais: 0, custoTotal: salario,
+      fgts: 0, encargosPatronais: 0, custoTotal: salarioBruto,
       projectId,
     }
   }
 
-  const encTotPct      = 0.20 + 0.03 + 0.058 + 0.1111 + 0.0833
-  const inss           = calcularINSS(salarioBruto)
-  const baseIRRF       = Math.max(0, salarioBruto - inss)
-  const irrf           = calcularIRRF(baseIRRF)
-  const fgts           = parseFloat((salarioBruto * 0.08).toFixed(2))
-  const encargosPatronais = parseFloat((salarioBruto * encTotPct).toFixed(2))
-  const custoTotal     = parseFloat((salarioBruto + fgts + encargosPatronais).toFixed(2))
-  const salarioLiquido = parseFloat((salarioBruto - inss - irrf - desconto).toFixed(2))
+  // CLT — encargos completos
+  const encTotPct     = 0.20 + 0.03 + 0.058 + 0.1111 + 0.0833
+  const inss          = calcularINSS(salarioBruto)
+  const irrfBase      = Math.max(0, salarioBruto - inss)
+  const irrf          = calcularIRRF(irrfBase, dependentes, ano)
+  const fgts          = Math.round(salarioBruto * 0.08 * 100) / 100
+  const encargosPatronais = Math.round(salarioBruto * encTotPct * 100) / 100
+  const custoTotal    = Math.round((salarioBruto + fgts + encargosPatronais) * 100) / 100
+  const salarioLiquido = Math.round((salarioBruto - inss - irrf - desconto) * 100) / 100
 
   return {
     ...base,
     horasExtras60: he60, horasExtras100: he100,
     valorHorasExtras60: valorHE60, valorHorasExtras100: valorHE100,
     valorHorasExtras: valorHETotal,
-    salarioBruto, inss, irrf, salarioLiquido,
+    salarioBruto, inss, irrfBase, irrf, salarioLiquido,
     fgts, encargosPatronais, custoTotal,
     projectId,
   }
@@ -165,9 +147,9 @@ export default function FolhaPagamentoPage() {
   const [confirm,    setConfirm]    = useState(false)
   const [draftSavedAt, setDraftSavedAt] = useState<string | null>(null)
 
-  // Overrides por colaborador: horas extras, projeto, desconto
+  // Overrides por colaborador: horas extras, projeto, desconto, dependentes
   const [overrides, setOverrides] = useState<Record<string, {
-    he60: number; he100: number; projectId: string | null; desconto: number
+    he60: number; he100: number; projectId: string | null; desconto: number; dependentes: number
   }>>({})
 
   // Carregar obras ativas
@@ -230,10 +212,11 @@ export default function FolhaPagamentoPage() {
       const initOverrides: typeof overrides = {}
       for (const e of raw) {
         initOverrides[e.employeeId] = {
-          he60:      e.horasExtras60  ?? 0,
-          he100:     e.horasExtras100 ?? 0,
-          projectId: e.projectId,       // obra atual do colaborador
-          desconto:  0,
+          he60:        e.horasExtras60  ?? 0,
+          he100:       e.horasExtras100 ?? 0,
+          projectId:   e.projectId,     // obra atual do colaborador
+          desconto:    0,
+          dependentes: 0,
         }
       }
       setOverrides(initOverrides)
@@ -248,14 +231,15 @@ export default function FolhaPagamentoPage() {
   // Linhas com overrides aplicados
   const computedEntries = useMemo(() => {
     return entries.map(e => {
-      const ov      = overrides[e.employeeId]
-      const he60    = ov?.he60      ?? e.horasExtras60  ?? 0
-      const he100   = ov?.he100     ?? e.horasExtras100 ?? 0
-      const pid     = ov?.projectId !== undefined ? ov.projectId : e.projectId
-      const desconto = ov?.desconto ?? 0
-      return calcEntry(e, he60, he100, pid, desconto)
+      const ov         = overrides[e.employeeId]
+      const he60       = ov?.he60         ?? e.horasExtras60  ?? 0
+      const he100      = ov?.he100        ?? e.horasExtras100 ?? 0
+      const pid        = ov?.projectId    !== undefined ? ov.projectId : e.projectId
+      const desconto   = ov?.desconto     ?? 0
+      const dependentes = ov?.dependentes ?? 0
+      return calcEntry(e, he60, he100, pid, desconto, dependentes, year)
     })
-  }, [entries, overrides])
+  }, [entries, overrides, year])
 
   // Totais gerais
   const totals = useMemo(() => computedEntries.reduce((acc, e) => {
@@ -385,7 +369,8 @@ export default function FolhaPagamentoPage() {
               projectId:           e.projectId,
               salarioBruto:        e.salarioBruto,
               salarioLiquido:      e.salarioLiquido,
-              desconto:            ov?.desconto ?? 0,
+              desconto:            ov?.desconto     ?? 0,
+              dependentes:         ov?.dependentes  ?? 0,
               horasExtras60:       e.horasExtras60,
               horasExtras100:      e.horasExtras100,
               valorHorasExtras60:  e.valorHorasExtras60,
@@ -447,15 +432,16 @@ export default function FolhaPagamentoPage() {
     a.click(); URL.revokeObjectURL(url)
   }, [computedEntries, overrides, projects, month, year])
 
-  const setOv = (employeeId: string, field: 'he60' | 'he100' | 'projectId' | 'desconto', value: number | string | null) => {
+  const setOv = (employeeId: string, field: 'he60' | 'he100' | 'projectId' | 'desconto' | 'dependentes', value: number | string | null) => {
     const base = entries.find(e => e.employeeId === employeeId)
     setOverrides(prev => ({
       ...prev,
       [employeeId]: {
-        he60:      prev[employeeId]?.he60      ?? base?.horasExtras60  ?? 0,
-        he100:     prev[employeeId]?.he100     ?? base?.horasExtras100 ?? 0,
-        projectId: prev[employeeId]?.projectId !== undefined ? prev[employeeId].projectId : (base?.projectId ?? null),
-        desconto:  prev[employeeId]?.desconto  ?? 0,
+        he60:        prev[employeeId]?.he60         ?? base?.horasExtras60  ?? 0,
+        he100:       prev[employeeId]?.he100        ?? base?.horasExtras100 ?? 0,
+        projectId:   prev[employeeId]?.projectId    !== undefined ? prev[employeeId].projectId : (base?.projectId ?? null),
+        desconto:    prev[employeeId]?.desconto     ?? 0,
+        dependentes: prev[employeeId]?.dependentes  ?? 0,
         [field]: value,
       },
     }))
@@ -562,6 +548,12 @@ export default function FolhaPagamentoPage() {
             </span>
           </div>
 
+          {/* Badge tabela vigente */}
+          <div className="flex items-center gap-2 bg-blue-50 border border-blue-200 rounded-xl px-4 py-2.5 text-xs text-blue-800">
+            <span className="font-semibold">ℹ</span>
+            <span>{labelTabelaIRRF(year)} · {labelTabelaINSS}</span>
+          </div>
+
           {/* Tabela de colaboradores */}
           <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
             <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
@@ -603,7 +595,8 @@ export default function FolhaPagamentoPage() {
                     <th className="px-3 py-3 text-center font-semibold min-w-[60px] text-red-500">HE 100%</th>
                     <th className="px-3 py-3 text-right font-semibold">Sal. bruto</th>
                     <th className="px-3 py-3 text-right font-semibold text-red-500">INSS</th>
-                    <th className="px-3 py-3 text-right font-semibold text-red-500">IRRF</th>
+                    <th className="px-3 py-3 text-center font-semibold text-purple-500 min-w-[52px]" title="Número de dependentes para dedução IRRF (R$ 189,59/dep.)">Dep.</th>
+                    <th className="px-3 py-3 text-right font-semibold text-red-500" title={`Isenção: R$ ${isencaoIRRF(year).toLocaleString('pt-BR')}`}>IRRF</th>
                     <th className="px-3 py-3 text-right font-semibold text-rose-600 min-w-[80px]">Descontos</th>
                     <th className="px-3 py-3 text-right font-semibold text-green-600">Sal. líquido</th>
                     <th className="px-3 py-3 text-right font-semibold text-blue-600">FGTS *</th>
@@ -669,7 +662,28 @@ export default function FolhaPagamentoPage() {
                         </td>
                         <td className="px-3 py-3 text-right text-gray-700 whitespace-nowrap">{fmtMoney(e.salarioBruto)}</td>
                         <td className="px-3 py-3 text-right text-red-500 text-xs whitespace-nowrap">{isPj ? '—' : fmtMoney(e.inss)}</td>
-                        <td className="px-3 py-3 text-right text-red-500 text-xs whitespace-nowrap">{isPj ? '—' : fmtMoney(e.irrf)}</td>
+                        {/* Dependentes */}
+                        <td className="px-3 py-3 text-center">
+                          {isPj ? (
+                            <span className="text-xs text-gray-300">—</span>
+                          ) : (
+                            <input
+                              type="number" min="0" max="10" step="1"
+                              value={ov?.dependentes ?? 0}
+                              onChange={ev => setOv(e.employeeId, 'dependentes', Math.max(0, parseInt(ev.target.value) || 0))}
+                              className="w-10 border border-purple-200 rounded-lg px-1 py-1.5 text-xs text-center focus:outline-none focus:ring-1 focus:ring-purple-300"
+                              title="Dependentes para dedução IRRF"
+                            />
+                          )}
+                        </td>
+                        {/* IRRF — "Isento" quando zero para CLT */}
+                        <td className="px-3 py-3 text-right text-xs whitespace-nowrap"
+                          title={!isPj && e.irrfBase ? `Base: ${fmtMoney(e.irrfBase)} (Bruto ${fmtMoney(e.salarioBruto)} − INSS ${fmtMoney(e.inss)})` : undefined}>
+                          {isPj ? '—' : e.irrf === 0
+                            ? <span className="text-green-600 font-semibold">Isento</span>
+                            : <span className="text-red-500">{fmtMoney(e.irrf)}</span>
+                          }
+                        </td>
                         {/* FIX 2: Campo desconto editável */}
                         <td className="px-3 py-3 text-center">
                           <input
@@ -702,6 +716,7 @@ export default function FolhaPagamentoPage() {
                     </td>
                     <td className="px-3 py-3 text-right text-gray-700 whitespace-nowrap">{fmtMoney(totals.salariosBrutos)}</td>
                     <td className="px-3 py-3 text-right text-red-500 whitespace-nowrap">{fmtMoney(totals.inss)}</td>
+                    <td className="px-3 py-3" />
                     <td className="px-3 py-3 text-right text-red-500 whitespace-nowrap">{fmtMoney(totals.irrf)}</td>
                     <td className="px-3 py-3 text-right text-rose-600 whitespace-nowrap">
                       {totals.descontos > 0 ? fmtMoney(totals.descontos) : '—'}
@@ -757,11 +772,16 @@ export default function FolhaPagamentoPage() {
               <p>100% (dom./feriados): {fmtMoney(totals.he100Valor)}</p>
             </div>
             <div>
-              <p className="font-semibold text-gray-600 mb-1">Tabela INSS 2024</p>
-              <p>até R$ 1.412: 7,5%</p>
-              <p>até R$ 2.667: 9%</p>
-              <p>até R$ 4.000: 12%</p>
-              <p>até R$ 7.786: 14%</p>
+              <p className="font-semibold text-gray-600 mb-1">Tabela INSS 2025</p>
+              {INSS_INFO.map(l => <p key={l}>{l}</p>)}
+            </div>
+            <div className="col-span-2 sm:col-span-4 border-t border-gray-200 pt-2 mt-1">
+              <p className="font-semibold text-gray-600 mb-1">
+                {year >= 2026 ? 'Tabela IRRF 2026 (Lei 14.848/2024 — isenção R$ 5.000)' : 'Tabela IRRF 2025'}
+              </p>
+              <div className="flex flex-wrap gap-x-4 gap-y-0.5">
+                {IRRF_INFO(year).map(l => <span key={l}>{l}</span>)}
+              </div>
             </div>
           </div>
 

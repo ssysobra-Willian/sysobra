@@ -944,6 +944,28 @@ model Employee {
   lastTransferDate DateTime? @map("last_transfer_date")
   bloodType        String?   @map("blood_type")
   emergencyContact String?   @map("emergency_contact")
+
+  // ── Dados da empresa PJ ────────────────────────────────────────────────────
+  pjCnpj         String?   @map("pj_cnpj")
+  pjRazaoSocial  String?   @map("pj_razao_social")
+  pjNomeFantasia String?   @map("pj_nome_fantasia")
+  pjEmail        String?   @map("pj_email")
+  pjPhone        String?   @map("pj_phone")
+
+  // ── Dados bancários ────────────────────────────────────────────────────────
+  bankType         String?   @map("bank_type")           // 'PIX' | 'TED_DOC'
+  bankPixKey       String?   @map("bank_pix_key")
+  bankPixKeyType   String?   @map("bank_pix_key_type")   // 'CPF'|'CNPJ'|'EMAIL'|'PHONE'|'RANDOM'
+  bankName         String?   @map("bank_name")
+  bankCode         String?   @map("bank_code")
+  bankAgency       String?   @map("bank_agency")
+  bankAgencyDigit  String?   @map("bank_agency_digit")
+  bankAccount      String?   @map("bank_account")
+  bankAccountDigit String?   @map("bank_account_digit")
+  bankAccountType  String?   @map("bank_account_type")   // 'CORRENTE' | 'POUPANCA'
+  bankHolderName   String?   @map("bank_holder_name")
+  bankHolderDoc    String?   @map("bank_holder_doc")
+
   isActive         Boolean   @default(true) @map("is_active")
   createdAt        DateTime  @default(now()) @map("created_at")
   updatedAt        DateTime  @updatedAt @map("updated_at")

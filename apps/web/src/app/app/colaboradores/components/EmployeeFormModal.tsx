@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
   X, User, Upload, Loader2, CheckCircle, AlertTriangle,
-  Briefcase, MapPin, Calendar,
+  Briefcase, MapPin, Calendar, Building2, CreditCard,
 } from 'lucide-react'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
@@ -33,6 +33,25 @@ export interface EmployeeFormData {
   locationType:  string  // 'FIXED' | 'PROJECT' | ''
   locationFixed: string  // ex: 'OFFICE', 'VACATION' (quando FIXED)
   projectId:     string  // id da obra (quando PROJECT)
+  // Dados PJ
+  pjCnpj:         string
+  pjRazaoSocial:  string
+  pjNomeFantasia: string
+  pjEmail:        string
+  pjPhone:        string
+  // Dados bancários
+  bankType:         string   // 'PIX' | 'TED_DOC' | ''
+  bankPixKey:       string
+  bankPixKeyType:   string   // 'CPF'|'CNPJ'|'EMAIL'|'PHONE'|'RANDOM'
+  bankName:         string
+  bankCode:         string
+  bankAgency:       string
+  bankAgencyDigit:  string
+  bankAccount:      string
+  bankAccountDigit: string
+  bankAccountType:  string   // 'CORRENTE' | 'POUPANCA'
+  bankHolderName:   string
+  bankHolderDoc:    string
 }
 
 interface Project {
@@ -64,6 +83,14 @@ const FIXED_LOCATIONS = [
   { value: 'HOME_OFFICE',  label: 'Home office' },
 ]
 
+const PIX_KEY_TYPES = [
+  { value: 'CPF',    label: 'CPF', placeholder: '000.000.000-00' },
+  { value: 'CNPJ',   label: 'CNPJ', placeholder: '00.000.000/0000-00' },
+  { value: 'EMAIL',  label: 'E-mail', placeholder: 'email@exemplo.com' },
+  { value: 'PHONE',  label: 'Telefone', placeholder: '(11) 99999-9999' },
+  { value: 'RANDOM', label: 'Chave aleatória', placeholder: 'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx' },
+]
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function getHeaders(): Record<string, string> {
@@ -76,11 +103,35 @@ function getHeaders(): Record<string, string> {
   }
 }
 
+/** FIX 1 — máscara CPF corrigida: slice-based, sem cascading replaces */
 function maskCpf(v: string): string {
   const d = v.replace(/\D/g, '').slice(0, 11)
-  return d.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4')
-         .replace(/(\d{3})(\d{3})(\d{0,3})/, '$1.$2.$3')
-         .replace(/^(\d{3})(\d{0,3})/, '$1.$2')
+  if (d.length <= 3) return d
+  if (d.length <= 6) return `${d.slice(0,3)}.${d.slice(3)}`
+  if (d.length <= 9) return `${d.slice(0,3)}.${d.slice(3,6)}.${d.slice(6)}`
+  return `${d.slice(0,3)}.${d.slice(3,6)}.${d.slice(6,9)}-${d.slice(9,11)}`
+}
+
+function maskCnpj(v: string): string {
+  const d = v.replace(/\D/g, '').slice(0, 14)
+  if (d.length <= 2) return d
+  if (d.length <= 5) return `${d.slice(0,2)}.${d.slice(2)}`
+  if (d.length <= 8) return `${d.slice(0,2)}.${d.slice(2,5)}.${d.slice(5)}`
+  if (d.length <= 12) return `${d.slice(0,2)}.${d.slice(2,5)}.${d.slice(5,8)}/${d.slice(8)}`
+  return `${d.slice(0,2)}.${d.slice(2,5)}.${d.slice(5,8)}/${d.slice(8,12)}-${d.slice(12,14)}`
+}
+
+function validateCnpj(v: string): boolean {
+  const c = v.replace(/\D/g, '')
+  if (c.length !== 14 || /^(\d)\1+$/.test(c)) return false
+  const calc = (str: string, weights: number[]) =>
+    weights.reduce((s, w, i) => s + parseInt(str[i]) * w, 0)
+  const w1 = [5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2]
+  const w2 = [6, 5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2]
+  const d1 = 11 - (calc(c, w1) % 11); const r1 = d1 >= 10 ? 0 : d1
+  if (r1 !== parseInt(c[12])) return false
+  const d2 = 11 - (calc(c, w2) % 11); const r2 = d2 >= 10 ? 0 : d2
+  return r2 === parseInt(c[13])
 }
 
 function maskPhone(v: string): string {
@@ -94,12 +145,20 @@ function maskCep(v: string): string {
   return d.replace(/(\d{5})(\d{0,3})/, '$1-$2').replace(/-$/, '')
 }
 
+// ─── Estado inicial ───────────────────────────────────────────────────────────
 
 const EMPTY: EmployeeFormData = {
   name: '', cpf: '', rg: '', ctps: '', pis: '', birthDate: '', admissionDate: '',
   email: '', phone: '', address: '', city: '', state: '', zipCode: '', photo: '',
   type: 'CLT', role: '', department: '', salary: '',
   locationType: '', locationFixed: '', projectId: '',
+  // PJ
+  pjCnpj: '', pjRazaoSocial: '', pjNomeFantasia: '', pjEmail: '', pjPhone: '',
+  // Banco
+  bankType: '', bankPixKey: '', bankPixKeyType: '',
+  bankName: '', bankCode: '', bankAgency: '', bankAgencyDigit: '',
+  bankAccount: '', bankAccountDigit: '', bankAccountType: 'CORRENTE',
+  bankHolderName: '', bankHolderDoc: '',
 }
 
 // ─── Componente ───────────────────────────────────────────────────────────────
@@ -116,7 +175,7 @@ export function EmployeeFormModal({ isOpen, onClose, onSuccess, editId, projects
 
   const isEdit = !!editId
 
-  // Carregar obras dinamicamente se não vierem como prop
+  // Carregar obras dinamicamente
   useEffect(() => {
     if (!isOpen) return
     const token     = localStorage.getItem('token')     ?? ''
@@ -125,7 +184,6 @@ export function EmployeeFormModal({ isOpen, onClose, onSuccess, editId, projects
       headers: { Authorization: `Bearer ${token}`, 'x-company-id': companyId },
     }).then(r => r.json()).then(d => {
       const list = (d.projects ?? d) as any[]
-      // Filtrar client-side: excluir apenas obras finalizadas/canceladas
       const active = list.filter((p: any) => !['COMPLETED','CANCELLED'].includes(p.status))
       setProjects(active.map((p: any) => ({ id: p.id, name: p.name, code: p.code ?? null })))
     }).catch(() => {})
@@ -141,17 +199,13 @@ export function EmployeeFormModal({ isOpen, onClose, onSuccess, editId, projects
       fetch(`${API}/api/v1/employees/${editId}`, {
         headers: { Authorization: `Bearer ${token}`, 'x-company-id': companyId },
       }).then(r => r.json()).then(emp => {
-        // Reconstituir locationType / locationFixed / projectId
         let locationType  = emp.locationType  ?? ''
         let locationFixed = emp.locationFixed ?? ''
         let projectId     = emp.projectId     ?? ''
-        // compatibilidade: se salvo no formato antigo, inferir
         if (!locationType) {
-          if (projectId) {
-            locationType = 'PROJECT'
-          } else if (emp.locationId && !emp.locationId.startsWith('PROJECT_')) {
-            locationType  = 'FIXED'
-            locationFixed = emp.locationId
+          if (projectId) locationType = 'PROJECT'
+          else if (emp.locationId && !emp.locationId.startsWith('PROJECT_')) {
+            locationType  = 'FIXED'; locationFixed = emp.locationId
           }
         }
         setForm({
@@ -173,9 +227,30 @@ export function EmployeeFormModal({ isOpen, onClose, onSuccess, editId, projects
           role:          emp.role          ?? '',
           department:    emp.department    ?? '',
           salary:        emp.salary        ? String(emp.salary) : '',
-          locationType,
-          locationFixed,
-          projectId,
+          locationType, locationFixed, projectId,
+          // PJ
+          pjCnpj:        emp.pjCnpj        ? maskCnpj(emp.pjCnpj) : '',
+          pjRazaoSocial: emp.pjRazaoSocial  ?? '',
+          pjNomeFantasia:emp.pjNomeFantasia ?? '',
+          pjEmail:       emp.pjEmail        ?? '',
+          pjPhone:       emp.pjPhone        ? maskPhone(emp.pjPhone) : '',
+          // Banco
+          bankType:        emp.bankType        ?? '',
+          bankPixKey:      emp.bankPixKey      ?? '',
+          bankPixKeyType:  emp.bankPixKeyType  ?? '',
+          bankName:        emp.bankName        ?? '',
+          bankCode:        emp.bankCode        ?? '',
+          bankAgency:      emp.bankAgency      ?? '',
+          bankAgencyDigit: emp.bankAgencyDigit ?? '',
+          bankAccount:     emp.bankAccount     ?? '',
+          bankAccountDigit:emp.bankAccountDigit ?? '',
+          bankAccountType: emp.bankAccountType ?? 'CORRENTE',
+          bankHolderName:  emp.bankHolderName  ?? '',
+          bankHolderDoc:   emp.bankHolderDoc
+            ? (emp.bankHolderDoc.length <= 11
+                ? maskCpf(emp.bankHolderDoc)
+                : maskCnpj(emp.bankHolderDoc))
+            : '',
         })
       }).finally(() => setLoadingInit(false))
     }
@@ -184,7 +259,6 @@ export function EmployeeFormModal({ isOpen, onClose, onSuccess, editId, projects
   const set = (field: keyof EmployeeFormData, value: string) =>
     setForm(f => ({ ...f, [field]: value }))
 
-  // Busca CEP via ViaCEP
   const handleCepBlur = useCallback(async (cep: string) => {
     const clean = cep.replace(/\D/g, '')
     if (clean.length !== 8) return
@@ -205,7 +279,6 @@ export function EmployeeFormModal({ isOpen, onClose, onSuccess, editId, projects
     }
   }, [])
 
-  // Upload de foto
   const handlePhotoUpload = useCallback(async (file: File) => {
     setUploadingPhoto(true)
     try {
@@ -226,16 +299,13 @@ export function EmployeeFormModal({ isOpen, onClose, onSuccess, editId, projects
     }
   }, [])
 
-  // Submit
   const handleSubmit = useCallback(async () => {
     if (!form.name.trim() || !form.admissionDate || !form.type || !form.role.trim()) {
       setError('Preencha os campos obrigatórios: Nome, Tipo, Função e Data de Admissão')
       return
     }
-    setLoading(true)
-    setError('')
+    setLoading(true); setError('')
     try {
-      // Derivar locationId, locationName, projectId a partir dos campos em cascata
       let derivedProjectId:    string | null | undefined = undefined
       let derivedLocationId:   string | null | undefined = undefined
       let derivedLocationName: string | undefined        = undefined
@@ -249,7 +319,6 @@ export function EmployeeFormModal({ isOpen, onClose, onSuccess, editId, projects
         derivedLocationId   = form.locationFixed
         derivedLocationName = FIXED_LOCATIONS.find(l => l.value === form.locationFixed)?.label
       } else if (form.locationType === '') {
-        // Sem local selecionado — limpar
         derivedProjectId  = null
         derivedLocationId = null
       }
@@ -283,6 +352,25 @@ export function EmployeeFormModal({ isOpen, onClose, onSuccess, editId, projects
           locationName:  derivedLocationName,
           locationType:  form.locationType  || null,
           locationFixed: form.locationFixed || null,
+          // PJ — só enviar se tipo for PJ
+          pjCnpj:        form.type === 'PJ' ? (form.pjCnpj || null)        : null,
+          pjRazaoSocial: form.type === 'PJ' ? (form.pjRazaoSocial || null)  : null,
+          pjNomeFantasia:form.type === 'PJ' ? (form.pjNomeFantasia || null) : null,
+          pjEmail:       form.type === 'PJ' ? (form.pjEmail || null)        : null,
+          pjPhone:       form.type === 'PJ' ? (form.pjPhone.replace(/\D/g,'') || null) : null,
+          // Banco — sempre enviar
+          bankType:        form.bankType        || null,
+          bankPixKey:      form.bankType === 'PIX'     ? (form.bankPixKey      || null) : null,
+          bankPixKeyType:  form.bankType === 'PIX'     ? (form.bankPixKeyType  || null) : null,
+          bankName:        form.bankType === 'TED_DOC' ? (form.bankName        || null) : null,
+          bankCode:        form.bankType === 'TED_DOC' ? (form.bankCode        || null) : null,
+          bankAgency:      form.bankType === 'TED_DOC' ? (form.bankAgency      || null) : null,
+          bankAgencyDigit: form.bankType === 'TED_DOC' ? (form.bankAgencyDigit || null) : null,
+          bankAccount:     form.bankType === 'TED_DOC' ? (form.bankAccount     || null) : null,
+          bankAccountDigit:form.bankType === 'TED_DOC' ? (form.bankAccountDigit || null) : null,
+          bankAccountType: form.bankType === 'TED_DOC' ? (form.bankAccountType || null) : null,
+          bankHolderName:  form.bankHolderName  || null,
+          bankHolderDoc:   form.bankHolderDoc   ? form.bankHolderDoc.replace(/\D/g,'') : null,
         }),
       })
       const data = await res.json()
@@ -297,6 +385,13 @@ export function EmployeeFormModal({ isOpen, onClose, onSuccess, editId, projects
   }, [form, isEdit, editId, onSuccess, onClose, projects])
 
   if (!isOpen) return null
+
+  // Placeholder da chave PIX conforme tipo
+  const pixPlaceholder = PIX_KEY_TYPES.find(t => t.value === form.bankPixKeyType)?.placeholder ?? 'Informe a chave PIX'
+
+  // Validação CNPJ PJ
+  const cnpjDigits = form.pjCnpj.replace(/\D/g, '')
+  const cnpjInvalid = cnpjDigits.length === 14 && !validateCnpj(form.pjCnpj)
 
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
@@ -326,7 +421,7 @@ export function EmployeeFormModal({ isOpen, onClose, onSuccess, editId, projects
           <div className="flex-1 overflow-y-auto">
             <div className="px-5 py-5 space-y-6">
 
-              {/* ── Feedback ── */}
+              {/* Feedback */}
               {error && (
                 <div className="flex items-center gap-2 bg-red-50 border border-red-200 rounded-xl px-3 py-2.5">
                   <AlertTriangle size={15} className="text-red-500 flex-shrink-0" />
@@ -340,9 +435,7 @@ export function EmployeeFormModal({ isOpen, onClose, onSuccess, editId, projects
                 </div>
               )}
 
-              {/* ──────────────────────────────────────────────────────────── */}
-              {/* SEÇÃO 1 — Foto e dados pessoais                              */}
-              {/* ──────────────────────────────────────────────────────────── */}
+              {/* ── SEÇÃO 1 — Foto e dados pessoais ── */}
               <section>
                 <div className="flex items-center gap-2 mb-4">
                   <User size={15} className="text-[#F5A623]" />
@@ -356,8 +449,7 @@ export function EmployeeFormModal({ isOpen, onClose, onSuccess, editId, projects
                       {form.photo ? (
                         <img
                           src={`${API}${form.photo.startsWith('/') ? '' : '/'}${form.photo}`}
-                          alt="Foto"
-                          className="w-full h-full object-cover"
+                          alt="Foto" className="w-full h-full object-cover"
                         />
                       ) : (
                         <User size={28} className="text-gray-300" />
@@ -371,10 +463,7 @@ export function EmployeeFormModal({ isOpen, onClose, onSuccess, editId, projects
                     <div className="absolute -bottom-1 -right-1 w-6 h-6 bg-[#F5A623] rounded-full flex items-center justify-center shadow-sm">
                       <Upload size={11} className="text-white" />
                     </div>
-                    <input
-                      type="file"
-                      className="hidden"
-                      accept="image/*"
+                    <input type="file" className="hidden" accept="image/*"
                       onChange={e => { const f = e.target.files?.[0]; if (f) handlePhotoUpload(f) }}
                     />
                   </label>
@@ -390,95 +479,61 @@ export function EmployeeFormModal({ isOpen, onClose, onSuccess, editId, projects
                     <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
                       Nome completo <span className="text-red-400">*</span>
                     </label>
-                    <input
-                      type="text"
-                      value={form.name}
-                      onChange={e => set('name', e.target.value)}
+                    <input type="text" value={form.name} onChange={e => set('name', e.target.value)}
                       placeholder="Ex: João da Silva Santos"
-                      className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-300"
-                    />
+                      className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-300" />
                   </div>
                   <div>
                     <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">CPF</label>
-                    <input
-                      type="text"
-                      value={form.cpf}
+                    <input type="text" value={form.cpf}
                       onChange={e => set('cpf', maskCpf(e.target.value))}
-                      placeholder="000.000.000-00"
-                      maxLength={14}
-                      className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-300"
-                    />
+                      placeholder="000.000.000-00" maxLength={14} inputMode="numeric"
+                      className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-300" />
                   </div>
                   <div>
                     <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">RG</label>
-                    <input
-                      type="text"
-                      value={form.rg}
-                      onChange={e => set('rg', e.target.value)}
+                    <input type="text" value={form.rg} onChange={e => set('rg', e.target.value)}
                       placeholder="00.000.000-0"
-                      className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-300"
-                    />
+                      className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-300" />
                   </div>
                   <div>
                     <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">CTPS</label>
-                    <input
-                      type="text"
-                      value={form.ctps}
-                      onChange={e => set('ctps', e.target.value)}
+                    <input type="text" value={form.ctps} onChange={e => set('ctps', e.target.value)}
                       placeholder="Nº / Série"
-                      className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-300"
-                    />
+                      className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-300" />
                   </div>
                   <div>
                     <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">PIS/PASEP</label>
-                    <input
-                      type="text"
-                      value={form.pis}
-                      onChange={e => set('pis', e.target.value)}
+                    <input type="text" value={form.pis} onChange={e => set('pis', e.target.value)}
                       placeholder="000.00000.00-0"
-                      className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-300"
-                    />
+                      className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-300" />
                   </div>
                   <div>
                     <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
-                      <Calendar size={11} className="inline mr-1" />
-                      Nascimento
+                      <Calendar size={11} className="inline mr-1" />Nascimento
                     </label>
-                    <input
-                      type="date"
-                      value={form.birthDate}
-                      onChange={e => set('birthDate', e.target.value)}
-                      className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-300"
-                    />
+                    <input type="date" value={form.birthDate} onChange={e => set('birthDate', e.target.value)}
+                      className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-300" />
                   </div>
                   <div>
                     <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Telefone</label>
-                    <input
-                      type="text"
-                      value={form.phone}
+                    <input type="text" value={form.phone}
                       onChange={e => set('phone', maskPhone(e.target.value))}
                       placeholder="(11) 99999-9999"
-                      className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-300"
-                    />
+                      className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-300" />
                   </div>
                   <div>
                     <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">E-mail</label>
-                    <input
-                      type="email"
-                      value={form.email}
-                      onChange={e => set('email', e.target.value)}
+                    <input type="email" value={form.email} onChange={e => set('email', e.target.value)}
                       placeholder="joao@exemplo.com"
-                      className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-300"
-                    />
+                      className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-300" />
                   </div>
                 </div>
               </section>
 
               <div className="border-t border-gray-100" />
 
-              {/* ──────────────────────────────────────────────────────────── */}
-              {/* SEÇÃO 2 — Dados profissionais                                */}
-              {/* ──────────────────────────────────────────────────────────── */}
+              {/* ── SEÇÃO 2 — Dados profissionais ── */}
               <section>
                 <div className="flex items-center gap-2 mb-4">
                   <Briefcase size={15} className="text-[#F5A623]" />
@@ -489,11 +544,8 @@ export function EmployeeFormModal({ isOpen, onClose, onSuccess, editId, projects
                     <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
                       Tipo de contrato <span className="text-red-400">*</span>
                     </label>
-                    <select
-                      value={form.type}
-                      onChange={e => set('type', e.target.value)}
-                      className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-300 bg-white"
-                    >
+                    <select value={form.type} onChange={e => set('type', e.target.value)}
+                      className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-300 bg-white">
                       <option value="CLT">CLT</option>
                       <option value="PJ">Pessoa Jurídica (PJ)</option>
                       <option value="TEMPORARY">Temporário</option>
@@ -501,133 +553,128 @@ export function EmployeeFormModal({ isOpen, onClose, onSuccess, editId, projects
                       <option value="THIRD_PARTY">Terceirizado</option>
                     </select>
                   </div>
-
-                  {/* FIX 1 — Função com datalist nativo */}
                   <div>
                     <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
                       Função / Cargo <span className="text-red-400">*</span>
                     </label>
-                    <input
-                      list="funcoes-sugeridas"
-                      value={form.role}
+                    <input list="funcoes-sugeridas" value={form.role}
                       onChange={e => set('role', e.target.value)}
                       placeholder="Digite ou selecione a função..."
-                      className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-300"
-                    />
+                      className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-300" />
                     <datalist id="funcoes-sugeridas">
-                      <option value="Pedreiro" />
-                      <option value="Servente" />
-                      <option value="Carpinteiro" />
-                      <option value="Armador" />
-                      <option value="Encarregado" />
-                      <option value="Mestre de obras" />
-                      <option value="Engenheiro Civil" />
-                      <option value="Arquiteto" />
-                      <option value="Técnico em Edificações" />
-                      <option value="Eletricista" />
-                      <option value="Hidráulico" />
-                      <option value="Pintor" />
-                      <option value="Gesseiro" />
-                      <option value="Azulejista" />
-                      <option value="Serralheiro" />
-                      <option value="Soldador" />
-                      <option value="Motorista" />
-                      <option value="Operador de máquinas" />
-                      <option value="Almoxarife" />
-                      <option value="Administrativo" />
-                      <option value="Auxiliar administrativo" />
-                      <option value="Porteiro" />
-                      <option value="Vigilante" />
-                      <option value="Estagiário" />
+                      {['Pedreiro','Servente','Carpinteiro','Armador','Encarregado','Mestre de obras',
+                        'Engenheiro Civil','Arquiteto','Técnico em Edificações','Eletricista','Hidráulico',
+                        'Pintor','Gesseiro','Azulejista','Serralheiro','Soldador','Motorista',
+                        'Operador de máquinas','Almoxarife','Administrativo','Auxiliar administrativo',
+                        'Porteiro','Vigilante','Estagiário'].map(f => (
+                        <option key={f} value={f} />
+                      ))}
                     </datalist>
                   </div>
-
                   <div>
                     <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Departamento / Setor</label>
-                    <input
-                      type="text"
-                      value={form.department}
-                      onChange={e => set('department', e.target.value)}
+                    <input type="text" value={form.department} onChange={e => set('department', e.target.value)}
                       placeholder="Ex: Produção, Administração"
-                      className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-300"
-                    />
+                      className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-300" />
                   </div>
                   <div>
                     <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
                       Data de admissão <span className="text-red-400">*</span>
                     </label>
-                    <input
-                      type="date"
-                      value={form.admissionDate}
-                      onChange={e => set('admissionDate', e.target.value)}
-                      className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-300"
-                    />
+                    <input type="date" value={form.admissionDate} onChange={e => set('admissionDate', e.target.value)}
+                      className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-300" />
                   </div>
                   <div>
                     <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Salário / Custo mensal</label>
-                    <input
-                      type="text"
-                      value={form.salary}
+                    <input type="text" value={form.salary}
                       onChange={e => set('salary', e.target.value.replace(/[^\d.,]/g, ''))}
                       placeholder="R$ 0,00"
-                      className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-300"
-                    />
+                      className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-300" />
                   </div>
-
-                  {/* FIX 1 — Local atual em cascata: tipo → detalhe */}
                   <div className="sm:col-span-2">
                     <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
-                      <MapPin size={11} className="inline mr-1" />
-                      Local atual
+                      <MapPin size={11} className="inline mr-1" />Local atual
                     </label>
                     <div className="flex gap-2">
-                      {/* Passo 1: tipo */}
-                      <select
-                        value={form.locationType}
+                      <select value={form.locationType}
                         onChange={e => setForm(f => ({ ...f, locationType: e.target.value, locationFixed: '', projectId: '' }))}
-                        className="w-40 flex-shrink-0 border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-300 bg-white"
-                      >
+                        className="w-40 flex-shrink-0 border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-300 bg-white">
                         <option value="">Sem local</option>
                         <option value="FIXED">Local fixo</option>
                         <option value="PROJECT">Obra</option>
                       </select>
-                      {/* Passo 2: detalhe */}
                       {form.locationType === 'FIXED' && (
-                        <select
-                          value={form.locationFixed}
-                          onChange={e => set('locationFixed', e.target.value)}
-                          className="flex-1 border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-300 bg-white"
-                        >
+                        <select value={form.locationFixed} onChange={e => set('locationFixed', e.target.value)}
+                          className="flex-1 border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-300 bg-white">
                           <option value="">Selecione...</option>
-                          {FIXED_LOCATIONS.map(l => (
-                            <option key={l.value} value={l.value}>{l.label}</option>
-                          ))}
+                          {FIXED_LOCATIONS.map(l => <option key={l.value} value={l.value}>{l.label}</option>)}
                         </select>
                       )}
                       {form.locationType === 'PROJECT' && (
-                        <select
-                          value={form.projectId}
-                          onChange={e => set('projectId', e.target.value)}
-                          className="flex-1 border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-300 bg-white"
-                        >
+                        <select value={form.projectId} onChange={e => set('projectId', e.target.value)}
+                          className="flex-1 border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-300 bg-white">
                           <option value="">Selecione a obra...</option>
                           {projects.map(p => (
-                            <option key={p.id} value={p.id}>
-                              {p.code ? `${p.code} — ` : ''}{p.name}
-                            </option>
+                            <option key={p.id} value={p.id}>{p.code ? `${p.code} — ` : ''}{p.name}</option>
                           ))}
                         </select>
                       )}
                     </div>
                   </div>
                 </div>
+
+                {/* ── FIX 2: Dados da empresa PJ (condicional) ── */}
+                {form.type === 'PJ' && (
+                  <div className="mt-4 bg-amber-50 border border-amber-200 rounded-xl p-4 space-y-3">
+                    <div className="flex items-center gap-2 mb-1">
+                      <Building2 size={14} className="text-amber-600" />
+                      <h4 className="text-sm font-semibold text-amber-800">Dados da empresa (PJ)</h4>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">CNPJ</label>
+                        <input type="text" value={form.pjCnpj}
+                          onChange={e => set('pjCnpj', maskCnpj(e.target.value))}
+                          placeholder="00.000.000/0000-00" maxLength={18} inputMode="numeric"
+                          className={`w-full border rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-300 ${cnpjInvalid ? 'border-red-300 bg-red-50' : 'border-gray-200'}`} />
+                        {cnpjInvalid && <p className="text-[11px] text-red-600 mt-0.5">CNPJ inválido</p>}
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Razão social</label>
+                        <input type="text" value={form.pjRazaoSocial}
+                          onChange={e => set('pjRazaoSocial', e.target.value)}
+                          placeholder="Empresa ABC Ltda"
+                          className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-300" />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Nome fantasia</label>
+                        <input type="text" value={form.pjNomeFantasia}
+                          onChange={e => set('pjNomeFantasia', e.target.value)}
+                          placeholder="Nome fantasia (opcional)"
+                          className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-300" />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">E-mail da empresa</label>
+                        <input type="email" value={form.pjEmail}
+                          onChange={e => set('pjEmail', e.target.value)}
+                          placeholder="contato@empresa.com"
+                          className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-300" />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Telefone da empresa</label>
+                        <input type="text" value={form.pjPhone}
+                          onChange={e => set('pjPhone', maskPhone(e.target.value))}
+                          placeholder="(11) 99999-9999"
+                          className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-300" />
+                      </div>
+                    </div>
+                  </div>
+                )}
               </section>
 
               <div className="border-t border-gray-100" />
 
-              {/* ──────────────────────────────────────────────────────────── */}
-              {/* SEÇÃO 3 — Endereço                                           */}
-              {/* ──────────────────────────────────────────────────────────── */}
+              {/* ── SEÇÃO 3 — Endereço ── */}
               <section>
                 <div className="flex items-center gap-2 mb-4">
                   <MapPin size={15} className="text-[#F5A623]" />
@@ -638,68 +685,186 @@ export function EmployeeFormModal({ isOpen, onClose, onSuccess, editId, projects
                     <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
                       CEP {cepLoading && <Loader2 size={10} className="inline animate-spin ml-1" />}
                     </label>
-                    <input
-                      type="text"
-                      value={form.zipCode}
+                    <input type="text" value={form.zipCode}
                       onChange={e => set('zipCode', maskCep(e.target.value))}
                       onBlur={e => handleCepBlur(e.target.value)}
-                      placeholder="00000-000"
-                      maxLength={9}
-                      className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-300"
-                    />
+                      placeholder="00000-000" maxLength={9}
+                      className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-300" />
                   </div>
                   <div className="sm:col-span-2">
                     <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Logradouro</label>
-                    <input
-                      type="text"
-                      value={form.address}
-                      onChange={e => set('address', e.target.value)}
+                    <input type="text" value={form.address} onChange={e => set('address', e.target.value)}
                       placeholder="Rua, Av., número, complemento"
-                      className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-300"
-                    />
+                      className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-300" />
                   </div>
                   <div>
                     <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Cidade</label>
-                    <input
-                      type="text"
-                      value={form.city}
-                      onChange={e => set('city', e.target.value)}
-                      className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-300"
-                    />
+                    <input type="text" value={form.city} onChange={e => set('city', e.target.value)}
+                      className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-300" />
                   </div>
                   <div>
                     <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">UF</label>
-                    <input
-                      type="text"
-                      value={form.state}
+                    <input type="text" value={form.state}
                       onChange={e => set('state', e.target.value.toUpperCase().slice(0, 2))}
-                      maxLength={2}
-                      placeholder="SP"
-                      className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-300"
-                    />
+                      maxLength={2} placeholder="SP"
+                      className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-300" />
                   </div>
                 </div>
               </section>
+
+              <div className="border-t border-gray-100" />
+
+              {/* ── FIX 3: SEÇÃO 4 — Dados bancários ── */}
+              <section>
+                <div className="flex items-center gap-2 mb-4">
+                  <CreditCard size={15} className="text-[#F5A623]" />
+                  <h3 className="text-sm font-semibold text-gray-700">
+                    Dados bancários para pagamento
+                    <span className="text-xs font-normal text-gray-400 ml-2">(opcional)</span>
+                  </h3>
+                </div>
+
+                {/* Toggle PIX / TED */}
+                <div className="flex gap-2 mb-4">
+                  {(['', 'PIX', 'TED_DOC'] as const).map(t => (
+                    <button key={t} type="button" onClick={() => set('bankType', t)}
+                      className={`px-4 py-1.5 rounded-full text-xs font-medium border transition-colors ${
+                        form.bankType === t
+                          ? 'bg-amber-50 border-amber-400 text-amber-800 font-semibold'
+                          : 'border-gray-200 text-gray-500 hover:border-gray-300'
+                      }`}>
+                      {t === '' ? 'Não informar' : t === 'PIX' ? '⚡ PIX' : '🏦 TED / DOC'}
+                    </button>
+                  ))}
+                </div>
+
+                {/* ── PIX ── */}
+                {form.bankType === 'PIX' && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Tipo de chave PIX</label>
+                      <select value={form.bankPixKeyType}
+                        onChange={e => { set('bankPixKeyType', e.target.value); set('bankPixKey', '') }}
+                        className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-300 bg-white">
+                        <option value="">Selecione...</option>
+                        {PIX_KEY_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Chave PIX</label>
+                      <input
+                        type={form.bankPixKeyType === 'EMAIL' ? 'email' : 'text'}
+                        value={form.bankPixKey}
+                        onChange={e => {
+                          let val = e.target.value
+                          if (form.bankPixKeyType === 'CPF')   val = maskCpf(val)
+                          else if (form.bankPixKeyType === 'CNPJ')  val = maskCnpj(val)
+                          else if (form.bankPixKeyType === 'PHONE') val = maskPhone(val)
+                          set('bankPixKey', val)
+                        }}
+                        placeholder={pixPlaceholder}
+                        className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-300" />
+                    </div>
+                    <div className="sm:col-span-2">
+                      <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Nome do titular da conta</label>
+                      <input type="text" value={form.bankHolderName}
+                        onChange={e => set('bankHolderName', e.target.value)}
+                        placeholder="Nome completo igual ao cadastro bancário"
+                        className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-300" />
+                    </div>
+                  </div>
+                )}
+
+                {/* ── TED / DOC ── */}
+                {form.bankType === 'TED_DOC' && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="sm:col-span-2">
+                      <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Banco</label>
+                      <div className="flex gap-2">
+                        <input type="text" value={form.bankCode}
+                          onChange={e => set('bankCode', e.target.value.replace(/\D/g, '').slice(0, 4))}
+                          placeholder="Cód" maxLength={4} inputMode="numeric"
+                          className="w-20 border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-300 text-center" />
+                        <input type="text" value={form.bankName}
+                          onChange={e => set('bankName', e.target.value)}
+                          placeholder="Nome do banco (ex: Itaú, Bradesco, Nubank...)"
+                          className="flex-1 border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-300" />
+                      </div>
+                    </div>
+                    {/* Agência */}
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Agência</label>
+                      <div className="flex gap-2">
+                        <input type="text" value={form.bankAgency}
+                          onChange={e => set('bankAgency', e.target.value.replace(/\D/g,'').slice(0,6))}
+                          placeholder="0000" maxLength={6} inputMode="numeric"
+                          className="flex-1 border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-300" />
+                        <input type="text" value={form.bankAgencyDigit}
+                          onChange={e => set('bankAgencyDigit', e.target.value.replace(/\D/g,'').slice(0,1))}
+                          placeholder="X" maxLength={1}
+                          className="w-12 border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-300 text-center" />
+                      </div>
+                      <p className="text-[10px] text-gray-400 mt-0.5">Agência · Dígito</p>
+                    </div>
+                    {/* Conta */}
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Conta</label>
+                      <div className="flex gap-2">
+                        <input type="text" value={form.bankAccount}
+                          onChange={e => set('bankAccount', e.target.value.replace(/\D/g,'').slice(0,12))}
+                          placeholder="00000" maxLength={12} inputMode="numeric"
+                          className="flex-1 border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-300" />
+                        <input type="text" value={form.bankAccountDigit}
+                          onChange={e => set('bankAccountDigit', e.target.value.slice(0,1))}
+                          placeholder="X" maxLength={1}
+                          className="w-12 border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-300 text-center" />
+                      </div>
+                      <p className="text-[10px] text-gray-400 mt-0.5">Conta · Dígito</p>
+                    </div>
+                    {/* Tipo de conta */}
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Tipo de conta</label>
+                      <select value={form.bankAccountType} onChange={e => set('bankAccountType', e.target.value)}
+                        className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-300 bg-white">
+                        <option value="CORRENTE">Conta Corrente</option>
+                        <option value="POUPANCA">Conta Poupança</option>
+                      </select>
+                    </div>
+                    {/* Nome do titular */}
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Nome do titular</label>
+                      <input type="text" value={form.bankHolderName}
+                        onChange={e => set('bankHolderName', e.target.value)}
+                        placeholder="Nome completo"
+                        className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-300" />
+                    </div>
+                    {/* CPF/CNPJ do titular */}
+                    <div className="sm:col-span-2">
+                      <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">CPF / CNPJ do titular</label>
+                      <input type="text" value={form.bankHolderDoc}
+                        onChange={e => {
+                          const digits = e.target.value.replace(/\D/g,'')
+                          set('bankHolderDoc', digits.length <= 11 ? maskCpf(digits) : maskCnpj(digits))
+                        }}
+                        placeholder="CPF ou CNPJ do titular" maxLength={18} inputMode="numeric"
+                        className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-300" />
+                    </div>
+                  </div>
+                )}
+              </section>
+
             </div>
           </div>
         )}
 
         {/* Footer */}
         <div className="sticky bottom-0 bg-white border-t border-gray-100 px-5 py-4 flex gap-3 rounded-b-2xl flex-shrink-0">
-          <button
-            type="button"
-            onClick={onClose}
-            disabled={loading}
-            className="flex-1 border border-gray-200 text-gray-600 text-sm font-medium py-2.5 rounded-xl hover:bg-gray-50 transition-colors disabled:opacity-50"
-          >
+          <button type="button" onClick={onClose} disabled={loading}
+            className="flex-1 border border-gray-200 text-gray-600 text-sm font-medium py-2.5 rounded-xl hover:bg-gray-50 transition-colors disabled:opacity-50">
             Cancelar
           </button>
-          <button
-            type="button"
-            onClick={handleSubmit}
-            disabled={loading || success}
-            className="flex-1 bg-[#F5A623] hover:bg-[#d4891a] text-white text-sm font-semibold py-2.5 rounded-xl transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
-          >
+          <button type="button" onClick={handleSubmit} disabled={loading || success}
+            className="flex-1 bg-[#F5A623] hover:bg-[#d4891a] text-white text-sm font-semibold py-2.5 rounded-xl transition-colors disabled:opacity-50 flex items-center justify-center gap-2">
             {loading ? (
               <><Loader2 size={15} className="animate-spin" /> Salvando...</>
             ) : success ? (
