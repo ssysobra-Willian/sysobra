@@ -244,6 +244,7 @@ export async function diaryRoutes(app: FastifyInstance) {
       projectId:          string
       date?:              string
       status?:            string
+      isComplement?:      boolean
       // Clima
       weatherMorning?:    string
       weatherAfternoon?:  string

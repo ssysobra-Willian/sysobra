@@ -563,7 +563,7 @@ export default function ObraDetailPage() {
 
     // Summary (totais corretos usando allocatedValue) — carrega uma vez por projeto
     if (!allocSummary) {
-      fetch(`${API}/api/v1/financial/transactions/summary?projectId=${id}`, {
+      fetch(`${API}/api/financial/transactions/summary?projectId=${id}`, {
         headers: { Authorization: `Bearer ${token}`, 'x-company-id': companyId },
       })
         .then((r) => r.ok ? r.json() : null)
@@ -586,7 +586,7 @@ export default function ObraDetailPage() {
       qs.set('endDate',   new Date().toISOString().slice(0, 10))
     }
 
-    fetch(`${API}/api/v1/financial/transactions?${qs}`, {
+    fetch(`${API}/api/financial/transactions?${qs}`, {
       headers: { Authorization: `Bearer ${token}`, 'x-company-id': companyId },
     })
       .then((r) => r.json())
