@@ -123,6 +123,7 @@ export default function NovoRdoPage() {
   const [ddsThemeCategory,  setDdsThemeCategory]  = useState('')
   const [ddsTime,           setDdsTime]           = useState('')
   const [showDdsModal,      setShowDdsModal]      = useState(true)
+  const [showDdsReader,     setShowDdsReader]     = useState(false)
   const [selectedStaticDds, setSelectedStaticDds] = useState<DdsStaticTheme | null>(null)
 
   // ── Seção 7: Observações gerais ───────────────────────────────────────────
@@ -635,20 +636,37 @@ export default function NovoRdoPage() {
 
           {/* Tema selecionado (travado) ou botão para selecionar */}
           {selectedStaticDds ? (
-            <div className="flex items-start gap-3 p-4 bg-orange-50 border border-orange-200 rounded-xl">
-              <span className="text-2xl flex-shrink-0">{selectedStaticDds.icon}</span>
-              <div className="flex-1 min-w-0">
-                <p className="text-[10px] font-semibold text-orange-500 uppercase tracking-wider">{selectedStaticDds.categoryLabel}</p>
-                <p className="text-sm font-bold text-gray-800 mt-0.5">{selectedStaticDds.title}</p>
-                <p className="text-xs text-gray-500 mt-1 line-clamp-2">{selectedStaticDds.summary}</p>
+            <div className="border border-orange-200 rounded-xl overflow-hidden">
+              {/* Linha principal com ícone + info */}
+              <div className="flex items-start gap-3 p-4 bg-orange-50">
+                <span className="text-2xl flex-shrink-0">{selectedStaticDds.icon}</span>
+                <div className="flex-1 min-w-0">
+                  <p className="text-[10px] font-semibold text-orange-500 uppercase tracking-wider">{selectedStaticDds.categoryLabel}</p>
+                  <p className="text-sm font-bold text-gray-800 mt-0.5">{selectedStaticDds.title}</p>
+                  {ddsDone && (
+                    <p className="text-xs text-green-600 font-medium mt-0.5">
+                      ✓ DDS realizado{ddsTime ? ` às ${ddsTime}` : ''}
+                    </p>
+                  )}
+                </div>
               </div>
-              <button
-                type="button"
-                onClick={() => setShowDdsModal(true)}
-                className="text-xs font-semibold px-3 py-1.5 border border-orange-300 text-orange-600 rounded-lg hover:bg-orange-100 transition-colors flex-shrink-0"
-              >
-                Trocar tema
-              </button>
+              {/* Ações */}
+              <div className="flex border-t border-orange-100 divide-x divide-orange-100">
+                <button
+                  type="button"
+                  onClick={() => setShowDdsReader(true)}
+                  className="flex-1 py-2 text-xs font-medium text-orange-600 hover:bg-orange-50 transition-colors"
+                >
+                  📖 Ver conteúdo
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowDdsModal(true)}
+                  className="flex-1 py-2 text-xs font-medium text-gray-500 hover:bg-gray-50 transition-colors"
+                >
+                  🔄 Trocar tema
+                </button>
+              </div>
             </div>
           ) : (
             <button
@@ -722,7 +740,7 @@ export default function NovoRdoPage() {
         </div>
       </form>
 
-      {/* ── Modal seletor de tema DDS ──────────────────────────────────── */}
+      {/* ── Modal seletor de tema DDS (seleção + leitura) ────────────── */}
       {showDdsModal && (
         <DDSThemeSelector
           suggestedId={getSuggestedDdsTheme().id}
@@ -735,6 +753,17 @@ export default function NovoRdoPage() {
             setShowDdsModal(false)
           }}
           onClose={() => setShowDdsModal(false)}
+        />
+      )}
+
+      {/* ── Modal somente leitura — "Ver conteúdo" ───────────────────── */}
+      {showDdsReader && selectedStaticDds && (
+        <DDSThemeSelector
+          suggestedId={null}
+          initialThemeId={selectedStaticDds.id}
+          readOnly
+          onSelect={() => setShowDdsReader(false)}
+          onClose={() => setShowDdsReader(false)}
         />
       )}
     </div>

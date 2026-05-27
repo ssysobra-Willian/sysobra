@@ -410,10 +410,10 @@ export default function DiarioProjectPage() {
       {/* ── Tab: Etapas ──────────────────────────────────────────────────── */}
       {tab === 'stages' && (
         <div className="bg-white rounded-2xl border border-gray-200 shadow-sm divide-y divide-gray-100">
-          {!project?.stages.length ? (
+          {!project?.stages?.length ? (
             <p className="p-8 text-center text-sm text-gray-400">Nenhuma etapa cadastrada.</p>
           ) : (
-            project.stages.map((stage) => (
+            (project.stages ?? []).map((stage) => (
               <div key={stage.id} className="px-5 py-4">
                 <div className="flex items-center justify-between mb-2">
                   <p className="text-sm font-medium text-gray-800">{stage.name}</p>
