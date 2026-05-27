@@ -38,10 +38,6 @@ export default function EditarDiarioPage() {
   const [observations, setObservations] = useState('')
   const [projectName,  setProjectName]  = useState('')
 
-  if (!canAccessModule('diario_obra') || !can('diario_obra', 'edit')) {
-    return <SemAcesso modulo="Diário de Obra" />
-  }
-
   // ── Carrega dados da entrada ───────────────────────────────────────────────
 
   useEffect(() => {
@@ -68,6 +64,11 @@ export default function EditarDiarioPage() {
       .catch((err) => setError(err.message))
       .finally(() => setLoading(false))
   }, [entryId, router])
+
+  // Return condicional DEPOIS de todos os hooks
+  if (!canAccessModule('diario_obra') || !can('diario_obra', 'edit')) {
+    return <SemAcesso modulo="Diário de Obra" />
+  }
 
   // Bloqueia edição se aprovado e não é admin
   const isOwnEntry  = authorId === userId

@@ -171,14 +171,7 @@ export default function RdoDetailPage() {
   const [commentError,   setCommentError]   = useState('')
   const commentsEndRef = useRef<HTMLDivElement>(null)
 
-  if (!canAccessModule('diario_obra')) return <SemAcesso modulo="Diário de Obra" />
-
-  const canEdit    = can('diario_obra', 'edit')
-  const canDelete  = can('diario_obra', 'delete')
-  const canApprove = can('diario_obra', 'approve')
-  const canComment = can('diario_obra', 'comment')
-
-  // ── Carrega relatório ─────────────────────────────────────────────────────
+  // ── Carrega relatório — HOOKS ANTES do return condicional ────────────────
 
   const loadEntry = useCallback(async () => {
     const token = localStorage.getItem('token')
@@ -199,6 +192,14 @@ export default function RdoDetailPage() {
   }, [reportId, router])
 
   useEffect(() => { loadEntry() }, [loadEntry])
+
+  // ── Return condicional DEPOIS de todos os hooks ───────────────────────────
+  if (!canAccessModule('diario_obra')) return <SemAcesso modulo="Diário de Obra" />
+
+  const canEdit    = can('diario_obra', 'edit')
+  const canDelete  = can('diario_obra', 'delete')
+  const canApprove = can('diario_obra', 'approve')
+  const canComment = can('diario_obra', 'comment')
 
   // ── Helpers ───────────────────────────────────────────────────────────────
 
