@@ -68,6 +68,14 @@ function saveSignaturePng(base64: string, cid: string, basketId: string, role: '
   return `/uploads/signatures/${cid}/${basketId}/${fileName}`
 }
 
+// ─── helper: busca Depósito Central ativo da empresa ────────────────────────
+async function getCentral(cid: string) {
+  return p().stockLocation.findFirst({
+    where: { companyId: cid, type: 'CENTRAL', isActive: true },
+    select: { id: true, name: true },
+  })
+}
+
 // ─── schemas ─────────────────────────────────────────────────────────────────
 
 const itemCreateSchema = z.object({
@@ -322,6 +330,16 @@ export async function depositRoutes(app: FastifyInstance) {
   app.post('/items', { preHandler }, async (request, reply) => {
     const req = request as RequestWithMember
     const cid = companyId(req)
+
+    // Exige Depósito Central antes de cadastrar itens
+    const central = await getCentral(cid)
+    if (!central) {
+      return reply.status(400).send({
+        error:   'CENTRAL_REQUIRED',
+        message: 'Crie o Depósito Central antes de cadastrar itens.',
+      })
+    }
+
     const body = itemCreateSchema.parse(request.body)
 
     // Extrair campos que não vão direto para StockItem
@@ -495,6 +513,16 @@ export async function depositRoutes(app: FastifyInstance) {
   app.post('/movements', { preHandler }, async (request, reply) => {
     const req = request as RequestWithMember
     const cid = companyId(req)
+
+    // Exige Depósito Central
+    const central = await getCentral(cid)
+    if (!central) {
+      return reply.status(400).send({
+        error:   'CENTRAL_REQUIRED',
+        message: 'Crie o Depósito Central antes de registrar movimentações.',
+      })
+    }
+
     const body = movementCreateSchema.parse(request.body)
 
     const item = await p().stockItem.findFirst({
@@ -1018,6 +1046,16 @@ export async function depositRoutes(app: FastifyInstance) {
   app.post('/baskets', { preHandler }, async (request, reply) => {
     const req = request as RequestWithMember
     const cid = companyId(req)
+
+    // Exige Depósito Central
+    const central = await getCentral(cid)
+    if (!central) {
+      return reply.status(400).send({
+        error:   'CENTRAL_REQUIRED',
+        message: 'Crie o Depósito Central antes de registrar saídas de material.',
+      })
+    }
+
     const body = basketCreateSchema.parse(request.body)
 
     const year = new Date().getFullYear()
@@ -1755,10 +1793,29 @@ tr:nth-child(even) td { background:#fafafa; }
       managerName: z.string().optional(),
     }).parse(request.body)
 
-    // Verificar unicidade
-    const exists = await p().stockLocation.findFirst({
-      where: { companyId: cid, name: body.name, isActive: true },
+    // Regras de criação de locais
+    const existingLocations = await p().stockLocation.findMany({
+      where: { companyId: cid, isActive: true },
+      select: { id: true, name: true, type: true },
     })
+    const existingCentral = existingLocations.find((l: any) => l.type === 'CENTRAL')
+
+    if (body.type === 'CENTRAL' && existingCentral) {
+      return reply.status(400).send({
+        error:           'CENTRAL_ALREADY_EXISTS',
+        message:         'Já existe um Depósito Central cadastrado. Cada empresa pode ter apenas um.',
+        existingCentral: { id: existingCentral.id, name: existingCentral.name },
+      })
+    }
+    if (body.type === 'WAREHOUSE' && !existingCentral) {
+      return reply.status(400).send({
+        error:   'CENTRAL_REQUIRED',
+        message: 'É necessário criar o Depósito Central antes de criar almoxarifados de obra.',
+      })
+    }
+
+    // Verificar unicidade
+    const exists = existingLocations.find((l: any) => l.name === body.name)
     if (exists) return reply.status(409).send({ error: 'Já existe um local com este nome' })
 
     // Resolver responsável: usar uid atual se managerId não informado
@@ -2658,6 +2715,34 @@ tr:nth-child(even) td { background:#fafafa; }
 
     const brands = Array.from(brandSet).filter(Boolean).sort((a, b) => a.localeCompare(b, 'pt-BR'))
     return reply.send({ brands })
+  })
+
+  // ── SETUP STATUS ─────────────────────────────────────────────────────────
+  // GET /api/v1/deposit/setup-status
+  app.get('/setup-status', { preHandler }, async (request, reply) => {
+    const req = request as RequestWithMember
+    const cid = companyId(req)
+
+    const central = await p().stockLocation.findFirst({
+      where:   { companyId: cid, type: 'CENTRAL', isActive: true },
+      include: {
+        manager: { select: { id: true, name: true, email: true } },
+        _count:  { select: { stockBalances: true } },
+      },
+    })
+
+    const [warehouseCount, itemCount] = await Promise.all([
+      p().stockLocation.count({ where: { companyId: cid, type: 'WAREHOUSE', isActive: true } }),
+      p().stockItem.count({ where: { companyId: cid, isActive: true } }),
+    ])
+
+    return reply.send({
+      hasCentral:     !!central,
+      central:        central ?? null,
+      warehouseCount,
+      itemCount,
+      isReady:        !!central,
+    })
   })
 }
 

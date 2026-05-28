@@ -25,6 +25,7 @@ import { QuickEntryModal } from './components/QuickEntryModal'
 import { EpiDeliveryModal} from './components/EpiDeliveryModal'
 import { BasketModal, type BasketPayload } from '@/components/deposit/BasketModal'
 import { CreateLocationModal } from './components/CreateLocationModal'
+import DepositoOnboarding     from './components/DepositoOnboarding'
 
 // ─── API ─────────────────────────────────────────────────────────────────────
 
@@ -837,12 +838,14 @@ export default function DepositoPage() {
   const router = useRouter()
 
   // ── State ─────────────────────────────────────────────────────────────────
-  const [tab,       setTab]       = useState<TabId>('materials')
-  const [items,     setItems]     = useState<StockItem[]>([])
-  const [summary,   setSummary]   = useState<SummaryFull | null>(null)
-  const [employees, setEmployees] = useState<Employee[]>([])
-  const [projects,  setProjects]  = useState<Project[]>([])
-  const [loading,   setLoading]   = useState(true)
+  const [tab,            setTab]            = useState<TabId>('materials')
+  const [items,          setItems]          = useState<StockItem[]>([])
+  const [summary,        setSummary]        = useState<SummaryFull | null>(null)
+  const [employees,      setEmployees]      = useState<Employee[]>([])
+  const [projects,       setProjects]       = useState<Project[]>([])
+  const [loading,        setLoading]        = useState(true)
+  const [setupStatus,    setSetupStatus]    = useState<{ hasCentral: boolean } | null>(null)
+  const [checkingSetup,  setCheckingSetup]  = useState(true)
 
   // Locations
   const [locations,        setLocations]        = useState<StockLocation[]>([])
@@ -871,6 +874,22 @@ export default function DepositoPage() {
   const [epiDeliveryOpen,     setEpiDeliveryOpen]     = useState(false)
   const [epiDeliveryItemId,   setEpiDeliveryItemId]   = useState<string | undefined>(undefined)
   const [createLocationOpen,  setCreateLocationOpen]  = useState(false)
+
+  // ── Verificar se Depósito Central existe ─────────────────────────────────
+  const checkSetup = useCallback(async () => {
+    setCheckingSetup(true)
+    try {
+      const res = await apiFetch('/api/v1/deposit/setup-status')
+      const data = await res.json()
+      setSetupStatus(data)
+    } catch {
+      setSetupStatus({ hasCentral: false })
+    } finally {
+      setCheckingSetup(false)
+    }
+  }, [])
+
+  useEffect(() => { checkSetup() }, [checkSetup])
 
   // ── Data loading ──────────────────────────────────────────────────────────
   const loadAll = useCallback(async () => {
@@ -953,6 +972,31 @@ export default function DepositoPage() {
   }
 
   // ── Render ────────────────────────────────────────────────────────────────
+
+  // Verificando se há Depósito Central
+  if (checkingSetup) {
+    return (
+      <div className="min-h-[60vh] flex items-center justify-center">
+        <div className="text-center text-gray-400">
+          <Loader2 size={32} className="animate-spin mx-auto mb-3 text-gray-300" />
+          <p className="text-sm">Verificando configuração...</p>
+        </div>
+      </div>
+    )
+  }
+
+  // Sem Depósito Central → onboarding obrigatório
+  if (!setupStatus?.hasCentral) {
+    return (
+      <DepositoOnboarding
+        onComplete={async () => {
+          await checkSetup()
+          loadAll()
+        }}
+      />
+    )
+  }
+
   return (
     <div className="min-h-screen bg-gray-50">
       {/* ── Header ─────────────────────────────────────────────────────── */}
