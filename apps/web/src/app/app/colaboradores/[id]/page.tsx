@@ -235,6 +235,7 @@ export default function ColaboradorPerfilPage() {
 
   const [employee,       setEmployee]       = useState<Employee | null>(null)
   const [loading,        setLoading]        = useState(true)
+  const [fetchError,     setFetchError]     = useState<string | null>(null)
   const [tab,            setTab]            = useState<Tab>('Dados pessoais')
   const [showEdit,       setShowEdit]       = useState(false)
   const [dismissing,     setDismissing]     = useState<'dismiss' | 'away' | null>(null)
@@ -244,10 +245,25 @@ export default function ColaboradorPerfilPage() {
 
   const load = useCallback(async () => {
     setLoading(true)
+    setFetchError(null)
     try {
       const res = await fetch(`${API}/api/v1/employees/${id}`, { headers: getHeaders() })
-      if (!res.ok) { router.push('/app/colaboradores'); return }
+      if (res.status === 404) {
+        setFetchError('Colaborador não encontrado.')
+        return
+      }
+      if (res.status === 401 || res.status === 403) {
+        router.push('/app/colaboradores')
+        return
+      }
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        setFetchError(body?.error || `Erro ao carregar colaborador (${res.status}).`)
+        return
+      }
       setEmployee(await res.json())
+    } catch (e: any) {
+      setFetchError('Erro de conexão. Verifique a API e tente novamente.')
     } finally {
       setLoading(false)
     }
@@ -293,6 +309,34 @@ export default function ColaboradorPerfilPage() {
       </div>
     )
   }
+
+  // Exibe erro em vez de redirecionar silenciosamente
+  if (fetchError) {
+    return (
+      <div className="max-w-lg mx-auto mt-16 text-center px-4">
+        <div className="w-16 h-16 rounded-full bg-red-50 flex items-center justify-center mx-auto mb-4">
+          <AlertTriangle size={28} className="text-red-400" />
+        </div>
+        <h2 className="text-lg font-semibold text-gray-800 mb-2">Não foi possível carregar</h2>
+        <p className="text-sm text-gray-500 mb-6">{fetchError}</p>
+        <div className="flex gap-3 justify-center">
+          <button
+            onClick={load}
+            className="flex items-center gap-2 px-4 py-2 bg-[#F5A623] text-white text-sm font-medium rounded-xl hover:bg-[#d4891a] transition-colors"
+          >
+            <Loader2 size={14} /> Tentar novamente
+          </button>
+          <button
+            onClick={() => router.push('/app/colaboradores')}
+            className="px-4 py-2 text-sm border border-gray-200 rounded-xl text-gray-600 hover:bg-gray-50 transition-colors"
+          >
+            Voltar à lista
+          </button>
+        </div>
+      </div>
+    )
+  }
+
   if (!employee) return null
 
   // Local atual legível

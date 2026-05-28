@@ -49,7 +49,7 @@ async function bootstrap() {
   })
 
   await app.register(rateLimit, {
-    max: 100,
+    max: 500,
     timeWindow: '1 minute',
   })
 

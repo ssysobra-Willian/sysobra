@@ -1,4 +1,6 @@
-'use client'
+﻿'use client'
+
+export const dynamic = 'force-dynamic'
 
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useRouter } from 'next/navigation'
@@ -18,7 +20,7 @@ import { formatCurrency } from '@/lib/format'
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
 const fmt = formatCurrency
 
-// ─── Types ────────────────────────────────────────────────────────────────────
+// â”€â”€â”€ Types â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 interface Client {
   id:               string
@@ -37,24 +39,24 @@ interface Client {
   createdAt:        string
 }
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+// â”€â”€â”€ Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function fmtDoc(v: string | null) {
-  if (!v) return '—'
+  if (!v) return 'â€”'
   const d = v.replace(/\D/g, '')
   if (d.length === 11) return d.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4')
   if (d.length === 14) return d.replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/, '$1.$2.$3/$4-$5')
   return v
 }
 function fmtPhone(v: string | null) {
-  if (!v) return '—'
+  if (!v) return 'â€”'
   const d = v.replace(/\D/g, '')
   if (d.length === 11) return `(${d.slice(0,2)}) ${d.slice(2,7)}-${d.slice(7)}`
   if (d.length === 10) return `(${d.slice(0,2)}) ${d.slice(2,6)}-${d.slice(6)}`
   return v
 }
 
-// ─── Modal Novo/Editar Cliente ────────────────────────────────────────────────
+// â”€â”€â”€ Modal Novo/Editar Cliente â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 interface ClientForm {
   type:         'PERSON' | 'COMPANY'
@@ -132,7 +134,7 @@ function ClientModal({
   function setF(k: keyof ClientForm, v: string) { setForm(p => ({...p, [k]: v})); setError('') }
 
   async function handleSubmit() {
-    if (!form.name.trim()) { setError('Nome obrigatório'); return }
+    if (!form.name.trim()) { setError('Nome obrigatÃ³rio'); return }
     setLoading(true); setError('')
     try {
       const body = {
@@ -185,7 +187,7 @@ function ClientModal({
             {(['COMPANY','PERSON'] as const).map(t => (
               <button key={t} onClick={() => setF('type', t)}
                 className={`flex-1 py-2 text-sm font-semibold rounded-lg transition-all ${form.type===t?'bg-[#F5A623] text-white shadow-sm':'text-gray-500 hover:text-gray-700'}`}>
-                {t==='COMPANY' ? '🏢 Pessoa Jurídica' : '👤 Pessoa Física'}
+                {t==='COMPANY' ? 'ðŸ¢ Pessoa JurÃ­dica' : 'ðŸ‘¤ Pessoa FÃ­sica'}
               </button>
             ))}
           </div>
@@ -194,7 +196,7 @@ function ClientModal({
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wide">
-                {form.type==='PERSON' ? 'Nome completo *' : 'Razão social *'}
+                {form.type==='PERSON' ? 'Nome completo *' : 'RazÃ£o social *'}
               </label>
               <input value={form.name} onChange={e => setF('name', e.target.value)} className={iCls} />
             </div>
@@ -230,16 +232,16 @@ function ClientModal({
             <MaskedInput mask="phone" value={form.whatsapp} onChange={v => setF('whatsapp', v)} label="WhatsApp"   inputMode="numeric" />
           </div>
 
-          {/* Endereço */}
+          {/* EndereÃ§o */}
           <div>
-            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Endereço</p>
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">EndereÃ§o</p>
             <AddressForm
               data={form.addr}
               onChange={addr => setForm(p => ({...p, addr}))}
             />
           </div>
 
-          {/* Contato principal — só PJ */}
+          {/* Contato principal â€” sÃ³ PJ */}
           {form.type === 'COMPANY' && (
             <div>
               <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Contato principal</p>
@@ -261,9 +263,9 @@ function ClientModal({
             </div>
           )}
 
-          {/* Observações */}
+          {/* ObservaÃ§Ãµes */}
           <div>
-            <label className="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wide">Observações</label>
+            <label className="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wide">ObservaÃ§Ãµes</label>
             <textarea value={form.notes} onChange={e => setF('notes', e.target.value)}
               rows={2} className={`${iCls} resize-none`} />
           </div>
@@ -283,7 +285,7 @@ function ClientModal({
   )
 }
 
-// ─── Main Page ────────────────────────────────────────────────────────────────
+// â”€â”€â”€ Main Page â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export default function ClientesPage() {
   const router = useRouter()
@@ -329,7 +331,7 @@ export default function ClientesPage() {
     } catch { alert('Erro ao alterar status') }
   }
 
-  // Métricas
+  // MÃ©tricas
   const totalAtivos    = clients.filter(c => c.isActive).length
   const comObras       = clients.filter(c => c.projectCount > 0).length
   const totalReceber   = clients.reduce((s, c) => s + c.totalReceivable, 0)
@@ -360,7 +362,7 @@ export default function ClientesPage() {
         </div>
       </div>
 
-      {/* Cards métricas */}
+      {/* Cards mÃ©tricas */}
       <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
         {[
           { title: 'Clientes ativos',  value: `${totalAtivos}`,              icon: Users,         cls: 'text-blue-600 bg-blue-100' },
@@ -390,8 +392,8 @@ export default function ClientesPage() {
           <select value={typeFilter} onChange={e => setTypeFilter(e.target.value)}
             className="px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-600 bg-white focus:outline-none focus:ring-2 focus:ring-[#F5A623]">
             <option value="">Todos os tipos</option>
-            <option value="COMPANY">Pessoa Jurídica</option>
-            <option value="PERSON">Pessoa Física</option>
+            <option value="COMPANY">Pessoa JurÃ­dica</option>
+            <option value="PERSON">Pessoa FÃ­sica</option>
           </select>
           <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer">
             <input type="checkbox" checked={showInactive} onChange={e => setShowInactive(e.target.checked)} className="rounded" />
@@ -482,10 +484,10 @@ export default function ClientesPage() {
           </table>
         </div>
 
-        {/* Paginação */}
+        {/* PaginaÃ§Ã£o */}
         {pages > 1 && (
           <div className="flex items-center justify-between px-5 py-3 border-t border-gray-100">
-            <p className="text-xs text-gray-400">{(page-1)*LIMIT+1}–{Math.min(page*LIMIT, total)} de {total}</p>
+            <p className="text-xs text-gray-400">{(page-1)*LIMIT+1}â€“{Math.min(page*LIMIT, total)} de {total}</p>
             <div className="flex items-center gap-1">
               <button disabled={page<=1} onClick={() => setPage(p=>p-1)}
                 className="p-1.5 rounded-lg text-gray-400 hover:bg-gray-100 disabled:opacity-30"><ChevronLeft size={14} /></button>

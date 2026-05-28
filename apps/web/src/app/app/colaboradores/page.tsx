@@ -1,5 +1,7 @@
 'use client'
 
+export const dynamic = 'force-dynamic'
+
 import { useState, useEffect, useCallback, useRef } from 'react'
 import Link from 'next/link'
 import { useSearchParams, useRouter } from 'next/navigation'
@@ -568,7 +570,11 @@ export default function ColaboradoresPage() {
                           ? 'bg-amber-50/40 hover:bg-amber-50'
                           : 'hover:bg-gray-50/50'
                       return (
-                        <tr key={emp.id} className={`border-b border-gray-50 transition-colors ${rowBg}`}>
+                        <tr
+                          key={emp.id}
+                          className={`border-b border-gray-50 transition-colors cursor-pointer ${rowBg}`}
+                          onClick={() => router.push(`/app/colaboradores/${emp.id}`)}
+                        >
                           {/* Colaborador */}
                           <td className="px-4 py-3">
                             <div className="flex items-center gap-2.5">
@@ -625,7 +631,7 @@ export default function ColaboradoresPage() {
                             </span>
                           </td>
                           <td className="px-3 py-3 text-xs text-gray-500">{fmtDate(emp.admissionDate)}</td>
-                          <td className="px-3 py-3">
+                          <td className="px-3 py-3" onClick={e => e.stopPropagation()}>
                             <TableActionMenu actions={[
                               { label: 'Ver perfil', icon: <Eye size={14} />, onClick: () => router.push(`/app/colaboradores/${emp.id}`) },
                               { label: 'Editar', icon: <Pencil size={14} />, onClick: () => { setEditingId(emp.id); setShowForm(true) } },

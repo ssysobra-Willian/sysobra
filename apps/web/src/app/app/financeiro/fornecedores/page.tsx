@@ -1,4 +1,6 @@
-'use client'
+﻿'use client'
+
+export const dynamic = 'force-dynamic'
 
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useRouter } from 'next/navigation'
@@ -23,7 +25,7 @@ import { formatCurrency } from '@/lib/format'
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
 const fmt = formatCurrency
 
-// ─── Types ────────────────────────────────────────────────────────────────────
+// â”€â”€â”€ Types â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 interface Supplier {
   id:               string
@@ -46,11 +48,11 @@ interface Supplier {
   createdAt:        string
 }
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+// â”€â”€â”€ Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function fmtDoc(cpfCnpj: string | null, cnpj: string | null) {
   const v = cpfCnpj || cnpj
-  if (!v) return '—'
+  if (!v) return 'â€”'
   const d = v.replace(/\D/g, '')
   if (d.length === 11) return d.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4')
   if (d.length === 14) return d.replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/, '$1.$2.$3/$4-$5')
@@ -59,8 +61,8 @@ function fmtDoc(cpfCnpj: string | null, cnpj: string | null) {
 
 const CATEGORY_OPTIONS = [
   { value: 'MATERIAL',   label: 'Material' },
-  { value: 'LABOR',      label: 'Mão de obra' },
-  { value: 'SERVICE',    label: 'Serviço' },
+  { value: 'LABOR',      label: 'MÃ£o de obra' },
+  { value: 'SERVICE',    label: 'ServiÃ§o' },
   { value: 'EQUIPMENT',  label: 'Equipamento' },
   { value: 'TRANSPORT',  label: 'Transporte' },
   { value: 'OTHER',      label: 'Outro' },
@@ -76,7 +78,7 @@ const CAT_COLORS: Record<string, string> = {
 }
 
 function StarRating({ rating }: { rating: number | null }) {
-  if (!rating) return <span className="text-xs text-gray-300">—</span>
+  if (!rating) return <span className="text-xs text-gray-300">â€”</span>
   return (
     <div className="flex gap-0.5">
       {[1,2,3,4,5].map(i => (
@@ -86,7 +88,7 @@ function StarRating({ rating }: { rating: number | null }) {
   )
 }
 
-// ─── Ranking Types ────────────────────────────────────────────────────────────
+// â”€â”€â”€ Ranking Types â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 interface RankingItem {
   position:          number
@@ -113,7 +115,7 @@ interface RankingMeta {
 type RankingPeriod = 'month' | 'quarter' | 'semester' | 'year' | 'custom'
 
 const PERIOD_LABELS: Record<RankingPeriod, string> = {
-  month:    'Este mês',
+  month:    'Este mÃªs',
   quarter:  'Trimestre',
   semester: 'Semestre',
   year:     'Este ano',
@@ -124,14 +126,14 @@ const DONUT_COLORS = ['#F5A623', '#F59E0B', '#FBBF24', '#FCD34D', '#FDE68A', '#D
 
 const CAT_LABELS: Record<string, string> = {
   MATERIAL:  'Material',
-  LABOR:     'Mão de obra',
-  SERVICE:   'Serviço',
+  LABOR:     'MÃ£o de obra',
+  SERVICE:   'ServiÃ§o',
   EQUIPMENT: 'Equipamento',
   TRANSPORT: 'Transporte',
   OTHER:     'Outro',
 }
 
-// ─── useSupplierRanking ───────────────────────────────────────────────────────
+// â”€â”€â”€ useSupplierRanking â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function useSupplierRanking(
   period: RankingPeriod,
@@ -158,7 +160,7 @@ function useSupplierRanking(
   })
 }
 
-// ─── SupplierRanking Component ────────────────────────────────────────────────
+// â”€â”€â”€ SupplierRanking Component â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function SupplierRanking() {
   const router = useRouter()
@@ -228,7 +230,7 @@ function SupplierRanking() {
           </div>
         </div>
 
-        {/* Período pills */}
+        {/* PerÃ­odo pills */}
         <div className="flex flex-wrap items-center gap-1.5">
           {(Object.keys(PERIOD_LABELS) as RankingPeriod[]).map(p => (
             <button
@@ -251,12 +253,12 @@ function SupplierRanking() {
       {period === 'custom' && (
         <div className="flex flex-wrap items-center gap-2 px-5 py-3 bg-orange-50 border-b border-orange-100">
           <Calendar size={14} className="text-[#F5A623]" />
-          <span className="text-xs font-medium text-gray-600">Período:</span>
+          <span className="text-xs font-medium text-gray-600">PerÃ­odo:</span>
           <input
             type="date" value={custStart} onChange={e => setCustStart(e.target.value)}
             className="border border-gray-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-[#F5A623]"
           />
-          <span className="text-xs text-gray-400">até</span>
+          <span className="text-xs text-gray-400">atÃ©</span>
           <input
             type="date" value={custEnd} onChange={e => setCustEnd(e.target.value)}
             className="border border-gray-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-[#F5A623]"
@@ -293,7 +295,7 @@ function SupplierRanking() {
       {/* Error */}
       {isError && !isLoading && (
         <div className="p-8 text-center text-sm text-gray-400">
-          Erro ao carregar ranking. Verifique a conexão com a API.
+          Erro ao carregar ranking. Verifique a conexÃ£o com a API.
         </div>
       )}
 
@@ -301,8 +303,8 @@ function SupplierRanking() {
       {!isLoading && !isError && ranking.length === 0 && (
         <div className="p-10 text-center">
           <Trophy size={32} className="mx-auto mb-3 text-gray-200" />
-          <p className="text-sm font-medium text-gray-500">Nenhuma compra paga no período</p>
-          <p className="text-xs text-gray-400 mt-1">Altere o período ou registre pagamentos a fornecedores</p>
+          <p className="text-sm font-medium text-gray-500">Nenhuma compra paga no perÃ­odo</p>
+          <p className="text-xs text-gray-400 mt-1">Altere o perÃ­odo ou registre pagamentos a fornecedores</p>
         </div>
       )}
 
@@ -316,12 +318,12 @@ function SupplierRanking() {
               <p className="text-xl font-bold text-gray-900">{fmt(meta?.totalGeral ?? 0)}</p>
             </div>
             <div className="bg-yellow-50 rounded-xl p-3.5">
-              <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide mb-1">1º lugar</p>
-              <p className="text-base font-bold text-gray-900 truncate">{ranking[0]?.tradeName || ranking[0]?.name || '—'}</p>
+              <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide mb-1">1Âº lugar</p>
+              <p className="text-base font-bold text-gray-900 truncate">{ranking[0]?.tradeName || ranking[0]?.name || 'â€”'}</p>
               <p className="text-xs text-[#F5A623] font-semibold">{fmt(ranking[0]?.totalComprado ?? 0)}</p>
             </div>
             <div className="bg-amber-50 rounded-xl p-3.5">
-              <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide mb-1">Ticket médio</p>
+              <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide mb-1">Ticket mÃ©dio</p>
               <p className="text-xl font-bold text-gray-900">
                 {fmt(ranking.length > 0 ? (meta?.totalGeral ?? 0) / ranking.reduce((a, r) => a + r.transactionCount, 0) : 0)}
               </p>
@@ -344,7 +346,7 @@ function SupplierRanking() {
                 >
                   {/* Position badge */}
                   <div className={`w-7 h-7 flex-shrink-0 rounded-full border flex items-center justify-center text-xs font-bold ${positionBadge(r.position)}`}>
-                    {r.position <= 3 ? ['🥇','🥈','🥉'][r.position-1] : r.position}
+                    {r.position <= 3 ? ['ðŸ¥‡','ðŸ¥ˆ','ðŸ¥‰'][r.position-1] : r.position}
                   </div>
 
                   {/* Avatar */}
@@ -440,7 +442,7 @@ function SupplierRanking() {
   )
 }
 
-// ─── Modal Novo/Editar Fornecedor ─────────────────────────────────────────────
+// â”€â”€â”€ Modal Novo/Editar Fornecedor â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 interface SupplierForm {
   type:                  'PERSON' | 'COMPANY'
@@ -551,7 +553,7 @@ function SupplierModal({
   function setF(k: keyof SupplierForm, v: string) { setForm(p => ({...p, [k]: v})); setError('') }
 
   async function handleSubmit() {
-    if (!form.name.trim()) { setError('Nome obrigatório'); return }
+    if (!form.name.trim()) { setError('Nome obrigatÃ³rio'); return }
     setLoading(true); setError('')
     try {
       const body: any = {
@@ -616,7 +618,7 @@ function SupplierModal({
             {(['COMPANY','PERSON'] as const).map(t => (
               <button key={t} onClick={() => setF('type', t)}
                 className={`flex-1 py-2 text-sm font-semibold rounded-lg transition-all ${form.type===t?'bg-[#F5A623] text-white shadow-sm':'text-gray-500 hover:text-gray-700'}`}>
-                {t==='COMPANY' ? '🏢 Pessoa Jurídica' : '👤 Pessoa Física (autônomo)'}
+                {t==='COMPANY' ? 'ðŸ¢ Pessoa JurÃ­dica' : 'ðŸ‘¤ Pessoa FÃ­sica (autÃ´nomo)'}
               </button>
             ))}
           </div>
@@ -624,7 +626,7 @@ function SupplierModal({
           {/* Nome */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
-              <label className={lCls}>{form.type==='PERSON'?'Nome completo *':'Razão social *'}</label>
+              <label className={lCls}>{form.type==='PERSON'?'Nome completo *':'RazÃ£o social *'}</label>
               <input value={form.name} onChange={e => setF('name', e.target.value)} className={iCls} />
             </div>
             {form.type==='COMPANY' && (
@@ -655,10 +657,10 @@ function SupplierModal({
             </div>
           </div>
 
-          {/* PF: profissão + CREA */}
+          {/* PF: profissÃ£o + CREA */}
           {form.type==='PERSON' && (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div><label className={lCls}>Profissão / Especialidade</label><input value={form.profession} onChange={e => setF('profession', e.target.value)} className={iCls} /></div>
+              <div><label className={lCls}>ProfissÃ£o / Especialidade</label><input value={form.profession} onChange={e => setF('profession', e.target.value)} className={iCls} /></div>
               <div><label className={lCls}>Registro profissional (CREA, CRQ...)</label><input value={form.crea} onChange={e => setF('crea', e.target.value)} className={iCls} /></div>
             </div>
           )}
@@ -666,8 +668,8 @@ function SupplierModal({
           {/* PJ: IE + IM */}
           {form.type==='COMPANY' && (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div><label className={lCls}>Inscrição estadual</label><input value={form.stateRegistration} onChange={e => setF('stateRegistration', e.target.value)} className={iCls} /></div>
-              <div><label className={lCls}>Inscrição municipal</label><input value={form.municipalRegistration} onChange={e => setF('municipalRegistration', e.target.value)} className={iCls} /></div>
+              <div><label className={lCls}>InscriÃ§Ã£o estadual</label><input value={form.stateRegistration} onChange={e => setF('stateRegistration', e.target.value)} className={iCls} /></div>
+              <div><label className={lCls}>InscriÃ§Ã£o municipal</label><input value={form.municipalRegistration} onChange={e => setF('municipalRegistration', e.target.value)} className={iCls} /></div>
             </div>
           )}
 
@@ -683,13 +685,13 @@ function SupplierModal({
             <input type="email" value={form.email} onChange={e => setF('email', e.target.value)} className={iCls} />
           </div>
 
-          {/* Endereço */}
+          {/* EndereÃ§o */}
           <div>
-            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Endereço</p>
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">EndereÃ§o</p>
             <AddressForm data={form.addr} onChange={addr => setForm(p => ({...p, addr}))} />
           </div>
 
-          {/* Contato principal — PJ */}
+          {/* Contato principal â€” PJ */}
           {form.type==='COMPANY' && (
             <div>
               <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Contato principal</p>
@@ -702,9 +704,9 @@ function SupplierModal({
             </div>
           )}
 
-          {/* Avaliação */}
+          {/* AvaliaÃ§Ã£o */}
           <div>
-            <label className={lCls}>Avaliação</label>
+            <label className={lCls}>AvaliaÃ§Ã£o</label>
             <div className="flex gap-1 mt-1">
               {[1,2,3,4,5].map(n => (
                 <button key={n} type="button" onClick={() => setF('rating', form.rating===String(n)?'':String(n))}
@@ -715,32 +717,32 @@ function SupplierModal({
             </div>
           </div>
 
-          {/* Dados bancários — expansível */}
+          {/* Dados bancÃ¡rios â€” expansÃ­vel */}
           <div className="border border-gray-200 rounded-xl overflow-hidden">
             <button type="button" onClick={() => setBankOpen(v => !v)}
               className="w-full flex items-center justify-between px-4 py-3 bg-gray-50 hover:bg-gray-100 text-sm font-semibold text-gray-700 transition-colors">
-              🏦 Dados para conciliação bancária
-              <span className="text-xs text-gray-400">{bankOpen ? '▲' : '▼'}</span>
+              ðŸ¦ Dados para conciliaÃ§Ã£o bancÃ¡ria
+              <span className="text-xs text-gray-400">{bankOpen ? 'â–²' : 'â–¼'}</span>
             </button>
             {bankOpen && (
               <div className="p-4 space-y-3">
-                <p className="text-xs text-gray-400">ℹ️ Dados usados apenas para conciliação — não para pagamentos pelo sistema.</p>
+                <p className="text-xs text-gray-400">â„¹ï¸ Dados usados apenas para conciliaÃ§Ã£o â€” nÃ£o para pagamentos pelo sistema.</p>
                 <BankSearchInput
                   token={token}
-                  value={form.bankName ? (form.bankCode ? `${form.bankCode} — ${form.bankName}` : form.bankName) : ''}
+                  value={form.bankName ? (form.bankCode ? `${form.bankCode} â€” ${form.bankName}` : form.bankName) : ''}
                   bankCode={form.bankCode}
                   onChange={opt => { setF('bankName', opt.value); setF('bankCode', opt.code); setF('bankId', opt.id) }}
                   label="Banco"
                 />
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <MaskedInput mask="bankAgency" value={form.bankAgency} onChange={v => setF('bankAgency', v)} label="Agência" placeholder="0000-0" inputMode="numeric" />
+                  <MaskedInput mask="bankAgency" value={form.bankAgency} onChange={v => setF('bankAgency', v)} label="AgÃªncia" placeholder="0000-0" inputMode="numeric" />
                   <MaskedInput mask="bankAccount" value={form.bankAccount} onChange={v => setF('bankAccount', v)} label="Conta" placeholder="00000-0" inputMode="numeric" />
                   <div>
                     <label className={lCls}>Tipo de conta</label>
                     <select value={form.bankAccountType} onChange={e => setF('bankAccountType', e.target.value)} className={iCls + ' bg-white'}>
                       <option value="">Selecionar...</option>
                       <option value="corrente">Conta Corrente</option>
-                      <option value="poupanca">Poupança</option>
+                      <option value="poupanca">PoupanÃ§a</option>
                       <option value="pagamento">Conta Pagamento</option>
                     </select>
                   </div>
@@ -753,7 +755,7 @@ function SupplierModal({
                       <option value="cnpj">CNPJ</option>
                       <option value="email">E-mail</option>
                       <option value="telefone">Telefone</option>
-                      <option value="aleatoria">Chave aleatória</option>
+                      <option value="aleatoria">Chave aleatÃ³ria</option>
                     </select>
                   </div>
                 </div>
@@ -761,9 +763,9 @@ function SupplierModal({
             )}
           </div>
 
-          {/* Observações */}
+          {/* ObservaÃ§Ãµes */}
           <div>
-            <label className={lCls}>Observações</label>
+            <label className={lCls}>ObservaÃ§Ãµes</label>
             <textarea value={form.notes} onChange={e => setF('notes', e.target.value)} rows={2}
               className={`${iCls} resize-none`} />
           </div>
@@ -783,7 +785,7 @@ function SupplierModal({
   )
 }
 
-// ─── Main Page ────────────────────────────────────────────────────────────────
+// â”€â”€â”€ Main Page â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export default function FornecedoresPage() {
   const router = useRouter()
@@ -865,9 +867,9 @@ export default function FornecedoresPage() {
       <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
         {[
           { title: 'Fornecedores ativos', value: `${totalAtivos}`, icon: Truck,         cls: 'text-orange-600 bg-orange-100' },
-          { title: 'Pago no mês',         value: fmt(totalPagoMes), icon: DollarSign,    cls: 'text-green-600 bg-green-100'  },
+          { title: 'Pago no mÃªs',         value: fmt(totalPagoMes), icon: DollarSign,    cls: 'text-green-600 bg-green-100'  },
           { title: 'A pagar',             value: fmt(totalAPagar),  icon: TrendingDown,  cls: 'text-red-600 bg-red-100'      },
-          { title: 'Bem avaliados (4+★)', value: `${comAvaliacao}`, icon: Star,          cls: 'text-amber-600 bg-amber-100'  },
+          { title: 'Bem avaliados (4+â˜…)', value: `${comAvaliacao}`, icon: Star,          cls: 'text-amber-600 bg-amber-100'  },
         ].map(m => (
           <div key={m.title} className="bg-white rounded-2xl border border-gray-200 shadow-sm p-5">
             <div className={`w-10 h-10 rounded-xl flex items-center justify-center mb-3 ${m.cls}`}>
@@ -894,8 +896,8 @@ export default function FornecedoresPage() {
           <select value={typeFilter} onChange={e => setTypeFilter(e.target.value)}
             className="px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-600 bg-white focus:outline-none focus:ring-2 focus:ring-[#F5A623]">
             <option value="">Todos os tipos</option>
-            <option value="COMPANY">Pessoa Jurídica</option>
-            <option value="PERSON">Pessoa Física</option>
+            <option value="COMPANY">Pessoa JurÃ­dica</option>
+            <option value="PERSON">Pessoa FÃ­sica</option>
           </select>
           <select value={catFilter} onChange={e => setCatFilter(e.target.value)}
             className="px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-600 bg-white focus:outline-none focus:ring-2 focus:ring-[#F5A623]">
@@ -918,9 +920,9 @@ export default function FornecedoresPage() {
                 <th className="px-5 py-3 text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wide hidden md:table-cell">Categoria</th>
                 <th className="px-5 py-3 text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wide hidden lg:table-cell">CPF/CNPJ</th>
                 <th className="px-5 py-3 text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wide hidden lg:table-cell">Telefone</th>
-                <th className="px-5 py-3 text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wide">Pago no mês</th>
+                <th className="px-5 py-3 text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wide">Pago no mÃªs</th>
                 <th className="px-5 py-3 text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wide hidden md:table-cell">A pagar</th>
-                <th className="px-5 py-3 text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wide hidden xl:table-cell">Avaliação</th>
+                <th className="px-5 py-3 text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wide hidden xl:table-cell">AvaliaÃ§Ã£o</th>
                 <th className="px-5 py-3 text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wide">Status</th>
                 <th className="px-5 py-3"></th>
               </tr>
@@ -951,7 +953,7 @@ export default function FornecedoresPage() {
                       <div>
                         <p className="text-sm font-semibold text-gray-800">{s.name}</p>
                         {s.tradeName && <p className="text-xs text-gray-400">{s.tradeName}</p>}
-                        {s.city && <p className="text-xs text-gray-400 hidden sm:block">{s.city}{s.state ? ` — ${s.state}` : ''}</p>}
+                        {s.city && <p className="text-xs text-gray-400 hidden sm:block">{s.city}{s.state ? ` â€” ${s.state}` : ''}</p>}
                       </div>
                     </div>
                   </td>
@@ -963,10 +965,10 @@ export default function FornecedoresPage() {
                   <td className="px-5 py-4 hidden md:table-cell">
                     {s.category ? (
                       <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${CAT_COLORS[s.category]??'bg-gray-100 text-gray-600'}`}>{s.categoryLabel}</span>
-                    ) : <span className="text-xs text-gray-300">—</span>}
+                    ) : <span className="text-xs text-gray-300">â€”</span>}
                   </td>
                   <td className="px-5 py-4 text-xs text-gray-500 font-mono hidden lg:table-cell">{fmtDoc(s.cpfCnpj, s.cnpj)}</td>
-                  <td className="px-5 py-4 text-xs text-gray-500 hidden lg:table-cell">{s.phone || '—'}</td>
+                  <td className="px-5 py-4 text-xs text-gray-500 hidden lg:table-cell">{s.phone || 'â€”'}</td>
                   <td className="px-5 py-4 text-sm font-bold text-gray-800 tabular-nums">{fmt(s.paidThisMonth)}</td>
                   <td className={`px-5 py-4 text-sm font-semibold tabular-nums hidden md:table-cell ${s.totalPayable>0?'text-red-500':'text-gray-400'}`}>{fmt(s.totalPayable)}</td>
                   <td className="px-5 py-4 hidden xl:table-cell"><StarRating rating={s.rating} /></td>
@@ -991,7 +993,7 @@ export default function FornecedoresPage() {
 
         {pages > 1 && (
           <div className="flex items-center justify-between px-5 py-3 border-t border-gray-100">
-            <p className="text-xs text-gray-400">{(page-1)*LIMIT+1}–{Math.min(page*LIMIT, total)} de {total}</p>
+            <p className="text-xs text-gray-400">{(page-1)*LIMIT+1}â€“{Math.min(page*LIMIT, total)} de {total}</p>
             <div className="flex items-center gap-1">
               <button disabled={page<=1} onClick={() => setPage(p=>p-1)} className="p-1.5 rounded-lg text-gray-400 hover:bg-gray-100 disabled:opacity-30"><ChevronLeft size={14} /></button>
               {Array.from({length: Math.min(pages,5)},(_,i)=>i+1).map(n=>(

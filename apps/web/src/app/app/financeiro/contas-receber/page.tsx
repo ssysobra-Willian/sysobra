@@ -1,4 +1,6 @@
-'use client'
+﻿'use client'
+
+export const dynamic = 'force-dynamic'
 
 import { useState, useEffect, useCallback } from 'react'
 import {
@@ -17,7 +19,7 @@ import { formatCurrency } from '@/lib/format'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
 
-// ─── Types ────────────────────────────────────────────────────────────────────
+// â”€â”€â”€ Types â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 interface Transaction {
   id:            string
@@ -44,12 +46,12 @@ interface TxPage {
   pages: number
 }
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+// â”€â”€â”€ Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 const fmt = formatCurrency
 
 function fmtDate(iso: string | null | undefined) {
-  if (!iso) return '—'
+  if (!iso) return 'â€”'
   return new Date(iso).toLocaleDateString('pt-BR')
 }
 
@@ -62,7 +64,7 @@ function daysDiff(iso: string | null) {
   return Math.round((due.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
 }
 
-// ─── Primitives ───────────────────────────────────────────────────────────────
+// â”€â”€â”€ Primitives â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function Pulse({ className }: { className: string }) {
   return <div className={`animate-pulse bg-gray-200 rounded-lg ${className}`} />
@@ -71,7 +73,7 @@ function Panel({ children, className = '' }: { children: React.ReactNode; classN
   return <div className={`bg-white rounded-2xl border border-gray-200 shadow-sm ${className}`}>{children}</div>
 }
 
-// ─── Summary Card ─────────────────────────────────────────────────────────────
+// â”€â”€â”€ Summary Card â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function SummaryCard({
   title, value, count, label, icon: Icon, iconCls, iconBgCls, loading,
@@ -94,7 +96,7 @@ function SummaryCard({
       </div>
       <p className="text-2xl xl:text-xl font-bold text-gray-900 leading-none mb-1">{fmt(value)}</p>
       {count !== undefined && (
-        <p className="text-xs text-gray-500 mb-0.5 xl:hidden">{count} lançamento{count !== 1 ? 's' : ''}</p>
+        <p className="text-xs text-gray-500 mb-0.5 xl:hidden">{count} lanÃ§amento{count !== 1 ? 's' : ''}</p>
       )}
       <p className="text-[11px] xl:text-[10px] font-semibold text-gray-400 uppercase tracking-wide">{title}</p>
       <p className="text-xs text-gray-500 mt-1 xl:hidden">{label}</p>
@@ -102,7 +104,7 @@ function SummaryCard({
   )
 }
 
-// ─── Status / Due date badge ──────────────────────────────────────────────────
+// â”€â”€â”€ Status / Due date badge â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function DueBadge({ tx }: { tx: Transaction }) {
   if (tx.isPaid) return (
@@ -110,24 +112,24 @@ function DueBadge({ tx }: { tx: Transaction }) {
       <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-medium">Recebido</span>
       {tx.paymentMethod && (
         <span title={tx.paymentMethod} className="text-sm leading-none">
-          {PAYMENT_METHOD_ICONS[tx.paymentMethod] ?? '💰'}
+          {PAYMENT_METHOD_ICONS[tx.paymentMethod] ?? 'ðŸ’°'}
         </span>
       )}
     </div>
   )
   const diff = daysDiff(tx.dueDate)
   if (diff === null) return <span className="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">Sem vencimento</span>
-  if (diff < 0) return <span className="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded-full font-medium">Vencido há {Math.abs(diff)}d</span>
+  if (diff < 0) return <span className="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded-full font-medium">Vencido hÃ¡ {Math.abs(diff)}d</span>
   if (diff === 0) return <span className="text-xs bg-orange-100 text-orange-700 px-2 py-0.5 rounded-full font-medium">Vence hoje</span>
   if (diff <= 7)  return <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-medium">Vence em {diff}d</span>
   return <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">{fmtDate(tx.dueDate)}</span>
 }
 
 
-// ─── CSV Export ───────────────────────────────────────────────────────────────
+// â”€â”€â”€ CSV Export â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function exportCsv(transactions: Transaction[]) {
-  const header = '"Data Vencimento","Descrição","Cliente","Categoria","Conta","Valor","Status"'
+  const header = '"Data Vencimento","DescriÃ§Ã£o","Cliente","Categoria","Conta","Valor","Status"'
   const rows = transactions.map((tx) => [
     tx.dueDate ? fmtDate(tx.dueDate) : '',
     tx.description,
@@ -138,13 +140,13 @@ function exportCsv(transactions: Transaction[]) {
     tx.isPaid ? 'Recebido' : 'Pendente',
   ].map((v) => `"${String(v).replace(/"/g, '""')}"`).join(','))
   const csv  = [header, ...rows].join('\n')
-  const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' })
+  const blob = new Blob(['ï»¿' + csv], { type: 'text/csv;charset=utf-8;' })
   const url  = URL.createObjectURL(blob)
   const a    = document.createElement('a'); a.href = url; a.download = 'contas-a-receber.csv'; a.click()
   URL.revokeObjectURL(url)
 }
 
-// ─── Main Page ────────────────────────────────────────────────────────────────
+// â”€â”€â”€ Main Page â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 const TX_PER_PAGE = 20
 
@@ -172,7 +174,7 @@ export default function ContasReceberPage() {
   const queryClient = useQueryClient()
   const invalidateDashboard = () => queryClient.invalidateQueries({ queryKey: ['dashboard'] })
 
-  // ── Summary accumulators ─────────────────────────────────────────────────
+  // â”€â”€ Summary accumulators â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   const [summaryOverdue,   setSummaryOverdue]   = useState(0)
   const [summaryDueToday,  setSummaryDueToday]  = useState(0)
@@ -183,14 +185,14 @@ export default function ContasReceberPage() {
   const [summaryCountDue7, setSummaryCountDue7] = useState(0)
   const [summaryCountTotal,setSummaryCountTotal]= useState(0)
 
-  // ── Helpers ─────────────────────────────────────────────────────────────
+  // â”€â”€ Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   function headers() {
     const token = localStorage.getItem('token') || ''
     return { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }
   }
 
-  // ── Load data ────────────────────────────────────────────────────────────
+  // â”€â”€ Load data â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -259,7 +261,7 @@ export default function ContasReceberPage() {
 
   useEffect(() => { load() }, [load])
 
-  // ── Actions ──────────────────────────────────────────────────────────────
+  // â”€â”€ Actions â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   function handleReceive(tx: Transaction) {
     setPayingTx(tx)
@@ -294,7 +296,7 @@ export default function ContasReceberPage() {
       const res = await fetch(`${API}/api/financial/transactions/${tx.id}/cancel`, {
         method: 'PATCH',                              // era 'DELETE' para URL errada
         headers: headers(),
-        body: JSON.stringify({}),                     // obrigatório: body vazio + Content-Type: application/json → 400 no Fastify
+        body: JSON.stringify({}),                     // obrigatÃ³rio: body vazio + Content-Type: application/json â†’ 400 no Fastify
       })
       if (!res.ok) {
         const err = await res.json().catch(() => ({}))
@@ -303,7 +305,7 @@ export default function ContasReceberPage() {
       }
       load(); invalidateDashboard()
     } catch {
-      setActionError('Falha na conexão. Verifique sua rede e tente novamente.')
+      setActionError('Falha na conexÃ£o. Verifique sua rede e tente novamente.')
     }
   }
 
@@ -344,7 +346,7 @@ export default function ContasReceberPage() {
         { label: 'Contas a Receber' },
       ]} />
 
-      {/* ── Header ───────────────────────────────────────────────────── */}
+      {/* â”€â”€ Header â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Contas a Receber</h1>
@@ -366,19 +368,19 @@ export default function ContasReceberPage() {
         </div>
       </div>
 
-      {/* ── Summary cards ────────────────────────────────────────────── */}
+      {/* â”€â”€ Summary cards â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
         <SummaryCard loading={loading} title="Vencidas" value={summaryOverdue} count={summaryCountOv}
           label="Recebimentos em atraso" icon={AlertTriangle} iconCls="text-red-500" iconBgCls="bg-red-100" />
         <SummaryCard loading={loading} title="Vencem hoje" value={summaryDueToday} count={summaryCountToday}
           label="Recebimento no dia" icon={Clock} iconCls="text-orange-500" iconBgCls="bg-orange-100" />
-        <SummaryCard loading={loading} title="Próximos 7 dias" value={summaryDue7} count={summaryCountDue7}
+        <SummaryCard loading={loading} title="PrÃ³ximos 7 dias" value={summaryDue7} count={summaryCountDue7}
           label="A receber em breve" icon={Calendar} iconCls="text-amber-600" iconBgCls="bg-amber-100" />
         <SummaryCard loading={loading} title="Total a receber" value={summaryTotal} count={summaryCountTotal}
           label="Total de receitas em aberto" icon={TrendingUp} iconCls="text-green-600" iconBgCls="bg-green-100" />
       </div>
 
-      {/* ── Filtros ──────────────────────────────────────────────────── */}
+      {/* â”€â”€ Filtros â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
       <div className="flex flex-wrap items-center gap-2">
         {activeFilterCount > 0 && (
           <button onClick={() => { setSearch(''); setFilterPaid('false'); setFilterCat(''); setFilterBank(''); setDateFrom(''); setDateTo(''); setPage(1) }}
@@ -415,7 +417,7 @@ export default function ContasReceberPage() {
 
         <div className="flex items-center gap-1.5">
           <input type="date" value={dateFrom} onChange={(e) => { setDateFrom(e.target.value); setPage(1) }} className={selectCls(!!(dateFrom || dateTo))} />
-          <span className="text-gray-400 text-sm">–</span>
+          <span className="text-gray-400 text-sm">â€“</span>
           <input type="date" value={dateTo}   onChange={(e) => { setDateTo(e.target.value); setPage(1) }} className={selectCls(!!(dateFrom || dateTo))} />
         </div>
 
@@ -425,7 +427,7 @@ export default function ContasReceberPage() {
         </button>
       </div>
 
-      {/* ── Banner de erro de ação ──────────────────────────────────── */}
+      {/* â”€â”€ Banner de erro de aÃ§Ã£o â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
       {actionError && (
         <div className="flex items-center gap-3 bg-red-50 border border-red-200 rounded-2xl px-5 py-3">
           <AlertTriangle size={15} className="text-red-500 flex-shrink-0" />
@@ -436,14 +438,14 @@ export default function ContasReceberPage() {
         </div>
       )}
 
-      {/* ── Table ────────────────────────────────────────────────────── */}
+      {/* â”€â”€ Table â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
       <Panel>
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead className="bg-gray-50 border-b border-gray-100">
               <tr>
                 <th className="px-5 py-3 text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wide whitespace-nowrap">Vencimento</th>
-                <th className="px-5 py-3 text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wide whitespace-nowrap">Descrição</th>
+                <th className="px-5 py-3 text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wide whitespace-nowrap">DescriÃ§Ã£o</th>
                 <th className="px-5 py-3 text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wide whitespace-nowrap hidden lg:table-cell">Cliente</th>
                 <th className="px-5 py-3 text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wide whitespace-nowrap hidden lg:table-cell">Categoria</th>
                 <th className="px-5 py-3 text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wide whitespace-nowrap hidden xl:table-cell">Conta</th>
@@ -483,7 +485,7 @@ export default function ContasReceberPage() {
                       <span className="text-xs text-gray-700 line-clamp-1 max-w-[200px]">{tx.description}</span>
                     </td>
                     <td className="px-5 py-3 text-xs text-gray-500 whitespace-nowrap hidden lg:table-cell">
-                      {tx.client?.name ?? '—'}
+                      {tx.client?.name ?? 'â€”'}
                     </td>
                     <td className="px-5 py-3 hidden lg:table-cell">
                       {tx.category ? (
@@ -491,10 +493,10 @@ export default function ContasReceberPage() {
                           <span className="w-2 h-2 rounded-full" style={{ background: tx.category.color }} />
                           {tx.category.name}
                         </span>
-                      ) : <span className="text-xs text-gray-400">—</span>}
+                      ) : <span className="text-xs text-gray-400">â€”</span>}
                     </td>
                     <td className="px-5 py-3 text-xs text-gray-500 whitespace-nowrap hidden xl:table-cell">
-                      {tx.bankAccount?.name ?? '—'}
+                      {tx.bankAccount?.name ?? 'â€”'}
                     </td>
                     <td className="px-5 py-3 text-sm font-bold tabular-nums text-green-600 whitespace-nowrap">
                       +{fmt(tx.netAmount)}
@@ -510,7 +512,7 @@ export default function ContasReceberPage() {
                           </button>
                         )}
                         <TableActionMenu actions={[
-                          { label: 'Ver lançamento', icon: <Eye size={13} className="text-[#F5A623]" />, onClick: () => handleView(tx) },
+                          { label: 'Ver lanÃ§amento', icon: <Eye size={13} className="text-[#F5A623]" />, onClick: () => handleView(tx) },
                           { label: 'Editar', icon: <Pencil size={13} />, onClick: () => handleEdit(tx) },
                           ...(!tx.isPaid ? [{ label: 'Marcar como recebido', icon: <CheckCircle size={13} className="text-green-500" />, onClick: () => handleReceive(tx) }] : []),
                           { label: 'Cancelar', icon: <XCircle size={13} />, onClick: () => handleCancel(tx), variant: 'danger' as const, separator: true },
@@ -528,7 +530,7 @@ export default function ContasReceberPage() {
         {totalPages > 1 && (
           <div className="flex items-center justify-between px-5 py-3 border-t border-gray-100">
             <p className="text-xs text-gray-400">
-              {((page - 1) * TX_PER_PAGE) + 1}–{Math.min(page * TX_PER_PAGE, txPage?.total ?? 0)} de {txPage?.total ?? 0}
+              {((page - 1) * TX_PER_PAGE) + 1}â€“{Math.min(page * TX_PER_PAGE, txPage?.total ?? 0)} de {txPage?.total ?? 0}
             </p>
             <div className="flex gap-1">
               <button disabled={page <= 1} onClick={() => setPage((p) => p - 1)}
@@ -550,7 +552,7 @@ export default function ContasReceberPage() {
         )}
       </Panel>
 
-      {/* ── Modal de edição/criação ──────────────────────────────────── */}
+      {/* â”€â”€ Modal de ediÃ§Ã£o/criaÃ§Ã£o â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
       {showModal && (
         <TransactionModal
           open={showModal}
@@ -562,7 +564,7 @@ export default function ContasReceberPage() {
         />
       )}
 
-      {/* ── Modal de recibo ──────────────────────────────────────────── */}
+      {/* â”€â”€ Modal de recibo â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
       <TransactionReceiptModal
         open={!!viewingTxId}
         txId={viewingTxId}
@@ -570,7 +572,7 @@ export default function ContasReceberPage() {
         onClose={() => setViewingTxId(null)}
       />
 
-      {/* ── Modal de pagamento ───────────────────────────────────────── */}
+      {/* â”€â”€ Modal de pagamento â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
       <PaymentModal
         isOpen={paymentModalOpen}
         onClose={() => { setPaymentModalOpen(false); setPayingTx(null) }}
