@@ -17,10 +17,17 @@ import { PhotoCarousel }                     from '../components/PhotoCarousel'
 // RainChart carregado dinamicamente (usa recharts)
 const RainChart = dynamic(() => import('@/components/diary/RainChart'), { ssr: false })
 
-// Pasta de projetos — carregada dinamicamente (somente leitura)
-const ProjectFilesReadOnly = dynamic(
-  () => import('../components/ProjectFilesReadOnly'),
-  { ssr: false, loading: () => null },
+// Pasta de projetos — somente leitura (mesmo visual do Centro de Custo)
+const PastaDeProjetosTab = dynamic(
+  () => import('@/components/project/PastaDeProjetosTab').then(m => ({ default: m.PastaDeProjetosTab })),
+  { ssr: false, loading: () => (
+    <div className="flex items-center justify-center py-16">
+      <svg className="animate-spin h-6 w-6 text-[#F5A623]" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+      </svg>
+    </div>
+  )},
 )
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
@@ -640,13 +647,11 @@ export default function DiarioProjectPage() {
         </div>
       )}
 
-      {/* ── Tab: Pasta de Projetos ───────────────────────────────────────── */}
+      {/* ── Tab: Pasta de Projetos (somente leitura) ────────────────────── */}
       {tab === 'files' && (
-        <ProjectFilesReadOnly
+        <PastaDeProjetosTab
           projectId={projectId}
-          projectName={project?.name}
-          defaultExpanded
-          hideHeader
+          readOnly
         />
       )}
 
