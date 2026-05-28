@@ -782,8 +782,40 @@ export async function depositRoutes(app: FastifyInstance) {
       where: { id: body.stockItemId, companyId: cid },
     })
     if (!item) return reply.status(404).send({ error: 'Item não encontrado' })
-    if (Number(item.quantity) < body.quantity) {
-      return reply.status(400).send({ error: 'Quantidade insuficiente em estoque' })
+
+    // Validar que o item está marcado como EPI
+    if (!(item as any).isEpi) {
+      return reply.status(400).send({
+        error:   'ITEM_NOT_EPI',
+        message: `"${item.name}" não está cadastrado como EPI. Use a saída normal para materiais e ferramentas.`,
+      })
+    }
+
+    // Validar colaborador
+    const employee = await p().employee.findFirst({
+      where: { id: body.employeeId, companyId: cid, isActive: true },
+      select: { id: true, name: true, code: true, role: true },
+    })
+    if (!employee) {
+      return reply.status(404).send({ error: 'Colaborador não encontrado ou inativo' })
+    }
+
+    // Validar saldo — por localização quando informada, senão global
+    if (body.locationId) {
+      const balance = await p().stockBalance.findUnique({
+        where: { itemId_locationId: { itemId: body.stockItemId, locationId: body.locationId } },
+      })
+      const available = Math.max(0, Number(balance?.quantity ?? 0) - Number(balance?.reservedQty ?? 0))
+      if (available < body.quantity) {
+        return reply.status(400).send({
+          error:   'INSUFFICIENT_STOCK',
+          message: `Saldo insuficiente no almoxarifado. Disponível: ${available} ${item.unit}`,
+        })
+      }
+    } else {
+      if (Number(item.quantity) < body.quantity) {
+        return reply.status(400).send({ error: 'Quantidade insuficiente em estoque' })
+      }
     }
 
     // Salvar selfie com marca d'água de data/hora
@@ -828,7 +860,9 @@ export async function depositRoutes(app: FastifyInstance) {
       } catch { /* assinatura falhou mas não bloqueia entrega */ }
     }
 
-    const [delivery] = await p().$transaction([
+    // Operações da transação — sempre cria delivery + movimento + decrementa saldo
+    const txOps: any[] = [
+      // 1. Registro de entrega
       p().stockEpiDelivery.create({
         data: {
           companyId:     cid,
@@ -847,11 +881,18 @@ export async function depositRoutes(app: FastifyInstance) {
           selfieUrl,
           selfieDate:    body.selfie ? new Date() : null,
         },
+        include: {
+          stockItem: { select: { id: true, name: true, unit: true } },
+          employee:  { select: { id: true, name: true, code: true } },
+          location:  { select: { id: true, name: true } },
+        },
       }),
+      // 2. Decremento global no item
       p().stockItem.update({
         where: { id: body.stockItemId },
-        data: { quantity: Number(item.quantity) - body.quantity },
+        data: { quantity: { decrement: body.quantity } },
       }),
+      // 3. Movimento de saída
       p().stockMovement.create({
         data: {
           companyId:     cid,
@@ -862,13 +903,34 @@ export async function depositRoutes(app: FastifyInstance) {
           responsibleId: userId(request) ?? null,
           type:          'EPI_DELIVERY',
           quantity:      body.quantity,
-          reason:        'Entrega de EPI/Uniforme',
+          reason:        `EPI entregue para ${employee.name} (${employee.code})`,
           notes:         body.notes ?? null,
         },
       }),
-    ])
+    ]
 
-    return reply.status(201).send(delivery)
+    // 4. Decremento no saldo do almoxarifado específico (quando locationId informado)
+    if (body.locationId) {
+      txOps.push(
+        p().stockBalance.updateMany({
+          where: { itemId: body.stockItemId, locationId: body.locationId, companyId: cid },
+          data:  { quantity: { decrement: body.quantity } },
+        }),
+      )
+    }
+
+    const [delivery] = await p().$transaction(txOps)
+
+    return reply.status(201).send({
+      success:          true,
+      delivery,
+      employeeId:       employee.id,
+      employeeName:     employee.name,
+      itemName:         item.name,
+      addedToEmployee:  true,
+      message:          `EPI "${item.name}" registrado para ${employee.name}`,
+      cautelaUrl:       `/api/v1/deposit/employees/${employee.id}/epi-cautela`,
+    })
   })
 
   // ── CATEGORIES ────────────────────────────────────────────────────────────

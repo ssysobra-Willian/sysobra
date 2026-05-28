@@ -74,7 +74,8 @@ interface Employee {
   documents:        EmployeeDoc[]
   trainings:        EmployeeTraining[]
   vacations:        EmployeeVacation[]
-  epiDeliveries:    EpiDelivery[]
+  epiDeliveries:      EpiDelivery[]
+  stockEpiDeliveries: StockEpiDelivery[]
 }
 
 interface EmployeeDoc {
@@ -125,6 +126,24 @@ interface EpiDelivery {
   selfieDate?:       string | null
   employeeSignature?: string | null
   deliveredByName?:  string | null
+}
+
+// EPI entregue pelo módulo de Depósito (StockEpiDelivery — vinculado ao item de estoque)
+interface StockEpiDelivery {
+  id:           string
+  quantity:     number
+  size?:        string | null
+  deliveredAt:  string
+  returnedAt?:  string | null
+  condition?:   string | null
+  notes?:       string | null
+  expiresAt?:   string | null
+  selfieUrl?:   string | null
+  signatureUrl?: string | null
+  caNumber?:    string | null
+  stockItem:    { id: string; name: string; code?: string | null; unit: string; brand?: string | null; caNumber?: string | null }
+  location?:    { id: string; name: string } | null
+  responsible?: { id: string; name: string } | null
 }
 
 interface ProjectHistory {
@@ -611,6 +630,7 @@ export default function ColaboradorPerfilPage() {
         {tab === 'EPIs' && (
           <EpiDeliveriesPanel
             deliveries={employee.epiDeliveries}
+            stockDeliveries={employee.stockEpiDeliveries ?? []}
             employeeName={employee.name}
             employeeId={employee.id}
           />
@@ -1329,32 +1349,38 @@ function VacationsPanel({ employee, onReload }: { employee: Employee; onReload: 
 
 function EpiDeliveriesPanel({
   deliveries,
+  stockDeliveries,
   employeeName,
   employeeId,
 }: {
-  deliveries:   EpiDelivery[]
-  employeeName: string
-  employeeId:   string
+  deliveries:      EpiDelivery[]
+  stockDeliveries: StockEpiDelivery[]
+  employeeName:    string
+  employeeId:      string
 }) {
-  const [lightbox,  setLightbox]  = useState<string | null>(null)
+  const [lightbox, setLightbox] = useState<string | null>(null)
+  const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
+
+  const totalCount = deliveries.length + stockDeliveries.length
+
+  const resolveUrl = (url: string) =>
+    url.startsWith('http') ? url : `${API_URL}/${url.replace(/^\//, '')}`
 
   const openCautela = (deliveryId: string) => {
-    const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
     const tok = localStorage.getItem('token') ?? ''
     const cid = localStorage.getItem('companyId') ?? ''
-    const url = `${API}/api/v1/deposit/epi-deliveries/${deliveryId}/cautela?token=${encodeURIComponent(tok)}&companyId=${encodeURIComponent(cid)}`
+    const url = `${API_URL}/api/v1/deposit/epi-deliveries/${deliveryId}/cautela?token=${encodeURIComponent(tok)}&companyId=${encodeURIComponent(cid)}`
     window.open(url, '_blank')
   }
 
   const openCautelaCompleta = () => {
-    const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
     const tok = localStorage.getItem('token') ?? ''
     const cid = localStorage.getItem('companyId') ?? ''
-    const url = `${API}/api/v1/deposit/employees/${employeeId}/epi-cautela?token=${encodeURIComponent(tok)}&companyId=${encodeURIComponent(cid)}`
+    const url = `${API_URL}/api/v1/deposit/employees/${employeeId}/epi-cautela?token=${encodeURIComponent(tok)}&companyId=${encodeURIComponent(cid)}`
     window.open(url, '_blank')
   }
 
-  if (deliveries.length === 0) {
+  if (totalCount === 0) {
     return (
       <div className="p-5">
         <div className="text-center py-12 space-y-2">
@@ -1370,7 +1396,7 @@ function EpiDeliveriesPanel({
     <div className="p-5">
       <div className="flex items-center justify-between mb-4">
         <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
-          EPIs entregues — {deliveries.length} registro{deliveries.length !== 1 ? 's' : ''}
+          EPIs entregues — {totalCount} registro{totalCount !== 1 ? 's' : ''}
         </p>
         <button
           onClick={openCautelaCompleta}
@@ -1383,20 +1409,110 @@ function EpiDeliveriesPanel({
       </div>
 
       <div className="space-y-3">
+
+        {/* ── StockEpiDeliveries — entregues pelo Depósito (com StockItem) ── */}
+        {stockDeliveries.map(d => {
+          const expired    = d.expiresAt ? new Date(d.expiresAt) < new Date() : false
+          const expireDays = d.expiresAt
+            ? Math.ceil((new Date(d.expiresAt).getTime() - Date.now()) / 86_400_000)
+            : null
+          const expiringSoon = expireDays !== null && expireDays > 0 && expireDays <= 30
+
+          return (
+            <div key={`stock-${d.id}`} className="bg-white border border-gray-100 rounded-2xl overflow-hidden shadow-sm">
+              <div className="flex items-start gap-3 p-4">
+                {/* Selfie */}
+                {d.selfieUrl ? (
+                  <button
+                    onClick={() => setLightbox(resolveUrl(d.selfieUrl!))}
+                    className="relative w-14 h-14 rounded-xl overflow-hidden flex-shrink-0 border border-gray-100 hover:ring-2 hover:ring-[#F5A623]/40 transition group"
+                  >
+                    <img src={resolveUrl(d.selfieUrl)} alt="Selfie" className="w-full h-full object-cover" />
+                    <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 flex items-center justify-center transition">
+                      <ZoomIn size={14} className="text-white opacity-0 group-hover:opacity-100 transition" />
+                    </div>
+                  </button>
+                ) : (
+                  <div className="w-14 h-14 rounded-xl bg-green-50 border border-green-100 flex items-center justify-center flex-shrink-0">
+                    <ShieldCheck size={20} className="text-green-400" />
+                  </div>
+                )}
+
+                {/* Info */}
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-start gap-2 flex-wrap">
+                    <p className="text-sm font-semibold text-gray-800">{d.stockItem.name}</p>
+                    {d.stockItem.code && (
+                      <span className="text-[10px] bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded-md font-mono">{d.stockItem.code}</span>
+                    )}
+                    {/* badge fonte */}
+                    <span className="text-[10px] bg-blue-50 text-blue-600 border border-blue-100 px-1.5 py-0.5 rounded-full font-medium">Depósito</span>
+                    {/* status */}
+                    {d.returnedAt
+                      ? <span className="text-[10px] bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full font-medium">Devolvido</span>
+                      : expired
+                        ? <span className="text-[10px] bg-red-100 text-red-600 px-1.5 py-0.5 rounded-full font-medium">⚠ Vencido</span>
+                        : expiringSoon
+                          ? <span className="text-[10px] bg-yellow-100 text-yellow-700 px-1.5 py-0.5 rounded-full font-medium">⏳ Vence em {expireDays}d</span>
+                          : <span className="text-[10px] bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded-full font-medium">Em uso</span>
+                    }
+                  </div>
+
+                  <div className="flex flex-wrap gap-x-4 gap-y-0.5 mt-1.5 text-xs text-gray-400">
+                    <span>Qtd: <strong className="text-gray-600">{d.quantity} {d.stockItem.unit}</strong></span>
+                    {d.size      && <span>Tamanho: <strong className="text-gray-600">{d.size}</strong></span>}
+                    {d.stockItem.brand && <span>Marca: <strong className="text-gray-600">{d.stockItem.brand}</strong></span>}
+                    {(d.caNumber ?? d.stockItem.caNumber) && (
+                      <span>CA: <strong className="text-gray-600">{d.caNumber ?? d.stockItem.caNumber}</strong></span>
+                    )}
+                    <span>Entregue: <strong className="text-gray-600">{fmtDate(d.deliveredAt)}</strong></span>
+                    {d.expiresAt && (
+                      <span className={expired ? 'text-red-500' : ''}>
+                        Validade: <strong>{fmtDate(d.expiresAt)}</strong>
+                      </span>
+                    )}
+                    {d.location?.name && <span>Local: <strong className="text-gray-600">{d.location.name}</strong></span>}
+                    {d.responsible?.name && <span>Por: <strong className="text-gray-600">{d.responsible.name}</strong></span>}
+                    {d.returnedAt && <span>Devolvido: <strong className="text-gray-600">{fmtDate(d.returnedAt)}</strong></span>}
+                  </div>
+
+                  {d.notes && <p className="mt-1.5 text-xs text-gray-500 italic">{d.notes}</p>}
+                </div>
+
+                {/* Ações */}
+                <div className="flex flex-col gap-1.5 flex-shrink-0">
+                  {d.signatureUrl && (
+                    <button
+                      onClick={() => setLightbox(resolveUrl(d.signatureUrl!))}
+                      className="text-[10px] text-gray-400 hover:text-[#F5A623] flex items-center gap-1 transition"
+                      title="Ver assinatura"
+                    >
+                      <PenTool size={11} /> Assinatura
+                    </button>
+                  )}
+                  <button
+                    onClick={() => openCautela(d.id)}
+                    className="text-[10px] text-blue-500 hover:text-blue-700 flex items-center gap-1 transition"
+                    title="Ver cautela"
+                  >
+                    <FileOutput size={11} /> Cautela
+                  </button>
+                </div>
+              </div>
+            </div>
+          )
+        })}
+
+        {/* ── EpiDeliveries legados (model antigo / registro manual) ── */}
         {deliveries.map(d => (
-          <div key={d.id} className="bg-white border border-gray-100 rounded-2xl overflow-hidden shadow-sm">
+          <div key={`legacy-${d.id}`} className="bg-white border border-gray-100 rounded-2xl overflow-hidden shadow-sm">
             <div className="flex items-start gap-3 p-4">
-              {/* Selfie thumbnail */}
               {d.selfieUrl ? (
                 <button
-                  onClick={() => setLightbox(d.selfieUrl!)}
+                  onClick={() => setLightbox(resolveUrl(d.selfieUrl!))}
                   className="relative w-14 h-14 rounded-xl overflow-hidden flex-shrink-0 border border-gray-100 hover:ring-2 hover:ring-[#F5A623]/40 transition group"
                 >
-                  <img
-                    src={d.selfieUrl.startsWith('http') ? d.selfieUrl : `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/${d.selfieUrl}`}
-                    alt="Selfie"
-                    className="w-full h-full object-cover"
-                  />
+                  <img src={resolveUrl(d.selfieUrl)} alt="Selfie" className="w-full h-full object-cover" />
                   <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 flex items-center justify-center transition">
                     <ZoomIn size={14} className="text-white opacity-0 group-hover:opacity-100 transition" />
                   </div>
@@ -1407,11 +1523,11 @@ function EpiDeliveriesPanel({
                 </div>
               )}
 
-              {/* Info */}
               <div className="flex-1 min-w-0">
                 <div className="flex items-start gap-2 flex-wrap">
                   <p className="text-sm font-semibold text-gray-800">{d.epiName}</p>
                   {d.epiCode && <span className="text-[10px] bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded-md font-mono">{d.epiCode}</span>}
+                  <span className="text-[10px] bg-gray-100 text-gray-500 border border-gray-200 px-1.5 py-0.5 rounded-full font-medium">Manual</span>
                   {d.returnedAt
                     ? <span className="text-[10px] bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full font-medium">Devolvido</span>
                     : <span className="text-[10px] bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded-full font-medium">Em uso</span>
@@ -1420,20 +1536,23 @@ function EpiDeliveriesPanel({
 
                 <div className="flex flex-wrap gap-x-4 gap-y-0.5 mt-1.5 text-xs text-gray-400">
                   <span>Qtd: <strong className="text-gray-600">{d.quantity}</strong></span>
-                  {d.size && <span>Tamanho: <strong className="text-gray-600">{d.size}</strong></span>}
+                  {d.size     && <span>Tamanho: <strong className="text-gray-600">{d.size}</strong></span>}
                   <span>Entregue: <strong className="text-gray-600">{fmtDate(d.deliveredAt)}</strong></span>
-                  {d.expiresAt && <span className={`${new Date(d.expiresAt) < new Date() ? 'text-red-500' : ''}`}>Validade: <strong>{fmtDate(d.expiresAt)}</strong></span>}
+                  {d.expiresAt && (
+                    <span className={new Date(d.expiresAt) < new Date() ? 'text-red-500' : ''}>
+                      Validade: <strong>{fmtDate(d.expiresAt)}</strong>
+                    </span>
+                  )}
                   {d.returnedAt && <span>Devolvido: <strong className="text-gray-600">{fmtDate(d.returnedAt)}</strong></span>}
                 </div>
 
                 {d.notes && <p className="mt-1.5 text-xs text-gray-500 italic">{d.notes}</p>}
               </div>
 
-              {/* Actions */}
               <div className="flex flex-col gap-1.5 flex-shrink-0">
                 {d.employeeSignature && (
                   <button
-                    onClick={() => setLightbox(d.employeeSignature!)}
+                    onClick={() => setLightbox(resolveUrl(d.employeeSignature!))}
                     className="text-[10px] text-gray-400 hover:text-[#F5A623] flex items-center gap-1 transition"
                     title="Ver assinatura"
                   >
@@ -1467,7 +1586,7 @@ function EpiDeliveriesPanel({
             <X size={24} />
           </button>
           <img
-            src={lightbox.startsWith('http') ? lightbox : `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/${lightbox}`}
+            src={lightbox}
             alt="Imagem em tamanho completo"
             className="max-w-full max-h-[90dvh] rounded-xl object-contain"
             onClick={e => e.stopPropagation()}

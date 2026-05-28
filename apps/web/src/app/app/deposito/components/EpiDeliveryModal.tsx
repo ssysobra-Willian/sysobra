@@ -544,11 +544,11 @@ export function EpiDeliveryModal({
         stockItemId: itemId,
         employeeId,
         quantity,
-        size:       size      || undefined,
-        expiresAt:  expiresAt || undefined,
-        notes:      notes     || undefined,
-        employeeSignature: signature ?? undefined,
-        selfieUrl:  selfie    ?? undefined,
+        size:      size      || undefined,
+        expiresAt: expiresAt || undefined,
+        notes:     notes     || undefined,
+        signature: signature ?? undefined,   // base64 PNG — campo correto
+        selfie:    selfie    ?? undefined,   // base64 JPEG — campo correto
       }
 
       const res = await fetch(`${API}/api/v1/deposit/epi-deliveries`, {
