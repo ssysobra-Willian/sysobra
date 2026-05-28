@@ -22,6 +22,8 @@ import { Breadcrumb } from '@/components/ui/Breadcrumb'
 import { StageFormModal, type ProjectStage as StagePayload } from '../components/StageFormModal'
 import { toImageUrl }  from '@/lib/imageUrl'
 import { ActivityFeed } from '@/components/ui/ActivityFeed'
+import Pagination from '@/components/ui/Pagination'
+import { usePagination } from '@/hooks/usePagination'
 import dynamic from 'next/dynamic'
 
 const PastaDeProjetosTab = dynamic(
@@ -690,7 +692,7 @@ export default function ObraDetailPage() {
   const [allocStatusFilter, setAllocStatusFilter] = useState('ALL')
   const [allocSearch,       setAllocSearch]       = useState('')
   const [allocPeriod,       setAllocPeriod]       = useState('ALL')
-  const ALLOC_LIMIT = 10
+  const [allocLimit,        setAllocLimit]        = useState(10)
 
   const loadProject = useCallback(async () => {
     setLoading(true)
@@ -741,7 +743,7 @@ export default function ObraDetailPage() {
     }
 
     setAllocLoading(true)
-    const qs = new URLSearchParams({ projectId: id, page: String(allocPage), limit: String(ALLOC_LIMIT) })
+    const qs = new URLSearchParams({ projectId: id, page: String(allocPage), limit: String(allocLimit) })
     if (allocTypeFilter !== 'ALL')   qs.set('type',   allocTypeFilter)
     if (allocStatusFilter === 'PAID')    qs.set('isPaid', 'true')
     if (allocStatusFilter === 'PENDING') qs.set('isPaid', 'false')
@@ -762,7 +764,7 @@ export default function ObraDetailPage() {
       .then((d) => { setAllocTxs(d.transactions ?? []); setAllocTotal(d.total ?? 0) })
       .catch(() => { setAllocTxs([]); setAllocTotal(0) })
       .finally(() => setAllocLoading(false))
-  }, [tab, id, allocPage, allocTypeFilter, allocStatusFilter, allocSearch, allocPeriod, allocSummary])
+  }, [tab, id, allocPage, allocLimit, allocTypeFilter, allocStatusFilter, allocSearch, allocPeriod, allocSummary])
 
   // Carrega pasta de projetos quando a aba for aberta
   useEffect(() => {
@@ -822,6 +824,17 @@ export default function ObraDetailPage() {
       setSavingProgress(false)
     }
   }
+
+  // ── Hooks de paginação (devem vir antes de qualquer return condicional) ──────
+  const resumoPagination = usePagination({
+    items:        project?.financialTransactions ?? [],
+    itemsPerPage: 10,
+  })
+
+  const unworkableDays = rainRecords
+    .filter(r => r.isUnworkable)
+    .sort((a, b) => b.date.localeCompare(a.date))
+  const rainUnworkablePage = usePagination({ items: unworkableDays, itemsPerPage: 10 })
 
   if (loading) {
     return (
@@ -1057,7 +1070,7 @@ export default function ObraDetailPage() {
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-50">
-                          {project.financialTransactions.map(tx => (
+                          {resumoPagination.currentItems.map(tx => (
                             <tr key={tx.id} className="hover:bg-gray-50">
                               <td className="px-3 py-2 text-xs text-gray-500">{formatDateBR(tx.referenceDate)}</td>
                               <td className="px-3 py-2 text-xs text-gray-900 max-w-[200px] truncate">{tx.description}</td>
@@ -1081,6 +1094,17 @@ export default function ObraDetailPage() {
                           ))}
                         </tbody>
                       </table>
+                      <Pagination
+                        currentPage={resumoPagination.currentPage}
+                        totalPages={resumoPagination.totalPages}
+                        totalItems={resumoPagination.totalItems}
+                        itemsPerPage={resumoPagination.itemsPerPage}
+                        onPageChange={resumoPagination.goToPage}
+                        onPerPageChange={resumoPagination.setItemsPerPage}
+                        perPageOptions={[5, 10, 25]}
+                        label="movimentações"
+                        compact
+                      />
                     </div>
                   )}
                 </div>
@@ -1230,21 +1254,16 @@ export default function ObraDetailPage() {
                       </div>
 
                       {/* Paginação */}
-                      {allocTotal > ALLOC_LIMIT && (
-                        <div className="flex items-center justify-between text-xs text-gray-500 pt-1">
-                          <span>{allocTotal} lançamentos · página {allocPage} de {Math.ceil(allocTotal / ALLOC_LIMIT)}</span>
-                          <div className="flex gap-2">
-                            <button onClick={() => setAllocPage(p => p - 1)} disabled={allocPage <= 1}
-                              className="px-2.5 py-1 border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed">
-                              ← Ant.
-                            </button>
-                            <button onClick={() => setAllocPage(p => p + 1)} disabled={allocPage * ALLOC_LIMIT >= allocTotal}
-                              className="px-2.5 py-1 border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed">
-                              Próx. →
-                            </button>
-                          </div>
-                        </div>
-                      )}
+                      <Pagination
+                        currentPage={allocPage}
+                        totalPages={Math.max(1, Math.ceil(allocTotal / allocLimit))}
+                        totalItems={allocTotal}
+                        itemsPerPage={allocLimit}
+                        onPageChange={setAllocPage}
+                        onPerPageChange={n => { setAllocLimit(n); setAllocPage(1) }}
+                        perPageOptions={[10, 25, 50]}
+                        label="lançamentos"
+                      />
                     </>
                   )}
                 </div>
@@ -1393,30 +1412,45 @@ export default function ObraDetailPage() {
                           </div>
                         </div>
 
-                        {/* Lista de dias impraticáveis */}
+                        {/* Lista de dias impraticáveis (paginada) */}
                         {unworkable > 0 && (
                           <div>
-                            <p className="text-xs font-semibold text-red-600 mb-2">⛔ Dias impraticáveis no período</p>
-                            <div className="space-y-1.5">
-                              {rainRecords
-                                .filter((r) => r.isUnworkable)
-                                .sort((a, b) => b.date.localeCompare(a.date))
-                                .map((r) => (
-                                  <div key={r.id} className="flex items-center justify-between bg-red-50 border border-red-100 rounded-lg px-3 py-2">
-                                    <div>
-                                      <p className="text-xs font-semibold text-red-700">
-                                        {new Date(r.date).toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: '2-digit', year: '2-digit' })}
-                                      </p>
-                                      {r.unworkableReason && (
-                                        <p className="text-[10px] text-red-400 mt-0.5">{r.unworkableReason}</p>
-                                      )}
-                                    </div>
-                                    <span className="text-xs font-bold text-red-600 bg-red-100 px-2 py-0.5 rounded-full">
-                                      {r.totalMm.toFixed(0)} mm
-                                    </span>
-                                  </div>
-                                ))}
+                            <div className="flex items-center justify-between mb-2">
+                              <p className="text-xs font-semibold text-red-600">
+                                ⛔ Dias impraticáveis no período
+                              </p>
+                              <span className="text-[11px] font-semibold text-red-500 bg-red-50 border border-red-100 px-2 py-0.5 rounded-full">
+                                {unworkable} dia{unworkable !== 1 ? 's' : ''}
+                              </span>
                             </div>
+                            <div className="space-y-1.5">
+                              {rainUnworkablePage.currentItems.map((r) => (
+                                <div key={r.id} className="flex items-center justify-between bg-red-50 border border-red-100 rounded-lg px-3 py-2">
+                                  <div>
+                                    <p className="text-xs font-semibold text-red-700">
+                                      {new Date(r.date).toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: '2-digit', year: '2-digit' })}
+                                    </p>
+                                    {r.unworkableReason && (
+                                      <p className="text-[10px] text-red-400 mt-0.5">{r.unworkableReason}</p>
+                                    )}
+                                  </div>
+                                  <span className="text-xs font-bold text-red-600 bg-red-100 px-2 py-0.5 rounded-full">
+                                    {r.totalMm.toFixed(0)} mm
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                            <Pagination
+                              currentPage={rainUnworkablePage.currentPage}
+                              totalPages={rainUnworkablePage.totalPages}
+                              totalItems={rainUnworkablePage.totalItems}
+                              itemsPerPage={rainUnworkablePage.itemsPerPage}
+                              onPageChange={rainUnworkablePage.goToPage}
+                              onPerPageChange={rainUnworkablePage.setItemsPerPage}
+                              perPageOptions={[10, 20, 50]}
+                              label="dias impraticáveis"
+                              compact
+                            />
                           </div>
                         )}
                       </>
@@ -1449,8 +1483,9 @@ export default function ObraDetailPage() {
                 <div className="py-4">
                   <ActivityFeed
                     projectId={id}
-                    limit={30}
+                    limit={20}
                     showHeader={false}
+                    showPaging={true}
                     title="Histórico da obra"
                   />
                 </div>
