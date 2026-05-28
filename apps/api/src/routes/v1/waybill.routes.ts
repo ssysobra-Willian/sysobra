@@ -1331,22 +1331,41 @@ function gerarHtmlRomaneio({
   }
 
   // ── Logos ──────────────────────────────────────────────────────────────────
-  const sysobraB64    = getSysobraLogoBase64()
   const companyLogoB64 = company?.logo ? fileToBase64(company.logo) : null
 
-  const hasDriver = waybill.exitType === 'DRIVER_DELIVERY' &&
+  const hasDriver      = waybill.exitType === 'DRIVER_DELIVERY' &&
     (waybill.driverEmployee?.name ?? waybill.driverName)
+  const isToolWaybill  = waybill.category === 'TOOL'
+  const fmtCurrency    = (n: any) =>
+    Number(n || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+  const totalValue     = (waybill.items ?? []).reduce(
+    (sum: number, wi: any) => sum + Number(wi.totalCost ?? 0), 0,
+  )
 
   // ── Linhas da tabela de itens ───────────────────────────────────────────────
   const itemRows = (waybill.items ?? []).map((wi: any, i: number) => `
     <tr style="background:${i % 2 === 0 ? '#fff' : '#F9FAFB'};">
-      <td>${wi.item?.code ?? '—'}</td>
-      <td>${wi.item?.name ?? wi.itemId}</td>
+      <td class="center" style="color:#9CA3AF;font-size:10px;">${i + 1}</td>
+      <td style="word-break:break-word;">${wi.item?.name ?? wi.itemId}</td>
       <td class="center">${wi.item?.unit ?? '—'}</td>
       <td class="right" style="font-weight:600;">${fmtQty(wi.requestedQty)}</td>
       <td class="right">${wi.receivedQty != null ? fmtQty(wi.receivedQty) : '—'}</td>
-      <td>${wi.serialNumber ?? '—'}</td>
-      <td>${wi.toolCondition ?? '—'}</td>
+      ${isToolWaybill ? `
+      <td style="word-break:break-word;">${wi.serialNumber ?? '—'}</td>
+      <td style="word-break:break-word;">${[wi.toolBrand, wi.toolModel].filter(Boolean).join(' / ') || '—'}</td>
+      <td class="center">${wi.toolCondition ?? '—'}</td>
+      ` : ''}
+      <td class="right">${fmtCurrency(wi.unitCost)}</td>
+      <td class="right" style="font-weight:600;">${fmtCurrency(wi.totalCost)}</td>
+      <td class="center">
+        ${wi.status === 'OK'
+          ? '<span style="color:#16A34A;font-weight:700;">OK</span>'
+          : wi.status === 'MISSING'
+            ? '<span style="color:#DC2626;">Falta</span>'
+            : wi.status === 'DAMAGED'
+              ? '<span style="color:#D97706;">Dano</span>'
+              : (wi.status ?? '—')}
+      </td>
     </tr>
   `).join('')
 
@@ -1452,10 +1471,10 @@ function gerarHtmlRomaneio({
 
     /* ── TABELA ── */
     thead tr { background: #374151; }
-    th  { font-size: 10px; font-weight: 700; letter-spacing: 0.04em; }
-    td  { padding: 7px 10px; font-size: 12px; border-bottom: 1px solid #F3F4F6; }
+    th  { font-size: 10px; font-weight: 700; letter-spacing: 0.04em; white-space: nowrap; }
+    td  { padding: 7px 10px; font-size: 12px; border-bottom: 1px solid #F3F4F6; word-break: break-word; vertical-align: middle; }
     tbody tr   { page-break-inside: avoid; }
-    table      { page-break-inside: auto; }
+    table      { width: 100%; table-layout: fixed; border-collapse: collapse; page-break-inside: auto; }
     thead      { display: table-header-group; }
     tfoot      { display: table-footer-group; }
 
@@ -1469,11 +1488,14 @@ function gerarHtmlRomaneio({
 
     <!-- ESQUERDA: SYSOBRA -->
     <div class="pdf-header-left">
-      ${sysobraB64
-        ? `<img src="${sysobraB64}" class="sysobra-logo-hdr" alt="SYSOBRA" />`
-        : `<span class="sysobra-txt-hdr">SYS<span style="color:#F5A623">O</span>BRA</span>`
-      }
-      <div><span class="sysobra-tag-hdr">Sistema de Gestão de Obras</span></div>
+      <div>
+        <div style="font-size:20px;font-weight:900;letter-spacing:0.05em;color:#fff;line-height:1;">
+          SYS<span style="color:#F5A623;">O</span>BRA
+        </div>
+        <div style="font-size:9px;color:rgba(255,255,255,0.6);margin-top:3px;letter-spacing:0.03em;">
+          Sistema de Gestão de Obras
+        </div>
+      </div>
     </div>
 
     <!-- CENTRO: Logo do cliente -->
@@ -1602,16 +1624,32 @@ function gerarHtmlRomaneio({
       <table>
         <thead>
           <tr>
-            <th style="width:70px;">Código</th>
-            <th>Descrição</th>
-            <th class="center" style="width:50px;">Un.</th>
-            <th class="right" style="width:70px;">Qtd. Sol.</th>
-            <th class="right" style="width:70px;">Qtd. Rec.</th>
-            <th style="width:110px;">Nº Série</th>
-            <th style="width:90px;">Condição</th>
+            <th class="center" style="width:25px;">Nº</th>
+            <th style="min-width:180px;">Descrição do item</th>
+            <th class="center" style="width:45px;">Und.</th>
+            <th class="right" style="width:60px;">Qtd enviada</th>
+            <th class="right" style="width:65px;">Qtd recebida</th>
+            ${isToolWaybill ? `
+            <th style="width:90px;">Nº de série</th>
+            <th style="width:90px;">Marca/Modelo</th>
+            <th class="center" style="width:65px;">Condição</th>
+            ` : ''}
+            <th class="right" style="width:65px;">Valor unit.</th>
+            <th class="right" style="width:70px;">Total</th>
+            <th class="center" style="width:60px;">Status</th>
           </tr>
         </thead>
         <tbody>${itemRows}</tbody>
+        <tfoot>
+          <tr>
+            <td colspan="${isToolWaybill ? 9 : 6}" class="right"
+                style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.04em;color:#374151;">
+              Total geral
+            </td>
+            <td class="right" style="font-weight:800;font-size:13px;">${fmtCurrency(totalValue)}</td>
+            <td></td>
+          </tr>
+        </tfoot>
       </table>
     </div>
 
