@@ -109,7 +109,13 @@
       "Bash(find apps/web/src -name \"EmployeeFormModal*\")",
       "Bash(find apps/web/src -name \"DismissalModal*\")",
       "Bash(find apps/web/src -name \"TransferProjectModal*\")",
-      "Bash(find apps/web/src -name \"imageUrl*\")"
+      "Bash(find apps/web/src -name \"imageUrl*\")",
+      "Bash(PGPASSWORD=sysobra123 psql *)",
+      "PowerShell($env:PGPASSWORD = \"sysobra123\"; & \"C:\\\\Program Files\\\\PostgreSQL\\\\17\\\\bin\\\\psql.exe\" -h 127.0.0.1 -U sysobra -d sysobra -c \"SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_name IN \\('waybills','waybill_items','waybill_pendencies'\\) ORDER BY table_name;\" 2>&1)",
+      "PowerShell(Get-Command *)",
+      "PowerShell(cd C:\\\\projetos\\\\sysobra\\\\apps\\\\api; Start-Process powershell -ArgumentList '-NoExit', '-Command', 'cd C:\\\\projetos\\\\sysobra\\\\apps\\\\api; npm run dev' -WindowStyle Normal; Start-Sleep -Seconds 5; Write-Host \"Servidor API iniciado.\")",
+      "PowerShell(Start-Sleep -Seconds 4; Invoke-WebRequest -Uri \"http://localhost:3001/api/v1/waybill\" -Method GET -ErrorAction SilentlyContinue | Select-Object StatusCode)",
+      "PowerShell($response = try { Invoke-WebRequest -Uri \"http://localhost:3001/api/v1/waybill\" -Method GET -ErrorAction Stop } catch { $_.Exception.Response }; if \\($response\\) { \"Status: $\\($response.StatusCode\\)\" } else { \"Sem resposta — servidor pode estar reiniciando\" })"
     ]
   }
 }

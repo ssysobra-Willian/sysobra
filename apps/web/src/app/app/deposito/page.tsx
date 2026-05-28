@@ -1059,6 +1059,16 @@ export default function DepositoPage() {
                 <span className="hidden md:inline text-xs font-medium">Transferências</span>
               </button>
 
+              {/* Romaneios */}
+              <button
+                onClick={() => router.push('/app/deposito/romaneios')}
+                className="hidden sm:flex items-center gap-1.5 border border-gray-200 text-gray-600 text-sm px-3 py-2 rounded-xl hover:bg-gray-50 transition"
+                title="Romaneios de saída"
+              >
+                <FileText size={14} />
+                <span className="hidden md:inline text-xs font-medium">Romaneios</span>
+              </button>
+
               {/* Entrada Rápida */}
               <button
                 onClick={() => setQuickEntryOpen(true)}
