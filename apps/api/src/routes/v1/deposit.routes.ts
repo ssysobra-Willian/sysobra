@@ -1614,7 +1614,7 @@ ${_basketFooter}
     const [items, movements, custodies, maintenances, balanceAgg] = await Promise.all([
       p().stockItem.findMany({
         where: { companyId: cid, isActive: true },
-        select: { quantity: true, minQuantity: true, averageCost: true, unitCost: true, requiresCustody: true, nextMaintenance: true, isUnderWarranty: true, isEpi: true, isUniform: true, isConsumable: true },
+        select: { quantity: true, minQuantity: true, averageCost: true, unitCost: true, requiresCustody: true, nextMaintenance: true, isUnderWarranty: true, isEpi: true, isUniform: true, isConsumable: true, toolStatus: true },
       }),
       p().stockMovement.findMany({
         where: { companyId: cid, createdAt: { gte: startOfMonth, lte: endOfMonth } },
@@ -1633,8 +1633,9 @@ ${_basketFooter}
     // FIX 8: use StockBalance sum when available, fallback to item-level calculation
     const totalValue       = Number(balanceAgg._sum?.totalValue ?? 0) ||
       items.reduce((a: number, i: any) => a + Number(i.quantity) * Number(i.averageCost ?? i.unitCost ?? 0), 0)
-    const lowStockCount    = items.filter((i: any) => Number(i.minQuantity) > 0 && Number(i.quantity) <= Number(i.minQuantity)).length
-    const inMaintenanceCount = 0 // simplificado
+    const lowStockCount      = items.filter((i: any) => Number(i.minQuantity) > 0 && Number(i.quantity) <= Number(i.minQuantity)).length
+    // FIX 5: count tools actually in MAINTENANCE status (not hardcoded 0)
+    const inMaintenanceCount = items.filter((i: any) => i.toolStatus === 'MAINTENANCE').length
     const exitsThisMonth   = movements.filter((m: any) => ['OUT','EPI_DELIVERY','LOSS'].includes(m.type)).length
     const entriesThisMonth = movements.filter((m: any) => m.type === 'IN').length
     const overdueReturns   = custodies
@@ -1959,11 +1960,13 @@ ${_basketFooter}
     if (body.custodyId) custWhere.id = body.custodyId
     const custody = await p().toolCustody.findFirst({ where: custWhere })
 
-    const newToolStatus = body.condition === 'DANIFICADO' ? 'MAINTENANCE'
+    // FIX 3: DANIFICADO → DAMAGED (volta ao depósito mas danificada)
+    // MAINTENANCE só é definido quando o almoxarife envia manualmente via send-maintenance
+    const newToolStatus = body.condition === 'DANIFICADO' ? 'DAMAGED'
                         : body.condition === 'PERDIDO'    ? 'LOST'
                         : 'AVAILABLE'
     const newLocation   = newToolStatus === 'AVAILABLE'   ? 'Depósito'
-                        : newToolStatus === 'MAINTENANCE'  ? 'Em manutenção'
+                        : newToolStatus === 'DAMAGED'      ? 'Depósito'   // voltou mas está danificada
                         : 'Extraviada'
 
     const ops: any[] = []

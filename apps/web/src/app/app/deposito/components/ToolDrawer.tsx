@@ -12,6 +12,14 @@ const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
 function getToken()     { return typeof window !== 'undefined' ? (localStorage.getItem('token')     ?? '') : '' }
 function getCompanyId() { return typeof window !== 'undefined' ? (localStorage.getItem('companyId') ?? '') : '' }
 
+// FIX 1: helper to build absolute URL — avoids double-slash when url starts with /
+function toAbsUrl(url: string | null | undefined): string {
+  if (!url) return ''
+  if (url.startsWith('http')) return url
+  const base = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001').replace(/\/$/, '')
+  return `${base}${url.startsWith('/') ? '' : '/'}${url}`
+}
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export interface ToolItem {
@@ -228,7 +236,6 @@ function MaintenanceTimeline({ records, onAdd, onEdit }: {
 
 // FIX 3: Rewritten CustodyTimeline with photos, return info, condition badges
 function CustodyTimeline({ custodies }: { custodies: Custody[] }) {
-  const imgSrc = (url: string) => url.startsWith('http') ? url : `${API}/${url}`
 
   if (custodies.length === 0) {
     return (
@@ -322,10 +329,10 @@ function CustodyTimeline({ custodies }: { custodies: Custody[] }) {
                   {c.photoUrl && (
                     <div className="text-center">
                       <img
-                        src={imgSrc(c.photoUrl)}
+                        src={toAbsUrl(c.photoUrl)}
                         alt="Foto saída"
                         className="w-16 h-12 object-cover rounded-lg border border-gray-200 cursor-pointer hover:opacity-80 transition"
-                        onClick={() => window.open(imgSrc(c.photoUrl!), '_blank')}
+                        onClick={() => window.open(toAbsUrl(c.photoUrl), '_blank')}
                       />
                       <p className="text-xs text-gray-400 mt-0.5">📷 Saída</p>
                     </div>
@@ -333,10 +340,10 @@ function CustodyTimeline({ custodies }: { custodies: Custody[] }) {
                   {c.photoOnReturnUrl && (
                     <div className="text-center">
                       <img
-                        src={imgSrc(c.photoOnReturnUrl)}
+                        src={toAbsUrl(c.photoOnReturnUrl)}
                         alt="Foto retorno"
                         className="w-16 h-12 object-cover rounded-lg border border-gray-200 cursor-pointer hover:opacity-80 transition"
-                        onClick={() => window.open(imgSrc(c.photoOnReturnUrl!), '_blank')}
+                        onClick={() => window.open(toAbsUrl(c.photoOnReturnUrl), '_blank')}
                       />
                       <p className="text-xs text-gray-400 mt-0.5">📷 Retorno</p>
                     </div>
@@ -397,9 +404,8 @@ export function ToolDrawer({ tool, onClose, onNewMaintenance, onNewCustody, onEd
   const [loadingM,     setLoadingM]     = useState(false)
   const [loadingC,     setLoadingC]     = useState(false)
 
-  const imgUrl = tool.imageUrl
-    ? (tool.imageUrl.startsWith('http') ? tool.imageUrl : `${API}/${tool.imageUrl}`)
-    : null
+  // FIX 1: use toAbsUrl to avoid double-slash
+  const imgUrl = toAbsUrl(tool.imageUrl) || null
 
   const maintenanceDays = daysFromNow(tool.nextMaintenance)
   const maintenanceOverdue = maintenanceDays !== null && maintenanceDays < 0
@@ -528,14 +534,13 @@ export function ToolDrawer({ tool, onClose, onNewMaintenance, onNewCustody, onEd
 
         {/* Quick actions */}
         <div className="flex gap-2 px-5 py-3 flex-shrink-0 border-b border-gray-100">
-          {onNewCustody && (
-            <button
-              onClick={() => onNewCustody(tool)}
-              className="flex-1 py-2 rounded-xl bg-[#F5A623] text-white text-xs font-semibold hover:bg-[#e09610] transition flex items-center justify-center gap-1.5"
-            >
-              <Package size={13} />Registrar Cautela
-            </button>
-          )}
+          {/* FIX 4: cautela manual removida — saída apenas via romaneio */}
+          <a
+            href="/app/deposito/romaneios"
+            className="flex-1 py-2 rounded-xl bg-[#F5A623] text-white text-xs font-semibold hover:bg-[#e09610] transition flex items-center justify-center gap-1.5"
+          >
+            <Package size={13} />Saída via romaneio
+          </a>
           {onNewMaintenance && (
             <button
               onClick={() => onNewMaintenance(tool)}
@@ -669,14 +674,13 @@ export function ToolDrawer({ tool, onClose, onNewMaintenance, onNewCustody, onEd
             <div className="p-4">
               <div className="flex items-center justify-between mb-4">
                 <h4 className="text-sm font-semibold text-gray-700">Histórico de Custódia</h4>
-                {onNewCustody && (
-                  <button
-                    onClick={() => onNewCustody(tool)}
-                    className="flex items-center gap-1 text-xs text-[#F5A623] font-medium hover:underline"
-                  >
-                    <Plus size={12} />Nova cautela
-                  </button>
-                )}
+                {/* FIX 4: link to romaneios instead of CustodyModal */}
+                <a
+                  href="/app/deposito/romaneios"
+                  className="flex items-center gap-1 text-xs text-[#F5A623] font-medium hover:underline"
+                >
+                  <Plus size={12} />Nova saída
+                </a>
               </div>
               {loadingC ? (
                 <div className="flex justify-center py-10">

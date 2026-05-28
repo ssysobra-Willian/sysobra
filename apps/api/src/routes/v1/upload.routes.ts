@@ -147,6 +147,95 @@ export async function uploadRoutes(app: FastifyInstance) {
     })
   })
 
+  // ── POST /api/v1/uploads/file ── generic (images + PDF) ──────────────────────
+  // Used by: CustodyModal, ItemFormModal, MaintenanceModal, etc.
+  app.post('/file', {
+    preHandler: [authenticate, requireCompany],
+  }, async (request, reply) => {
+    const req = request as RequestWithMember
+    const { companyId } = req
+
+    const data = await request.file()
+    if (!data) return reply.status(400).send({ error: 'Nenhum arquivo enviado' })
+
+    const isImage = ALLOWED_TYPES.includes(data.mimetype)
+    const isPdf   = data.mimetype === 'application/pdf'
+
+    if (!isImage && !isPdf) {
+      return reply.status(400).send({ error: 'Tipo inválido. Aceitos: JPEG, PNG, WEBP, HEIC, PDF.' })
+    }
+
+    let buffer: Buffer
+    try {
+      buffer = await streamToBuffer(data.file)
+    } catch {
+      return reply.status(500).send({ error: 'Erro ao ler arquivo' })
+    }
+
+    const MAX_SIZE = 10 * 1024 * 1024 // 10 MB
+    if (buffer.length > MAX_SIZE) {
+      return reply.status(400).send({ error: 'Arquivo muito grande. Máximo 10MB.' })
+    }
+
+    const dir = path.join(UPLOADS_ROOT, 'misc', companyId)
+    fs.mkdirSync(dir, { recursive: true })
+    const basename = `${Date.now()}-${safeFilename(data.filename)}`
+
+    if (isImage) {
+      const result = await processAndSaveImage({
+        inputBuffer: buffer,
+        outputDir:   dir,
+        filename:    basename,
+        type:        'cover',
+      })
+      return reply.send({ url: result.relativePath, fileUrl: result.relativePath })
+    }
+
+    // PDF: salvar direto
+    const fileName = `${basename}.pdf`
+    fs.writeFileSync(path.join(dir, fileName), buffer)
+    const url = `/uploads/misc/${companyId}/${fileName}`
+    return reply.send({ url, fileUrl: url })
+  })
+
+  // ── POST /api/v1/uploads/image ── alias: images only (used by ToolFormModal) ─
+  app.post('/image', {
+    preHandler: [authenticate, requireCompany],
+  }, async (request, reply) => {
+    const req = request as RequestWithMember
+    const { companyId } = req
+
+    const data = await request.file()
+    if (!data) return reply.status(400).send({ error: 'Nenhum arquivo enviado' })
+
+    if (!ALLOWED_TYPES.includes(data.mimetype)) {
+      return reply.status(400).send({ error: 'Tipo inválido. Apenas JPEG, PNG, WEBP e HEIC são aceitos.' })
+    }
+
+    let buffer: Buffer
+    try {
+      buffer = await streamToBuffer(data.file)
+    } catch {
+      return reply.status(500).send({ error: 'Erro ao ler arquivo' })
+    }
+
+    if (buffer.length > MAX_COVER_SIZE) {
+      return reply.status(400).send({ error: 'Arquivo muito grande. Máximo 5MB.' })
+    }
+
+    const dir = path.join(UPLOADS_ROOT, 'misc', companyId)
+    fs.mkdirSync(dir, { recursive: true })
+    const basename = `${Date.now()}-${safeFilename(data.filename)}`
+
+    const result = await processAndSaveImage({
+      inputBuffer: buffer,
+      outputDir:   dir,
+      filename:    basename,
+      type:        'cover',
+    })
+    return reply.send({ url: result.relativePath, fileUrl: result.relativePath })
+  })
+
   // ── POST /api/v1/uploads/stock-item-photo ───────────────────────────────────
   app.post('/stock-item-photo', {
     preHandler: [authenticate, requireCompany],
