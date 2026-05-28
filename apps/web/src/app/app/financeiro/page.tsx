@@ -220,7 +220,7 @@ function AlertsCard({ data, loading }: { data: DashboardData | null; loading: bo
     if (data.payableToday.count > 0)
       alerts.push({ color: 'blue',  icon: Clock, title: `${data.payableToday.count} vencimento(s) hoje`, desc: `Total: ${fmt(data.payableToday.amount)}`, href: undefined })
     if ((data.alerts?.pjSemFornecedor ?? 0) > 0)
-      alerts.push({ color: 'amber', icon: AlertTriangle, title: `${data.alerts!.pjSemFornecedor} colaborador(es) PJ/Terceirizado sem fornecedor`, desc: 'Pagamentos destes colaboradores não estão sendo rastreados', href: '/app/colaboradores' })
+      alerts.push({ color: 'amber', icon: AlertTriangle, title: `${data.alerts!.pjSemFornecedor} colaborador(es) PJ/Terceirizado sem fornecedor`, desc: 'Pagamentos destes colaboradores não estão sendo rastreados', href: '/app/colaboradores?type=PJ,THIRD_PARTY&semFornecedor=true' })
   }
   const scheme = {
     red:   { bg: 'bg-red-50',    border: 'border-red-200',    icon: 'text-red-500',    text: 'text-red-700'    },

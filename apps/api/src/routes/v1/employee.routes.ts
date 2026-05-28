@@ -137,7 +137,14 @@ export async function employeeRoutes(app: FastifyInstance) {
       p.employeeDocument.count({ where: { companyId, isActive: true, expiryDate: { lt: now } } }),
       p.employeeTraining.count({ where: { companyId, isActive: true, expiresAt: { gte: now, lte: in30 } } }),
       p.employeeTraining.count({ where: { companyId, isActive: true, expiresAt: { lt: now } } }),
-      p.employeeVacation.count({ where: { companyId, isActive: true, status: { in: ['SCHEDULED', 'ACTIVE'] } } }),
+      // Férias: apenas tipos elegíveis (CLT, Estagiário, Temporário)
+      p.employeeVacation.count({
+        where: {
+          companyId, isActive: true,
+          status: { in: ['SCHEDULED', 'ACTIVE'] },
+          employee: { type: { in: ['CLT', 'INTERN', 'TEMPORARY'] } },
+        },
+      }),
       // Distribuição por função
       p.employee.groupBy({
         by: ['role'],
@@ -203,13 +210,14 @@ export async function employeeRoutes(app: FastifyInstance) {
     const companyId = req.companyId!
 
     const q = request.query as {
-      status?:    string
-      type?:      string
-      projectId?: string
-      role?:      string
-      search?:    string
-      page?:      string
-      limit?:     string
+      status?:         string
+      type?:           string
+      projectId?:      string
+      role?:           string
+      search?:         string
+      page?:           string
+      limit?:          string
+      semFornecedor?:  string
     }
 
     const page  = Math.max(1, parseInt(q.page  ?? '1',  10))
@@ -218,10 +226,18 @@ export async function employeeRoutes(app: FastifyInstance) {
 
     const where: any = { companyId, isActive: true }
     if (q.status    && q.status    !== 'ALL') where.status    = q.status
-    if (q.type      && q.type      !== 'ALL') where.type      = q.type
     if (q.role      && q.role      !== 'ALL') where.role      = q.role
     if (q.projectId && q.projectId !== 'ALL') {
       where.projectId = q.projectId === 'NONE' ? null : q.projectId
+    }
+    if (q.semFornecedor === 'true') {
+      // Filtro especial: PJ/Terceirizado sem fornecedor vinculado
+      where.type       = { in: ['PJ', 'THIRD_PARTY'] }
+      where.supplierId = null
+    } else if (q.type && q.type !== 'ALL') {
+      // Múltiplos tipos separados por vírgula: ?type=PJ,THIRD_PARTY
+      const types = q.type.split(',').map(t => t.trim()).filter(Boolean)
+      where.type = types.length === 1 ? types[0] : { in: types }
     }
     if (q.search) {
       where.OR = [
@@ -1184,6 +1200,9 @@ export async function employeeRoutes(app: FastifyInstance) {
     const companyId = req.companyId!
     const hoje = new Date()
 
+    // Tipos de vínculo que têm direito a férias
+    const VACATION_ELIGIBLE = ['CLT', 'INTERN', 'TEMPORARY']
+
     // Helper: calcula prazo de vencimento das férias
     function calcDeadline(admissionDate: Date, lastVacEnd?: Date): Date {
       const base   = lastVacEnd ?? admissionDate
@@ -1194,13 +1213,14 @@ export async function employeeRoutes(app: FastifyInstance) {
     }
 
     const [emFeriasRaw, agendadasRaw, allActive, todasRaw] = await Promise.all([
-      // Em férias agora: startDate <= hoje <= endDate
+      // Em férias agora: startDate <= hoje <= endDate — apenas tipos elegíveis
       p.employeeVacation.findMany({
         where: {
           companyId,
           isActive: true,
           startDate: { lte: hoje },
           endDate:   { gte: hoje },
+          employee:  { type: { in: VACATION_ELIGIBLE } },
         },
         include: {
           employee: {
@@ -1213,13 +1233,14 @@ export async function employeeRoutes(app: FastifyInstance) {
         orderBy: { endDate: 'asc' },
       }),
 
-      // Agendadas (futuras)
+      // Agendadas (futuras) — apenas tipos elegíveis
       p.employeeVacation.findMany({
         where: {
           companyId,
           isActive:  true,
           status:    'SCHEDULED',
           startDate: { gt: hoje },
+          employee:  { type: { in: VACATION_ELIGIBLE } },
         },
         include: {
           employee: {
@@ -1229,13 +1250,14 @@ export async function employeeRoutes(app: FastifyInstance) {
         orderBy: { startDate: 'asc' },
       }),
 
-      // Colaboradores ativos para cálculo de vencimento
+      // Colaboradores ativos para cálculo de vencimento — apenas tipos elegíveis
       p.employee.findMany({
         where: {
           companyId,
           isActive: true,
           status:   { in: ['ACTIVE', 'AWAY'] },
           admissionDate: { not: null },
+          type: { in: VACATION_ELIGIBLE },
         },
         select: {
           id: true, name: true, code: true, role: true, photo: true,
@@ -1250,9 +1272,9 @@ export async function employeeRoutes(app: FastifyInstance) {
         },
       }),
 
-      // Todas as férias (histórico)
+      // Todas as férias (histórico) — apenas tipos elegíveis
       p.employeeVacation.findMany({
-        where:   { companyId, isActive: true },
+        where:   { companyId, isActive: true, employee: { type: { in: VACATION_ELIGIBLE } } },
         include: {
           employee: {
             select: { id: true, name: true, code: true, role: true, photo: true },
@@ -1410,6 +1432,11 @@ export async function employeeRoutes(app: FastifyInstance) {
   /**
    * GET /api/v1/employees/payroll-preview
    * Prévia da folha de pagamento.
+   * Parâmetros:
+   *   month, year         — período (default: mês atual)
+   *   projectId           — filtrar por obra
+   *   horasExtras60/100   — horas extras globais
+   *   includeAll=true     — incluir PJ e Terceirizados (sem encargos)
    */
   app.get('/payroll-preview', async (request, reply) => {
     const req       = request as RequestWithMember
@@ -1418,28 +1445,68 @@ export async function employeeRoutes(app: FastifyInstance) {
     const q = request.query as {
       month?: string; year?: string; projectId?: string
       horasExtras60?: string; horasExtras100?: string
+      includeAll?: string
     }
-    const now   = new Date()
-    const month = parseInt(q.month ?? String(now.getMonth() + 1), 10)
-    const year  = parseInt(q.year  ?? String(now.getFullYear()),  10)
-    const he60  = parseFloat(q.horasExtras60  ?? '0') || 0
-    const he100 = parseFloat(q.horasExtras100 ?? '0') || 0
+    const now        = new Date()
+    const month      = parseInt(q.month ?? String(now.getMonth() + 1), 10)
+    const year       = parseInt(q.year  ?? String(now.getFullYear()),  10)
+    const he60       = parseFloat(q.horasExtras60  ?? '0') || 0
+    const he100      = parseFloat(q.horasExtras100 ?? '0') || 0
+    const includeAll = q.includeAll === 'true'
+
+    const CLT_TYPES = ['CLT', 'INTERN', 'TEMPORARY']
+    const ALL_TYPES = ['CLT', 'INTERN', 'TEMPORARY', 'PJ', 'THIRD_PARTY']
 
     const where: any = {
       companyId,
       isActive: true,
       status:   { in: ['ACTIVE', 'AWAY'] },
       salary:   { not: null },
+      type:     { in: includeAll ? ALL_TYPES : CLT_TYPES },
     }
     if (q.projectId) where.projectId = q.projectId
 
     const employees = await p.employee.findMany({
       where,
-      include: { project: { select: { id: true, name: true, code: true } } },
-      orderBy: { name: 'asc' },
+      include: {
+        project:  { select: { id: true, name: true, code: true } },
+        supplier: { select: { id: true, name: true } },
+      },
+      orderBy: [{ type: 'asc' }, { name: 'asc' }],
     })
 
-    const entries = employees.map((emp: any) => calcPayrollEntry(emp, he60, he100))
+    const entries = employees.map((emp: any) => {
+      const isClt = CLT_TYPES.includes(emp.type)
+      if (!isClt) {
+        // PJ / Terceirizado: sem encargos — apenas salário acordado
+        const salario = parseFloat(emp.salary ?? 0)
+        return {
+          employeeId:          emp.id,
+          name:                emp.name,
+          type:                emp.type,
+          role:                emp.role,
+          projectId:           emp.projectId,
+          project:             emp.project,
+          supplierId:          emp.supplierId   ?? null,
+          supplierName:        emp.supplier?.name ?? null,
+          salarioBase:         salario,
+          horasExtras60:       0,
+          horasExtras100:      0,
+          valorHorasExtras60:  0,
+          valorHorasExtras100: 0,
+          valorHorasExtras:    0,
+          salarioBruto:        salario,
+          inss:                0,
+          irrf:                0,
+          salarioLiquido:      salario,
+          fgts:                0,
+          encargosPatronais:   0,
+          custoTotal:          salario,
+          isClt:               false,
+        }
+      }
+      return { ...calcPayrollEntry(emp, he60, he100), isClt: true, supplierId: null, supplierName: null }
+    })
 
     const totals = entries.reduce((acc: any, e: any) => ({
       totalSalariosBrutos:   acc.totalSalariosBrutos   + e.salarioBruto,

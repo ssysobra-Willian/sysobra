@@ -428,7 +428,7 @@ export function EmployeeFormModal({ isOpen, onClose, onSuccess, editId, projects
     } finally {
       setLoading(false)
     }
-  }, [form, isEdit, editId, onSuccess, onClose, projects])
+  }, [form, isEdit, editId, onSuccess, onClose, projects, supplierId])
 
   if (!isOpen) return null
 

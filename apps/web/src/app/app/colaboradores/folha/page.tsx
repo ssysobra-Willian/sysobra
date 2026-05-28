@@ -24,6 +24,8 @@ interface PayrollEntry {
   role:                string | null
   projectId:           string | null
   project:             { id: string; name: string; code: string | null } | null
+  supplierId?:         string | null
+  supplierName?:       string | null
   salarioBase:         number
   horasExtras60:       number
   horasExtras100:      number
@@ -38,6 +40,7 @@ interface PayrollEntry {
   fgts:                number
   encargosPatronais:   number
   custoTotal:          number
+  isClt:               boolean
 }
 
 interface ProjectSummary {
@@ -191,12 +194,17 @@ export default function FolhaPagamentoPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [month, year])
 
-  // Calcular folha
-  const handleCalculate = useCallback(async () => {
+  // Calcular folha (reutilizável com ou sem PJ)
+  const handleCalculate = useCallback(async (withPj = includePj) => {
     setLoading(true); setError(''); setSuccess(''); setCalculated(false); setDraftSavedAt(null)
     try {
+      const params = new URLSearchParams({
+        month:      String(month),
+        year:       String(year),
+        includeAll: String(withPj),
+      })
       const res = await fetch(
-        `${API}/api/v1/employees/payroll-preview?month=${month}&year=${year}`,
+        `${API}/api/v1/employees/payroll-preview?${params}`,
         { headers: getHeaders() }
       )
       const data = await res.json()
@@ -209,15 +217,15 @@ export default function FolhaPagamentoPage() {
         valorHorasExtras100: e.valorHorasExtras100 ?? 0,
         valorHorasExtras:    e.valorHorasExtras    ?? 0,
         irrf:                e.irrf                ?? 0,
+        isClt:               e.isClt               ?? true,
       }))
       setEntries(raw)
-      // FIX 3: pré-preencher obra atual de cada colaborador
       const initOverrides: typeof overrides = {}
       for (const e of raw) {
         initOverrides[e.employeeId] = {
           he60:        e.horasExtras60  ?? 0,
           he100:       e.horasExtras100 ?? 0,
-          projectId:   e.projectId,     // obra atual do colaborador
+          projectId:   e.projectId,
           desconto:    0,
           dependentes: 0,
         }
@@ -229,13 +237,17 @@ export default function FolhaPagamentoPage() {
     } finally {
       setLoading(false)
     }
-  }, [month, year])
+  }, [month, year, includePj])
 
-  // Linhas filtradas por toggle PJ
-  const filteredEntries = useMemo(() => {
-    if (includePj) return entries
-    return entries.filter(e => !['PJ','THIRD_PARTY','OUTSOURCED','FREELANCER'].includes(e.type))
-  }, [entries, includePj])
+  // Re-buscar quando o toggle muda — se a folha já foi calculada
+  useEffect(() => {
+    if (calculated) handleCalculate(includePj)
+  // Intencional: só re-buscar quando includePj muda, não quando handleCalculate muda
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [includePj])
+
+  // Todas as linhas já vêm filtradas do backend; mantemos o useMemo por compatibilidade
+  const filteredEntries = useMemo(() => entries, [entries])
 
   // Linhas com overrides aplicados
   const computedEntries = useMemo(() => {
@@ -482,7 +494,7 @@ export default function FolhaPagamentoPage() {
             className="border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-300 bg-white">
             {years.map(y => <option key={y} value={y}>{y}</option>)}
           </select>
-          <button onClick={handleCalculate} disabled={loading}
+          <button onClick={() => handleCalculate(includePj)} disabled={loading}
             className="flex items-center gap-2 px-4 py-2 bg-[#F5A623] hover:bg-[#d4891a] text-white text-sm font-semibold rounded-xl transition-colors disabled:opacity-50">
             {loading ? <Loader2 size={14} className="animate-spin" /> : <Calculator size={14} />}
             Calcular folha

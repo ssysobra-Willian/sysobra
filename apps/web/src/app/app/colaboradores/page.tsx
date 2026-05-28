@@ -132,15 +132,26 @@ export default function ColaboradoresPage() {
   const LIMIT = 15
 
   // Filtros
-  const [search,         setSearch]         = useState('')
-  const [filterStatus,   setFilterStatus]   = useState('ACTIVE')
-  const [filterType,     setFilterType]     = useState('')
-  const [filterProject,  setFilterProject]  = useState('')
+  const [search,              setSearch]              = useState('')
+  const [filterStatus,        setFilterStatus]        = useState('ACTIVE')
+  const [filterType,          setFilterType]          = useState('')
+  const [filterProject,       setFilterProject]       = useState('')
+  const [semFornecedorFilter, setSemFornecedorFilter] = useState(false)
 
   // Modais
   const [showForm,       setShowForm]       = useState(false)
   const [editingId,      setEditingId]      = useState<string | null>(null)
   const [dismissing,     setDismissing]     = useState<{ id: string; name: string; mode: 'dismiss' | 'away' } | null>(null)
+
+  // ── Aplicar filtros vindos da URL (ex: link do alerta financeiro) ─────────
+  useEffect(() => {
+    const typeParam       = searchParams.get('type')
+    const semFornecedor   = searchParams.get('semFornecedor')
+    if (typeParam)              setFilterType(typeParam)
+    if (semFornecedor === 'true') setSemFornecedorFilter(true)
+  // Apenas na montagem inicial
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // ── Carregar summary ──────────────────────────────────────────────────────
   const loadSummary = useCallback(async () => {
@@ -160,8 +171,14 @@ export default function ColaboradoresPage() {
       const qp = new URLSearchParams({ page: String(pg), limit: String(LIMIT) })
       if (search)        qp.set('search',    search)
       if (filterStatus && filterStatus !== 'ALL') qp.set('status', filterStatus)
-      if (filterType   && filterType   !== 'ALL') qp.set('type',   filterType)
       if (filterProject && filterProject !== 'ALL') qp.set('projectId', filterProject)
+
+      if (semFornecedorFilter) {
+        // Filtro especial: manda semFornecedor=true (o backend aplica type PJ/THIRD_PARTY + supplierId null)
+        qp.set('semFornecedor', 'true')
+      } else if (filterType && filterType !== 'ALL') {
+        qp.set('type', filterType)
+      }
 
       const res  = await fetch(`${API}/api/v1/employees?${qp}`, { headers: getHeaders() })
       const data = await res.json()
@@ -171,7 +188,7 @@ export default function ColaboradoresPage() {
     } finally {
       setLoadingEmp(false)
     }
-  }, [search, filterStatus, filterType, filterProject])
+  }, [search, filterStatus, filterType, filterProject, semFornecedorFilter])
 
   // ── Carregar obras para filtro ────────────────────────────────────────────
   const loadProjects = useCallback(async () => {
@@ -193,6 +210,7 @@ export default function ColaboradoresPage() {
 
   function clearFilters() {
     setSearch(''); setFilterStatus('ACTIVE'); setFilterType(''); setFilterProject('')
+    setSemFornecedorFilter(false)
   }
 
   function handleFormSuccess(emp: any) {
@@ -232,6 +250,23 @@ export default function ColaboradoresPage() {
           <DollarSign size={16} /> Folha de pagamento
         </Link>
       </div>
+
+      {/* ── Banner de filtro ativo vindo da URL ───────────────────────── */}
+      {semFornecedorFilter && (
+        <div className="flex items-center gap-3 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
+          <AlertTriangle size={15} className="text-amber-500 flex-shrink-0" />
+          <p className="text-sm text-amber-800 flex-1">
+            Filtro ativo: <strong>PJ e Terceirizados sem fornecedor vinculado</strong>
+            {total > 0 && <span className="ml-1 text-amber-600">— {total} colaborador{total !== 1 ? 'es' : ''} encontrado{total !== 1 ? 's' : ''}</span>}
+          </p>
+          <button
+            onClick={clearFilters}
+            className="text-xs text-amber-700 font-semibold hover:underline whitespace-nowrap flex items-center gap-1"
+          >
+            <X size={12} /> Limpar filtro
+          </button>
+        </div>
+      )}
 
       {/* ── Alertas de urgência ────────────────────────────────────────── */}
       {!loadingSum && summary && (
