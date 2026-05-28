@@ -90,12 +90,13 @@ interface StockItem {
   requiresCustody:boolean
   isEpi:          boolean
   isUniform:      boolean
-  isActive:       boolean
-  isUnderWarranty?:  boolean
-  warrantyExpiry?:   string | null
-  lastMaintenance?:  string | null
-  nextMaintenance?:  string | null
-  currentProject?:   { id: string; name: string } | null
+  isActive:        boolean
+  isUnderWarranty?:   boolean
+  warrantyExpiry?:    string | null
+  lastMaintenance?:   string | null
+  nextMaintenance?:   string | null
+  currentLocation?:   string | null
+  currentProject?:    { id: string; name: string } | null
   supplierLots?:     any[]
   _count?:           { movements: number; custodies: number; epiDeliveries: number }
 }
@@ -514,14 +515,31 @@ function ToolsTable({ items, onView, onEdit, onCustody, onMaintenance }: {
 
   function locationBadge(item: StockItem) {
     if (item.currentProject) return (
-      <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-orange-100 text-orange-700 truncate max-w-[100px] block">
+      <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-orange-100 text-orange-700 truncate max-w-[120px] block">
         🏗️ {item.currentProject.name}
       </span>
     )
+    if (item.currentLocation) {
+      const isObra  = item.currentLocation.startsWith('OBRA')
+      const isExt   = item.currentLocation.startsWith('EXTERNO')
+      const isUso   = item.currentLocation === 'EM USO'
+      const bg      = isObra  ? 'bg-blue-100 text-blue-700'
+                    : isUso   ? 'bg-yellow-100 text-yellow-700'
+                    :           'bg-gray-100 text-gray-600'
+      const prefix  = isObra ? '🏗️ ' : isExt ? '🚚 ' : isUso ? '⚙️ ' : ''
+      const label   = item.currentLocation
+        .replace(/^OBRA: /, '')
+        .replace(/^EXTERNO: /, '')
+      return (
+        <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${bg} truncate max-w-[120px] block`}>
+          {prefix}{label}
+        </span>
+      )
+    }
     if (item.location) return (
       <span className="text-xs text-gray-600 truncate block max-w-[100px]">{item.location}</span>
     )
-    return <span className="text-xs text-gray-400">Depósito</span>
+    return <span className="text-xs text-gray-400">🏭 Depósito</span>
   }
 
   return (

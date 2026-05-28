@@ -67,8 +67,8 @@ function saveSignatureImage(
 }
 
 // ─── HELPER: baixar estoque ───────────────────────────────────────────────────
-// Decrementa StockBalance e registra StockMovement para cada item do romaneio.
-// Lança erro se saldo insuficiente.
+// Decrementa StockBalance + StockItem.quantity e registra StockMovement.
+// Usa transação para atomicidade. Atualiza currentLocation em ferramentas.
 
 async function baixarEstoque(
   waybillId:  string,
@@ -76,48 +76,93 @@ async function baixarEstoque(
   companyId:  string,
   docNumber:  string,
 ): Promise<void> {
-  const items = await p().waybillItem.findMany({
-    where: { waybillId, isActive: true },
-  })
+  if (!locationId) {
+    throw new Error('locationId é obrigatório para baixar estoque')
+  }
 
-  for (const item of items) {
-    const balance = await p().stockBalance.findFirst({
-      where: { itemId: item.itemId, locationId, companyId },
+  await p().$transaction(async (tx: any) => {
+    // Buscar romaneio para saber categoria e destino
+    const waybill = await tx.waybill.findFirst({
+      where: { id: waybillId },
+      include: { destinationProject: { select: { id: true, name: true } } },
     })
 
-    const available = Math.max(0, Number(balance?.quantity ?? 0) - Number(balance?.reservedQty ?? 0))
-    if (available < Number(item.requestedQty)) {
-      const stockItem = await p().stockItem.findUnique({
-        where: { id: item.itemId },
-        select: { name: true },
-      })
-      throw new Error(
-        `Saldo insuficiente para "${stockItem?.name ?? item.itemId}". ` +
-        `Disponível: ${available}, necessário: ${Number(item.requestedQty)}`,
-      )
+    const destLabel = waybill?.destinationProject
+      ? `OBRA: ${waybill.destinationProject.name}`
+      : waybill?.destinationName
+        ? `EXTERNO: ${waybill.destinationName}`
+        : 'EM USO'
+
+    const items = await tx.waybillItem.findMany({
+      where:   { waybillId, isActive: true },
+      include: { item: { select: { id: true, name: true } } },
+    })
+
+    if (items.length === 0) {
+      throw new Error('Nenhum item encontrado no romaneio')
     }
 
-    // Decrementa saldo
-    await p().stockBalance.updateMany({
-      where: { itemId: item.itemId, locationId, companyId },
-      data:  { quantity: { decrement: Number(item.requestedQty) } },
-    })
+    for (const waybillItem of items) {
+      const qty    = Number(waybillItem.requestedQty)
+      const itemId = waybillItem.itemId
 
-    // Registra movimento de saída
-    await p().stockMovement.create({
-      data: {
-        companyId,
-        stockItemId: item.itemId,
-        locationId,
-        type:        'OUT',
-        quantity:    Number(item.requestedQty),
-        unitCost:    Number(item.unitCost),
-        totalCost:   Number(item.totalCost),
-        docNumber,
-        notes:       `Saída via romaneio ${docNumber}`,
-      },
-    })
-  }
+      // Busca balance apenas por itemId + locationId (a unique constraint não inclui companyId)
+      const balance = await tx.stockBalance.findFirst({
+        where: { itemId, locationId },
+      })
+
+      if (!balance) {
+        throw new Error(
+          `Saldo não encontrado para "${waybillItem.item?.name ?? itemId}" ` +
+          `no almoxarifado selecionado. Verifique se o item está cadastrado neste local.`,
+        )
+      }
+
+      const novoSaldo = Number(balance.quantity) - qty
+      if (novoSaldo < 0) {
+        throw new Error(
+          `Saldo insuficiente para "${waybillItem.item?.name ?? itemId}". ` +
+          `Disponível: ${Number(balance.quantity)}, necessário: ${qty}`,
+        )
+      }
+
+      const novoTotal = novoSaldo * Number(balance.averageCost ?? 0)
+
+      // Atualizar saldo pelo ID direto (mais robusto que updateMany com filtro composto)
+      await tx.stockBalance.update({
+        where: { id: balance.id },
+        data:  { quantity: novoSaldo, totalValue: novoTotal },
+      })
+
+      // Atualizar StockItem.quantity (campo global — exibido na UI de estoque)
+      // + currentLocation para ferramentas
+      const stockItemData: any = { quantity: { decrement: qty } }
+      if (waybill?.category === 'TOOL') {
+        stockItemData.currentLocation = destLabel
+      }
+      await tx.stockItem.update({
+        where: { id: itemId },
+        data:  stockItemData,
+      })
+
+      console.log(`✅ Estoque baixado: ${waybillItem.item?.name} ${Number(balance.quantity)} → ${novoSaldo}`)
+
+      // Registrar movimento de saída
+      await tx.stockMovement.create({
+        data: {
+          companyId,
+          stockItemId: itemId,
+          locationId,
+          type:      'OUT',
+          quantity:  qty,
+          unitCost:  Number(waybillItem.unitCost),
+          totalCost: Number(waybillItem.totalCost),
+          docNumber,
+          notes: `Saída via romaneio ${docNumber}`,
+        },
+      })
+    }
+  })
 }
 
 // ─── ROTAS AUTENTICADAS ───────────────────────────────────────────────────────
