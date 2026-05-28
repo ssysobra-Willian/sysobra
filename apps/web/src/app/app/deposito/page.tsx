@@ -483,15 +483,16 @@ const TOOL_STATUS_CONFIG: Record<string, { label: string; bg: string; text: stri
   DISCARDED:   { label: '🗑️ Descartada',   bg: 'bg-gray-100',   text: 'text-gray-500'   },
 }
 
-function ToolsTable({ items, onView, onEdit, onCustody, onMaintenance, onSendToMaintenance, onReturn, selectedLocationId }: {
-  items:                 StockItem[]
-  onView:                (item: StockItem) => void
-  onEdit?:               (item: StockItem) => void
-  onCustody:             (item: StockItem) => void
-  onMaintenance:         (item: StockItem) => void
-  onSendToMaintenance?:  (item: StockItem) => void
-  onReturn?:             (item: StockItem) => void
-  selectedLocationId?:   string
+function ToolsTable({ items, onView, onEdit, onCustody, onMaintenance, onSendToMaintenance, onReturn, onReturnFromMaintenance, selectedLocationId }: {
+  items:                       StockItem[]
+  onView:                      (item: StockItem) => void
+  onEdit?:                     (item: StockItem) => void
+  onCustody:                   (item: StockItem) => void
+  onMaintenance:               (item: StockItem) => void
+  onSendToMaintenance?:        (item: StockItem) => void
+  onReturn?:                   (item: StockItem) => void
+  onReturnFromMaintenance?:    (item: StockItem) => void
+  selectedLocationId?:         string
 }) {
   const [query,        setQuery]        = useState('')
   // FIX 3: status filter
@@ -687,7 +688,7 @@ function ToolsTable({ items, onView, onEdit, onCustody, onMaintenance, onSendToM
                           Devolver
                         </button>
                       )}
-                      {/* FIX 2: Enviar manutenção — somente para DAMAGED */}
+                      {/* Enviar manutenção — somente para DAMAGED */}
                       {item.toolStatus === 'DAMAGED' && onSendToMaintenance && (
                         <button
                           onClick={e => { e.stopPropagation(); onSendToMaintenance(item) }}
@@ -696,6 +697,17 @@ function ToolsTable({ items, onView, onEdit, onCustody, onMaintenance, onSendToM
                         >
                           <Wrench size={11} />
                           Manutenção
+                        </button>
+                      )}
+                      {/* Retornou — somente para MAINTENANCE */}
+                      {item.toolStatus === 'MAINTENANCE' && onReturnFromMaintenance && (
+                        <button
+                          onClick={e => { e.stopPropagation(); onReturnFromMaintenance(item) }}
+                          className="flex items-center gap-1 px-2 py-1 rounded-lg border border-green-300 text-green-700 text-xs font-medium hover:bg-green-50 transition"
+                          title="Registrar retorno da manutenção"
+                        >
+                          <CheckCircle2 size={11} />
+                          Retornou
                         </button>
                       )}
                       <ActionMenu
@@ -750,13 +762,31 @@ function ToolsTable({ items, onView, onEdit, onCustody, onMaintenance, onSendToM
                   </span>
                 )}
               </div>
-              {/* FIX 2: Devolver — somente IN_USE */}
+              {/* Devolver — somente IN_USE */}
               {item.toolStatus === 'IN_USE' && onReturn && (
                 <button
                   onClick={e => { e.stopPropagation(); onReturn(item) }}
                   className="mt-2 w-full flex items-center justify-center gap-1.5 py-1.5 rounded-lg border border-green-300 text-green-700 text-xs font-medium hover:bg-green-50 transition"
                 >
                   <CornerDownLeft size={12} /> Devolver ao depósito
+                </button>
+              )}
+              {/* Enviar manutenção — DAMAGED */}
+              {item.toolStatus === 'DAMAGED' && onSendToMaintenance && (
+                <button
+                  onClick={e => { e.stopPropagation(); onSendToMaintenance(item) }}
+                  className="mt-2 w-full flex items-center justify-center gap-1.5 py-1.5 rounded-lg border border-purple-300 text-purple-700 text-xs font-medium hover:bg-purple-50 transition"
+                >
+                  <Wrench size={12} /> Enviar para manutenção
+                </button>
+              )}
+              {/* Retornou — MAINTENANCE */}
+              {item.toolStatus === 'MAINTENANCE' && onReturnFromMaintenance && (
+                <button
+                  onClick={e => { e.stopPropagation(); onReturnFromMaintenance(item) }}
+                  className="mt-2 w-full flex items-center justify-center gap-1.5 py-1.5 rounded-lg border border-green-300 text-green-700 text-xs font-medium hover:bg-green-50 transition"
+                >
+                  <CheckCircle2 size={12} /> Registrar retorno
                 </button>
               )}
             </div>
@@ -841,15 +871,16 @@ function ReturnToolModal({
   onSuccess:  () => void
   employees?: Employee[]
 }) {
-  const [condition,     setCondition]     = useState<'BOM' | 'DANIFICADO' | 'PERDIDO'>('BOM')
-  const [returnMode,    setReturnMode]    = useState<'EMPLOYEE' | 'EXTERNAL'>('EMPLOYEE')
-  const [selectedEmpId, setSelectedEmpId] = useState('')
-  const [externalName,  setExternalName]  = useState('')
-  const [notes,         setNotes]         = useState('')
-  const [photo,         setPhoto]         = useState<string | null>(null)
-  const [signature,     setSignature]     = useState<string | null>(null)
-  const [loading,       setLoading]       = useState(false)
-  const [activeCustody, setActiveCustody] = useState<{ id: string; employeeName: string; checkedOutAt: string } | null>(null)
+  const [condition,       setCondition]       = useState<'BOM' | 'DANIFICADO' | 'PERDIDO'>('BOM')
+  const [returnMode,      setReturnMode]      = useState<'EMPLOYEE' | 'EXTERNAL'>('EMPLOYEE')
+  const [selectedEmpId,   setSelectedEmpId]   = useState('')
+  const [externalName,    setExternalName]    = useState('')
+  const [notes,           setNotes]           = useState('')
+  const [photo,           setPhoto]           = useState<string | null>(null)
+  const [signature,       setSignature]       = useState<string | null>(null)
+  const [loading,         setLoading]         = useState(false)
+  const [activeCustody,   setActiveCustody]   = useState<{ id: string; employeeName: string; checkedOutAt: string; quantity?: number } | null>(null)
+  const [returnQuantity,  setReturnQuantity]  = useState(1)
   const photoRef = useRef<HTMLInputElement>(null)
 
   // FIX 5: fetch active custody on mount to pre-fill who has the tool
@@ -860,7 +891,8 @@ function ReturnToolModal({
         if (!d) return
         const active = (d.custodies as any[])?.find(c => !c.returnedAt)
         if (active) {
-          setActiveCustody({ id: active.id, employeeName: active.employee?.name ?? '', checkedOutAt: active.checkedOutAt })
+          setActiveCustody({ id: active.id, employeeName: active.employee?.name ?? '', checkedOutAt: active.checkedOutAt, quantity: active.quantity ?? 1 })
+          setReturnQuantity(Number(active.quantity ?? 1))
           // Pre-select the employee if they exist in the list
           const match = employees.find(e => e.name === active.employee?.name)
           if (match) setSelectedEmpId(match.id)
@@ -894,6 +926,7 @@ function ReturnToolModal({
           returnNotes:       notes.trim() || undefined,
           photoOnReturnUrl:  photo        ?? undefined,
           returnSignatureUrl:signature    ?? undefined,
+          returnQuantity,
         }),
       })
       if (!res.ok) {
@@ -1015,6 +1048,24 @@ function ReturnToolModal({
               />
             )}
           </div>
+
+          {/* FIX 7: Quantidade devolvida — apenas quando > 1 */}
+          {tool.quantity > 1 && (
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 mb-2">Quantidade devolvida</label>
+              <div className="flex items-center gap-3">
+                <input
+                  type="number"
+                  min={1}
+                  max={tool.quantity}
+                  value={returnQuantity}
+                  onChange={e => setReturnQuantity(Math.max(1, Math.min(tool.quantity, Number(e.target.value))))}
+                  className="w-20 px-3 py-2 border border-gray-200 rounded-xl text-sm text-center focus:outline-none focus:border-[#F5A623]"
+                />
+                <span className="text-sm text-gray-500">de {tool.quantity} {tool.unit}</span>
+              </div>
+            </div>
+          )}
 
           {/* Data e hora */}
           <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-gray-50 border border-gray-100 text-xs text-gray-500">
@@ -1505,18 +1556,69 @@ export default function DepositoPage() {
     loadAll()
   }
 
-  // FIX 2: Enviar ferramenta para manutenção direto da tabela (PATCH /send-maintenance)
-  const handleSendToMaintenanceFromTable = async (item: StockItem) => {
-    if (!confirm(`Confirma envio de "${item.name}" para manutenção?`)) return
+  // Modal: Enviar para manutenção
+  const [sendMaintTarget,    setSendMaintTarget]    = useState<StockItem | null>(null)
+  const [sendMaintDesc,      setSendMaintDesc]      = useState('')
+  const [sendMaintBy,        setSendMaintBy]        = useState('')
+  const [sendMaintLoading,   setSendMaintLoading]   = useState(false)
+
+  // Modal: Retornou da manutenção
+  const [returnMaintTarget,  setReturnMaintTarget]  = useState<StockItem | null>(null)
+  const [returnMaintDate,    setReturnMaintDate]    = useState('')
+  const [returnMaintLoading, setReturnMaintLoading] = useState(false)
+
+  // FIX 6: abre modal em vez de confirm()
+  const handleSendToMaintenanceFromTable = (item: StockItem) => {
+    setSendMaintTarget(item)
+    setSendMaintDesc('')
+    setSendMaintBy('')
+  }
+
+  // FIX 6: abre modal de retorno da manutenção
+  const handleReturnFromMaintenanceFromTable = (item: StockItem) => {
+    setReturnMaintTarget(item)
+    setReturnMaintDate('')
+  }
+
+  const handleSendMaintConfirm = async () => {
+    if (!sendMaintTarget) return
+    setSendMaintLoading(true)
     try {
-      const res = await apiFetch(`/api/v1/deposit/tools/${item.id}/send-maintenance`, { method: 'PATCH' })
+      const res = await apiFetch(`/api/v1/deposit/tools/${sendMaintTarget.id}/send-maintenance`, {
+        method: 'PATCH',
+        body:   JSON.stringify({ description: sendMaintDesc, performedBy: sendMaintBy }),
+      })
       if (!res.ok) {
         const d = await res.json().catch(() => ({}))
         throw new Error(d.error ?? `Erro ${res.status}`)
       }
+      setSendMaintTarget(null)
       loadAll()
     } catch (err: any) {
       alert(err.message ?? 'Erro ao enviar para manutenção')
+    } finally {
+      setSendMaintLoading(false)
+    }
+  }
+
+  const handleReturnMaintConfirm = async () => {
+    if (!returnMaintTarget) return
+    setReturnMaintLoading(true)
+    try {
+      const res = await apiFetch(`/api/v1/deposit/tools/${returnMaintTarget.id}/return-from-maintenance`, {
+        method: 'PATCH',
+        body:   JSON.stringify({ nextMaintenanceDate: returnMaintDate || undefined, notes: 'Retornou consertada' }),
+      })
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}))
+        throw new Error(d.error ?? `Erro ${res.status}`)
+      }
+      setReturnMaintTarget(null)
+      loadAll()
+    } catch (err: any) {
+      alert(err.message ?? 'Erro ao registrar retorno')
+    } finally {
+      setReturnMaintLoading(false)
     }
   }
 
@@ -1965,6 +2067,7 @@ export default function DepositoPage() {
                     onMaintenance={item => { setMaintenanceTool(item); setMaintenanceRecord(null) }}
                     onSendToMaintenance={handleSendToMaintenanceFromTable}
                     onReturn={item => setReturnToolItem(item)}
+                    onReturnFromMaintenance={handleReturnFromMaintenanceFromTable}
                     selectedLocationId={selectedLocation !== 'all' ? selectedLocation : undefined}
                   />
                 )}
@@ -2150,6 +2253,112 @@ export default function DepositoPage() {
         projects={projects}
         hasCentral={locations.some(l => l.type === 'CENTRAL')}
       />
+
+      {/* ── FIX 6: Modal — Enviar para manutenção ────────────────────── */}
+      {sendMaintTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
+          <div className="bg-white rounded-2xl w-full max-w-[460px] shadow-2xl">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+              <div>
+                <h3 className="text-base font-bold text-gray-900">Enviar para manutenção</h3>
+                <p className="text-xs text-gray-500 mt-0.5"><strong>{sendMaintTarget.name}</strong></p>
+              </div>
+              <button onClick={() => setSendMaintTarget(null)} className="p-1.5 rounded-lg hover:bg-gray-100 transition">
+                <X size={16} className="text-gray-400" />
+              </button>
+            </div>
+            <div className="p-5 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">Descrição do problema</label>
+                <textarea
+                  value={sendMaintDesc}
+                  onChange={e => setSendMaintDesc(e.target.value)}
+                  placeholder="Descreva o problema ou defeito..."
+                  rows={3}
+                  className="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-[#F5A623] resize-none"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">Responsável pelo encaminhamento</label>
+                <input
+                  value={sendMaintBy}
+                  onChange={e => setSendMaintBy(e.target.value)}
+                  placeholder="Nome do responsável"
+                  className="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-[#F5A623]"
+                />
+              </div>
+            </div>
+            <div className="flex gap-2 px-5 py-4 border-t border-gray-100">
+              <button
+                onClick={() => setSendMaintTarget(null)}
+                className="flex-1 py-2.5 rounded-xl border border-gray-200 text-sm font-medium text-gray-600 hover:bg-gray-50 transition"
+              >Cancelar</button>
+              <button
+                onClick={handleSendMaintConfirm}
+                disabled={sendMaintLoading}
+                className={cn(
+                  'flex-[2] py-2.5 rounded-xl text-sm font-bold text-white transition flex items-center justify-center gap-2',
+                  sendMaintLoading ? 'bg-gray-300' : 'bg-purple-600 hover:bg-purple-700',
+                )}
+              >
+                {sendMaintLoading ? <><Loader2 size={14} className="animate-spin" /> Enviando...</> : <><Wrench size={14} /> Confirmar envio</>}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── FIX 6: Modal — Retornou da manutenção ────────────────────── */}
+      {returnMaintTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
+          <div className="bg-white rounded-2xl w-full max-w-[460px] shadow-2xl">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+              <div>
+                <h3 className="text-base font-bold text-gray-900">Retorno da manutenção</h3>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  <strong>{returnMaintTarget.name}</strong> voltará ao estoque como disponível.
+                </p>
+              </div>
+              <button onClick={() => setReturnMaintTarget(null)} className="p-1.5 rounded-lg hover:bg-gray-100 transition">
+                <X size={16} className="text-gray-400" />
+              </button>
+            </div>
+            <div className="p-5 space-y-4">
+              <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl bg-green-50 border border-green-200 text-xs text-green-700">
+                <CheckCircle2 size={13} className="flex-shrink-0" />
+                <span>A ferramenta será marcada como <strong>Disponível</strong> e o saldo restaurado.</span>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">Próxima manutenção preventiva (opcional)</label>
+                <input
+                  type="date"
+                  value={returnMaintDate}
+                  onChange={e => setReturnMaintDate(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-[#F5A623]"
+                />
+              </div>
+            </div>
+            <div className="flex gap-2 px-5 py-4 border-t border-gray-100">
+              <button
+                onClick={() => setReturnMaintTarget(null)}
+                className="flex-1 py-2.5 rounded-xl border border-gray-200 text-sm font-medium text-gray-600 hover:bg-gray-50 transition"
+              >Cancelar</button>
+              <button
+                onClick={handleReturnMaintConfirm}
+                disabled={returnMaintLoading}
+                className={cn(
+                  'flex-[2] py-2.5 rounded-xl text-sm font-bold text-white transition flex items-center justify-center gap-2',
+                  returnMaintLoading ? 'bg-gray-300' : 'bg-green-600 hover:bg-green-700',
+                )}
+              >
+                {returnMaintLoading
+                  ? <><Loader2 size={14} className="animate-spin" /> Salvando...</>
+                  : <><CheckCircle2 size={14} /> Confirmar retorno</>}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

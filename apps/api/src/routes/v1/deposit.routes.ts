@@ -1949,6 +1949,7 @@ ${_basketFooter}
       returnNotes:        z.string().optional(),
       photoOnReturnUrl:   z.string().optional(),
       returnSignatureUrl: z.string().optional(),
+      returnQuantity:     z.number().optional(),
     }).parse(request.body)
 
     const item = await p().stockItem.findFirst({
@@ -1995,6 +1996,42 @@ ${_basketFooter}
                         : newToolStatus === 'DAMAGED'      ? 'Depósito'   // voltou mas está danificada
                         : 'Extraviada'
 
+    // FIX 2: determinar qty devolvida e restaurar StockBalance no Depósito Central
+    const returnQty   = custody ? Number(custody.quantity) : (body.returnQuantity ?? 1)
+    const isReturning = newToolStatus !== 'LOST'  // LOST não retorna fisicamente
+
+    let stockBalanceOp: any = null
+    if (isReturning) {
+      const central = await p().stockLocation.findFirst({
+        where: { companyId: cid, type: 'CENTRAL', isActive: true },
+      })
+      if (central) {
+        const bal = await p().stockBalance.findFirst({
+          where: { itemId: id, locationId: central.id },
+        })
+        if (bal) {
+          stockBalanceOp = p().stockBalance.update({
+            where: { id: bal.id },
+            data: {
+              quantity:   { increment: returnQty },
+              totalValue: { increment: returnQty * Number(bal.averageCost ?? 0) },
+            },
+          })
+        } else {
+          stockBalanceOp = p().stockBalance.create({
+            data: {
+              companyId:   cid,
+              itemId:      id,
+              locationId:  central.id,
+              quantity:    returnQty,
+              averageCost: Number(item.averageCost ?? item.unitCost ?? 0),
+              totalValue:  returnQty * Number(item.averageCost ?? item.unitCost ?? 0),
+            },
+          })
+        }
+      }
+    }
+
     const ops: any[] = []
 
     if (custody) {
@@ -2017,11 +2054,13 @@ ${_basketFooter}
         currentLocation:  newLocation,
         currentProjectId: null,
         toolStatus:       newToolStatus,
-        ...(newToolStatus === 'AVAILABLE' && custody ? {
-          quantity: { increment: Number(custody.quantity) },
-        } : {}),
+        // FIX 2: restaurar quantity sempre que a ferramenta volta fisicamente
+        ...(isReturning ? { quantity: { increment: returnQty } } : {}),
       },
     }))
+
+    // FIX 2: restaurar StockBalance no Depósito Central
+    if (stockBalanceOp) ops.push(stockBalanceOp)
 
     if (custody) {
       ops.push(p().stockMovement.create({
@@ -2032,7 +2071,7 @@ ${_basketFooter}
           employeeId:    custody.employeeId,
           responsibleId: userId(request) ?? null,
           type:          'RETURN',
-          quantity:      Number(custody.quantity),
+          quantity:      returnQty,
           reason:        `Devolução: ${body.condition}`,
           notes:         body.returnNotes ?? null,
         },
@@ -2123,6 +2162,37 @@ ${_basketFooter}
       orderBy: { createdAt: 'desc' },
     })
 
+    // FIX 3: restaurar StockBalance e quantity ao retornar da manutenção
+    const central = await p().stockLocation.findFirst({
+      where: { companyId: cid, type: 'CENTRAL', isActive: true },
+    })
+    let maintBalanceOp: any = null
+    if (central) {
+      const bal = await p().stockBalance.findFirst({
+        where: { itemId: id, locationId: central.id },
+      })
+      if (bal) {
+        maintBalanceOp = p().stockBalance.update({
+          where: { id: bal.id },
+          data: {
+            quantity:   { increment: 1 },
+            totalValue: { increment: Number(bal.averageCost ?? 0) },
+          },
+        })
+      } else {
+        maintBalanceOp = p().stockBalance.create({
+          data: {
+            companyId:   cid,
+            itemId:      id,
+            locationId:  central.id,
+            quantity:    1,
+            averageCost: Number(item.averageCost ?? item.unitCost ?? 0),
+            totalValue:  Number(item.averageCost ?? item.unitCost ?? 0),
+          },
+        })
+      }
+    }
+
     const ops: any[] = []
     if (lastMaint) {
       ops.push(p().toolMaintenanceRecord.update({
@@ -2143,9 +2213,13 @@ ${_basketFooter}
         toolStatus:      'AVAILABLE',
         currentLocation: 'Depósito',
         lastMaintenance: now,
+        quantity:        { increment: 1 },   // FIX 3: restaurar quantidade
         ...(nextDate ? { nextMaintenance: nextDate } : {}),
       },
     }))
+
+    // FIX 3: restaurar StockBalance no Depósito Central
+    if (maintBalanceOp) ops.push(maintBalanceOp)
 
     await p().$transaction(ops)
     return reply.send({ success: true, toolStatus: 'AVAILABLE' })
