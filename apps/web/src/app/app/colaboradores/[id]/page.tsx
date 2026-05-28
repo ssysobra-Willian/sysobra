@@ -16,6 +16,7 @@ import { EmployeeFormModal }      from '../components/EmployeeFormModal'
 import { DismissalModal }         from '../components/DismissalModal'
 import { TransferProjectModal }   from '../components/TransferProjectModal'
 import { toImageUrl }             from '@/lib/imageUrl'
+import { useAuthenticatedPdf }   from '@/hooks/useAuthenticatedPdf'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
 
@@ -1404,24 +1405,29 @@ function EpiDeliveriesPanel({
 }) {
   const [lightbox, setLightbox] = useState<string | null>(null)
   const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
+  const { downloadPdf, isLoading: isPdfLoading } = useAuthenticatedPdf()
 
   const totalCount = deliveries.length + stockDeliveries.length
 
   const resolveUrl = (url: string) =>
     url.startsWith('http') ? url : `${API_URL}/${url.replace(/^\//, '')}`
 
+  // Abre cautela individual em nova aba (fetch autenticado com Bearer token)
   const openCautela = (deliveryId: string) => {
-    const tok = localStorage.getItem('token') ?? ''
-    const cid = localStorage.getItem('companyId') ?? ''
-    const url = `${API_URL}/api/v1/deposit/epi-deliveries/${deliveryId}/cautela?token=${encodeURIComponent(tok)}&companyId=${encodeURIComponent(cid)}`
-    window.open(url, '_blank')
+    downloadPdf(
+      `/api/v1/deposit/epi-deliveries/${deliveryId}/cautela`,
+      `cautela-epi-${deliveryId.slice(-8)}.pdf`,
+      true,
+    )
   }
 
+  // Abre cautela completa do colaborador em nova aba
   const openCautelaCompleta = () => {
-    const tok = localStorage.getItem('token') ?? ''
-    const cid = localStorage.getItem('companyId') ?? ''
-    const url = `${API_URL}/api/v1/deposit/employees/${employeeId}/epi-cautela?token=${encodeURIComponent(tok)}&companyId=${encodeURIComponent(cid)}`
-    window.open(url, '_blank')
+    downloadPdf(
+      `/api/v1/deposit/employees/${employeeId}/epi-cautela`,
+      `cautela-completa-${employeeName.replace(/\s+/g, '-').toLowerCase()}.pdf`,
+      true,
+    )
   }
 
   if (totalCount === 0) {
@@ -1444,11 +1450,16 @@ function EpiDeliveriesPanel({
         </p>
         <button
           onClick={openCautelaCompleta}
-          className="flex items-center gap-1.5 text-xs bg-[#F5A623] hover:bg-[#e09610] text-white px-3 py-1.5 rounded-lg font-medium transition"
+          disabled={isPdfLoading(`/api/v1/deposit/employees/${employeeId}/epi-cautela`)}
+          className="flex items-center gap-1.5 text-xs bg-[#F5A623] hover:bg-[#e09610] disabled:opacity-60 disabled:cursor-wait text-white px-3 py-1.5 rounded-lg font-medium transition"
           title="Gerar PDF com todos os EPIs do colaborador"
         >
-          <FileOutput size={13} />
-          Cautela completa (PDF)
+          {isPdfLoading(`/api/v1/deposit/employees/${employeeId}/epi-cautela`)
+            ? <Loader2 size={13} className="animate-spin" />
+            : <FileOutput size={13} />
+          }
+          {isPdfLoading(`/api/v1/deposit/employees/${employeeId}/epi-cautela`)
+            ? 'Gerando...' : 'Cautela completa (PDF)'}
         </button>
       </div>
 
@@ -1536,10 +1547,15 @@ function EpiDeliveriesPanel({
                   )}
                   <button
                     onClick={() => openCautela(d.id)}
-                    className="text-[10px] text-blue-500 hover:text-blue-700 flex items-center gap-1 transition"
+                    disabled={isPdfLoading(`/api/v1/deposit/epi-deliveries/${d.id}/cautela`)}
+                    className="text-[10px] text-blue-500 hover:text-blue-700 disabled:opacity-50 disabled:cursor-wait flex items-center gap-1 transition"
                     title="Ver cautela"
                   >
-                    <FileOutput size={11} /> Cautela
+                    {isPdfLoading(`/api/v1/deposit/epi-deliveries/${d.id}/cautela`)
+                      ? <Loader2 size={11} className="animate-spin" />
+                      : <FileOutput size={11} />
+                    }
+                    {isPdfLoading(`/api/v1/deposit/epi-deliveries/${d.id}/cautela`) ? 'Gerando...' : 'Cautela'}
                   </button>
                 </div>
               </div>
@@ -1605,10 +1621,15 @@ function EpiDeliveriesPanel({
                 )}
                 <button
                   onClick={() => openCautela(d.id)}
-                  className="text-[10px] text-blue-500 hover:text-blue-700 flex items-center gap-1 transition"
+                  disabled={isPdfLoading(`/api/v1/deposit/epi-deliveries/${d.id}/cautela`)}
+                  className="text-[10px] text-blue-500 hover:text-blue-700 disabled:opacity-50 disabled:cursor-wait flex items-center gap-1 transition"
                   title="Ver cautela"
                 >
-                  <FileOutput size={11} /> Cautela
+                  {isPdfLoading(`/api/v1/deposit/epi-deliveries/${d.id}/cautela`)
+                    ? <Loader2 size={11} className="animate-spin" />
+                    : <FileOutput size={11} />
+                  }
+                  {isPdfLoading(`/api/v1/deposit/epi-deliveries/${d.id}/cautela`) ? 'Gerando...' : 'Cautela'}
                 </button>
               </div>
             </div>
