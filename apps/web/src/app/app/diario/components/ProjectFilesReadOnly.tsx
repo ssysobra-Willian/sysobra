@@ -41,11 +41,49 @@ export default function ProjectFilesReadOnly({ projectId, projectName, defaultEx
 
   useEffect(() => {
     if (!expanded || tree !== null) return
+
     setLoading(true)
-    fetch(`${API}/api/v1/projects/${projectId}/folders`, { headers: authHeaders() })
-      .then(r => r.json())
-      .then(setTree)
-      .catch(() => setTree({ tree: [], rootFiles: [], stats: { totalFiles: 0 } }))
+    Promise.all([
+      fetch(`${API}/api/v1/projects/${projectId}/folders`, { headers: authHeaders() }).then(r => r.json()),
+      fetch(`${API}/api/v1/projects/${projectId}/files`,   { headers: authHeaders() }).then(r => r.json()),
+    ])
+      .then(([foldersData, filesData]) => {
+        const allFiles:   any[] = filesData.all   ?? []
+        const allFolders: any[] = foldersData.folders ?? []
+        const rawTree:    any[] = foldersData.tree    ?? []
+
+        // Arquivos na raiz (sem pasta)
+        const rootFiles = allFiles.filter((f: any) => !f.folderId)
+
+        // Mapear arquivos por pasta
+        const byFolder: Record<string, any[]> = {}
+        for (const f of allFiles) {
+          if (f.folderId) {
+            byFolder[f.folderId] = byFolder[f.folderId] ?? []
+            byFolder[f.folderId].push(f)
+          }
+        }
+
+        // Enriquecer árvore de pastas com os arquivos correspondentes
+        function enrich(nodes: any[]): any[] {
+          return nodes.map(folder => ({
+            ...folder,
+            files:    byFolder[folder.id] ?? [],
+            children: enrich(folder.children ?? []),
+          }))
+        }
+
+        setTree({
+          tree:      enrich(rawTree),
+          rootFiles,
+          stats: {
+            totalFiles:   allFiles.length,
+            totalFolders: allFolders.length,
+            totalSize:    allFiles.reduce((s: number, f: any) => s + (f.size ?? 0), 0),
+          },
+        })
+      })
+      .catch(() => setTree({ tree: [], rootFiles: [], stats: { totalFiles: 0, totalFolders: 0, totalSize: 0 } }))
       .finally(() => setLoading(false))
   }, [expanded, projectId, tree])
 
@@ -90,7 +128,8 @@ export default function ProjectFilesReadOnly({ projectId, projectName, defaultEx
           {file.type === 'IFC' && (
             <button
               onClick={() => {
-                const u = file.url?.startsWith('http') ? file.url : `${API}/${file.url}`
+                // Usar proxy /api/uploads/ para evitar CORS no IFC viewer
+                const u = proxyPdfUrl(file)
                 window.open(`/app/ifc-viewer?url=${encodeURIComponent(u)}&name=${encodeURIComponent(file.name)}`, '_blank')
               }}
               title="Visualizar 3D"
