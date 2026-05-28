@@ -11,7 +11,8 @@ function authHeaders() {
 }
 
 interface ProjectFilesReadOnlyProps {
-  projectId: string
+  projectId:    string
+  projectName?: string
 }
 
 function formatBytes(bytes?: number | null): string {
@@ -31,7 +32,7 @@ function getFileIcon(type: string): { icon: string; color: string } {
   return map[type] ?? { icon: '📎', color: '#6B7280' }
 }
 
-export default function ProjectFilesReadOnly({ projectId }: ProjectFilesReadOnlyProps) {
+export default function ProjectFilesReadOnly({ projectId, projectName }: ProjectFilesReadOnlyProps) {
   const [expanded, setExpanded] = useState(false)
   const [tree,     setTree]     = useState<any>(null)
   const [loading,  setLoading]  = useState(false)
@@ -135,6 +136,9 @@ export default function ProjectFilesReadOnly({ projectId }: ProjectFilesReadOnly
           <FolderOpen size={15} className="text-[#F5A623] flex-shrink-0" />
           <span className="text-sm font-semibold text-gray-700 flex-1 text-left">
             Pasta de projetos da obra
+            {projectName && (
+              <span className="text-xs font-normal text-gray-400 ml-1.5">— {projectName}</span>
+            )}
           </span>
           {tree !== null && totalFiles > 0 && (
             <span className="text-[10px] font-bold bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full">

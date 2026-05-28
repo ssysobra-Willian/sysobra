@@ -662,7 +662,7 @@ export default function RdoDetailPage() {
           )}
 
           {/* Pasta de Projetos — somente leitura */}
-          <ProjectFilesReadOnly projectId={projectId} />
+          <ProjectFilesReadOnly projectId={projectId} projectName={entry.project?.name} />
         </div>
 
         {/* ── Coluna lateral: comentários ────────────────────────────────── */}
