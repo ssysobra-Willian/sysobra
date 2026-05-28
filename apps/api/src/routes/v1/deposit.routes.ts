@@ -356,6 +356,8 @@ export async function depositRoutes(app: FastifyInstance) {
     }
 
     // ── Sem locationId: retorno padrão (inclui relações) ─────────────────────
+    const isTool = type === 'tool' || where.requiresCustody === true
+
     const [items, total] = await Promise.all([
       p().stockItem.findMany({
         where,
@@ -373,14 +375,32 @@ export async function depositRoutes(app: FastifyInstance) {
           _count: {
             select: { custodies: true, epiDeliveries: true, movements: true },
           },
+          // FIX 5: include active custodies so we can compute toolStatus=IN_USE
+          ...(isTool ? {
+            custodies: {
+              where: { returnedAt: null },
+              take: 1,
+              select: { id: true },
+            },
+          } : {}),
         },
       }),
       p().stockItem.count({ where }),
     ])
 
-    let result = items
+    // FIX 5: compute toolStatus dynamically; strip internal custodies from output
+    let result: any[] = (items as any[]).map(item => {
+      if (!isTool) return item
+      const hasActiveCustody = (item.custodies?.length ?? 0) > 0
+      let toolStatus = item.toolStatus ?? 'AVAILABLE'
+      // If there's an active custody but toolStatus is still AVAILABLE, show IN_USE
+      if (hasActiveCustody && toolStatus === 'AVAILABLE') toolStatus = 'IN_USE'
+      const { custodies: _c, ...rest } = item
+      return { ...rest, toolStatus }
+    })
+
     if (lowStock === 'true') {
-      result = items.filter((i: any) =>
+      result = result.filter((i: any) =>
         Number(i.minQuantity) > 0 && Number(i.quantity) <= Number(i.minQuantity)
       )
     }
@@ -1630,9 +1650,10 @@ ${_basketFooter}
     ])
 
     const totalItems       = items.length
-    // FIX 8: use StockBalance sum when available, fallback to item-level calculation
-    const totalValue       = Number(balanceAgg._sum?.totalValue ?? 0) ||
-      items.reduce((a: number, i: any) => a + Number(i.quantity) * Number(i.averageCost ?? i.unitCost ?? 0), 0)
+    // FIX 6+8: use StockBalance aggregate; exclude DISCARDED tools from value
+    const activeItems = (items as any[]).filter(i => i.toolStatus !== 'DISCARDED')
+    const totalValue  = Number(balanceAgg._sum?.totalValue ?? 0) ||
+      activeItems.reduce((a: number, i: any) => a + Number(i.quantity) * Number(i.averageCost ?? i.unitCost ?? 0), 0)
     const lowStockCount      = items.filter((i: any) => Number(i.minQuantity) > 0 && Number(i.quantity) <= Number(i.minQuantity)).length
     // FIX 5: count tools actually in MAINTENANCE status (not hardcoded 0)
     const inMaintenanceCount = items.filter((i: any) => i.toolStatus === 'MAINTENANCE').length
@@ -1650,9 +1671,10 @@ ${_basketFooter}
       if (i.isConsumable) return 'materiais'
       return 'outros'
     }
-    const porCategoria = (items as any[]).reduce(
-      (acc, i) => { const cat = categorize(i); acc[cat] = (acc[cat] ?? 0) + itemValue(i); return acc },
-      { materiais: 0, ferramentas: 0, epis: 0, uniformes: 0, outros: 0 } as Record<string, number>,
+    // FIX 6: exclude DISCARDED from category breakdown
+    const porCategoria = activeItems.reduce(
+      (acc: Record<string, number>, i: any) => { const cat = categorize(i); acc[cat] = (acc[cat] ?? 0) + itemValue(i); return acc },
+      { materiais: 0, ferramentas: 0, epis: 0, uniformes: 0, outros: 0 },
     )
 
     return reply.send({
@@ -2071,6 +2093,105 @@ ${_basketFooter}
     }
 
     return reply.send({ success: true })
+  })
+
+  // ── TOOL RETURN FROM MAINTENANCE ─────────────────────────────────────────
+  // PATCH /api/v1/deposit/tools/:id/return-from-maintenance
+  app.patch('/tools/:id/return-from-maintenance', { preHandler }, async (request, reply) => {
+    const req = request as RequestWithMember
+    const cid = companyId(req)
+    const { id } = request.params as { id: string }
+
+    const body = z.object({
+      notes:               z.string().optional(),
+      nextMaintenanceDate: z.string().optional(),
+    }).parse(request.body)
+
+    const item = await p().stockItem.findFirst({ where: { id, companyId: cid, isActive: true } })
+    if (!item) return reply.status(404).send({ error: 'Ferramenta não encontrada' })
+
+    const now      = new Date()
+    const nextDate = body.nextMaintenanceDate ? new Date(body.nextMaintenanceDate) : null
+
+    // Update most recent maintenance record to OK
+    const lastMaint = await p().toolMaintenanceRecord.findFirst({
+      where: { stockItemId: id, companyId: cid },
+      orderBy: { createdAt: 'desc' },
+    })
+
+    const ops: any[] = []
+    if (lastMaint) {
+      ops.push(p().toolMaintenanceRecord.update({
+        where: { id: lastMaint.id },
+        data: {
+          result:  'OK',
+          ...(nextDate ? { nextDate } : {}),
+          notes: lastMaint.notes
+            ? `${lastMaint.notes} | Retornou consertada`
+            : `Retornou consertada${body.notes ? `. ${body.notes}` : ''}`,
+        },
+      }))
+    }
+
+    ops.push(p().stockItem.update({
+      where: { id },
+      data: {
+        toolStatus:      'AVAILABLE',
+        currentLocation: 'Depósito',
+        lastMaintenance: now,
+        ...(nextDate ? { nextMaintenance: nextDate } : {}),
+      },
+    }))
+
+    await p().$transaction(ops)
+    return reply.send({ success: true, toolStatus: 'AVAILABLE' })
+  })
+
+  // ── TOOL DISCARD ──────────────────────────────────────────────────────────
+  // PATCH /api/v1/deposit/tools/:id/discard
+  app.patch('/tools/:id/discard', { preHandler }, async (request, reply) => {
+    const req = request as RequestWithMember
+    const cid = companyId(req)
+    const { id } = request.params as { id: string }
+
+    const body = z.object({
+      reason:      z.string().optional(),
+      performedBy: z.string().optional(),
+    }).parse(request.body)
+
+    const item = await p().stockItem.findFirst({ where: { id, companyId: cid, isActive: true } })
+    if (!item) return reply.status(404).send({ error: 'Ferramenta não encontrada' })
+
+    await p().$transaction([
+      // Zero out all stock balances
+      p().stockBalance.updateMany({
+        where: { itemId: id, companyId: cid },
+        data: { quantity: 0, totalValue: 0 },
+      }),
+      // Mark item as discarded
+      p().stockItem.update({
+        where: { id },
+        data: {
+          toolStatus:      'DISCARDED',
+          currentLocation: 'Descartada',
+          quantity:        0,
+        },
+      }),
+      // Log in maintenance history
+      p().toolMaintenanceRecord.create({
+        data: {
+          companyId:   cid,
+          stockItemId: id,
+          type:        'CORRECTIVE',
+          date:        new Date(),
+          result:      'NEEDS_PARTS',
+          description: `Ferramenta descartada — sem conserto. ${body.reason ?? ''}`.trim(),
+          performedBy: body.performedBy ?? 'Almoxarife',
+        },
+      }),
+    ])
+
+    return reply.send({ success: true, toolStatus: 'DISCARDED' })
   })
 
   // PATCH /api/v1/deposit/baskets/:id/cancel

@@ -3,7 +3,8 @@
 import React, { useState, useEffect } from 'react'
 import {
   X, Wrench, AlertTriangle, Calendar, Clock, CheckCircle2, XCircle,
-  User, MapPin, Package, Tag, Hash, ShieldCheck, Loader2, Plus, Camera,
+  User, MapPin, Package, Tag, Hash, ShieldCheck, Loader2, Plus,
+  ZoomIn, ExternalLink, FileText, Trash2,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { formatCurrency } from '@/lib/format'
@@ -12,7 +13,7 @@ const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
 function getToken()     { return typeof window !== 'undefined' ? (localStorage.getItem('token')     ?? '') : '' }
 function getCompanyId() { return typeof window !== 'undefined' ? (localStorage.getItem('companyId') ?? '') : '' }
 
-// FIX 1: helper to build absolute URL — avoids double-slash when url starts with /
+// FIX 1: helper builds absolute URL — avoids double-slash when url starts with /
 function toAbsUrl(url: string | null | undefined): string {
   if (!url) return ''
   if (url.startsWith('http')) return url
@@ -91,11 +92,12 @@ interface MaintenanceRecord {
 }
 
 interface Props {
-  tool:            ToolItem
-  onClose:         () => void
-  onNewMaintenance?: (tool: ToolItem) => void
-  onNewCustody?:   (tool: ToolItem) => void
+  tool:               ToolItem
+  onClose:            () => void
+  onNewMaintenance?:  (tool: ToolItem) => void
+  onNewCustody?:      (tool: ToolItem) => void
   onEditMaintenance?: (tool: ToolItem, record: MaintenanceRecord) => void
+  onRefresh?:         () => void
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -128,28 +130,101 @@ const CONDITION_CONFIG: Record<string, { label: string; bg: string; text: string
   PERDIDO:   { label: '🚨 Perdida',    bg: 'bg-red-100',   text: 'text-red-700'   },
 }
 
+// ─── PhotoThumb — FIX 1 ───────────────────────────────────────────────────────
+
+function PhotoThumb({ url, label, onExpand }: {
+  url:      string | null | undefined
+  label:    string
+  onExpand: (u: string) => void
+}) {
+  const abs = toAbsUrl(url)
+  if (!abs) return null
+  return (
+    <div className="text-center">
+      <p className="text-xs text-gray-400 mb-1">📷 {label}</p>
+      <div className="relative inline-block">
+        <img
+          src={abs}
+          alt={label}
+          style={{ width: 96, height: 72 }}
+          className="object-cover rounded-lg border border-gray-200 cursor-pointer hover:opacity-90 transition"
+          onClick={() => onExpand(abs)}
+        />
+        <button
+          onClick={() => onExpand(abs)}
+          className="absolute bottom-1 right-1 bg-black/60 hover:bg-black/80 text-white rounded p-0.5 transition"
+          title="Ampliar"
+        >
+          <ZoomIn size={10} />
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// ─── PhotoLightbox — FIX 1 ────────────────────────────────────────────────────
+
+function PhotoLightbox({ url, onClose }: { url: string; onClose: () => void }) {
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', h)
+    return () => window.removeEventListener('keydown', h)
+  }, [onClose])
+
+  return (
+    <div
+      onClick={onClose}
+      className="fixed inset-0 z-[9999] flex items-center justify-center p-5 cursor-zoom-out"
+      style={{ background: 'rgba(0,0,0,0.88)' }}
+    >
+      <div className="relative" onClick={e => e.stopPropagation()}>
+        <img
+          src={url}
+          alt="Foto ampliada"
+          className="max-w-[90vw] max-h-[85vh] object-contain rounded-xl shadow-2xl"
+        />
+        {/* Controls */}
+        <div className="absolute -top-3 -right-3 flex gap-2">
+          <a
+            href={url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-1 px-2.5 py-1 bg-[#F5A623] text-xs font-semibold text-white rounded-lg shadow hover:bg-[#e09610] transition"
+            onClick={e => e.stopPropagation()}
+          >
+            <ExternalLink size={11} />Abrir
+          </a>
+          <button
+            onClick={onClose}
+            className="px-2.5 py-1 bg-white text-gray-800 text-xs font-bold rounded-lg shadow hover:bg-gray-100 transition"
+          >
+            ×
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
 function WarrantyCard({ tool }: { tool: ToolItem }) {
   const days = daysFromNow(tool.warrantyExpiry)
-  const expired = days !== null && days < 0
+  const expired      = days !== null && days < 0
   const soonExpiring = days !== null && days >= 0 && days <= 30
 
   return (
-    <div className={cn(
-      'rounded-xl border p-4',
-      expired      ? 'bg-red-50 border-red-200'    :
+    <div className={cn('rounded-xl border p-4',
+      expired      ? 'bg-red-50 border-red-200'       :
       soonExpiring ? 'bg-yellow-50 border-yellow-200' :
                      'bg-green-50 border-green-200',
     )}>
       <div className="flex items-center gap-2 mb-2">
         <ShieldCheck size={15} className={
-          expired      ? 'text-red-600'    :
-          soonExpiring ? 'text-yellow-600' : 'text-green-600'
+          expired ? 'text-red-600' : soonExpiring ? 'text-yellow-600' : 'text-green-600'
         } />
         <h4 className={cn('text-sm font-semibold',
-          expired      ? 'text-red-700'    :
-          soonExpiring ? 'text-yellow-700' : 'text-green-700',
+          expired ? 'text-red-700' : soonExpiring ? 'text-yellow-700' : 'text-green-700',
         )}>
           {expired ? 'Garantia Vencida' : soonExpiring ? 'Garantia a Vencer' : 'Em Garantia'}
         </h4>
@@ -158,25 +233,22 @@ function WarrantyCard({ tool }: { tool: ToolItem }) {
         <div className="flex items-center justify-between text-xs">
           <span className="text-gray-600">Vencimento</span>
           <span className={cn('font-semibold',
-            expired      ? 'text-red-700'    :
-            soonExpiring ? 'text-yellow-700' : 'text-green-700',
+            expired ? 'text-red-700' : soonExpiring ? 'text-yellow-700' : 'text-green-700',
           )}>{formatDateBR(tool.warrantyExpiry)}</span>
         </div>
       )}
-      {days !== null && !expired && (
-        <p className="text-xs text-gray-500 mt-1">{days} dias restantes</p>
-      )}
-      {expired && days !== null && (
-        <p className="text-xs text-red-600 mt-1">Vencida há {Math.abs(days)} dias</p>
-      )}
+      {days !== null && !expired && <p className="text-xs text-gray-500 mt-1">{days} dias restantes</p>}
+      {expired && days !== null && <p className="text-xs text-red-600 mt-1">Vencida há {Math.abs(days)} dias</p>}
     </div>
   )
 }
 
-function MaintenanceTimeline({ records, onAdd, onEdit }: {
+// FIX 7: add fileUrl link to each maintenance record
+function MaintenanceTimeline({ records, onAdd, onEdit, onExpand }: {
   records:   MaintenanceRecord[]
   onAdd?:    () => void
   onEdit?:   (r: MaintenanceRecord) => void
+  onExpand:  (url: string) => void
 }) {
   if (records.length === 0) {
     return (
@@ -186,8 +258,7 @@ function MaintenanceTimeline({ records, onAdd, onEdit }: {
         </div>
         <p className="text-sm text-gray-400">Nenhuma manutenção registrada</p>
         {onAdd && (
-          <button
-            onClick={onAdd}
+          <button onClick={onAdd}
             className="flex items-center gap-1.5 text-xs text-[#F5A623] font-medium hover:underline"
           >
             <Plus size={13} />Registrar primeira manutenção
@@ -200,8 +271,9 @@ function MaintenanceTimeline({ records, onAdd, onEdit }: {
   return (
     <div className="relative space-y-0">
       <div className="absolute left-4 top-0 bottom-4 w-0.5 bg-gray-100" />
-      {records.map((r, i) => {
+      {records.map(r => {
         const tc = MAINTENANCE_TYPE_COLORS[r.type] ?? MAINTENANCE_TYPE_COLORS.PREVENTIVE
+        const fileAbs = toAbsUrl(r.fileUrl)
         return (
           <div key={r.id} className="relative pl-10 pb-4">
             <div className={cn('absolute left-2 top-1 w-4 h-4 rounded-full border-2 border-white flex items-center justify-center', tc.bg)}>
@@ -223,9 +295,28 @@ function MaintenanceTimeline({ records, onAdd, onEdit }: {
               <p className="text-sm text-gray-700 leading-snug">{r.description}</p>
               <div className="flex flex-wrap gap-x-4 gap-y-0.5 mt-1.5 text-xs text-gray-400">
                 {r.performedBy && <span>👤 {r.performedBy}</span>}
-                {r.cost && <span>💰 {formatCurrency(r.cost)}</span>}
-                {r.nextDate && <span>📅 Próxima: {formatDateBR(r.nextDate)}</span>}
+                {r.cost        && <span>💰 {formatCurrency(r.cost)}</span>}
+                {r.nextDate    && <span>📅 Próxima: {formatDateBR(r.nextDate)}</span>}
               </div>
+              {/* FIX 7: link to comprovante */}
+              {fileAbs && (
+                <a
+                  href={fileAbs}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={e => {
+                    e.stopPropagation()
+                    // If it's an image, open in lightbox instead
+                    if (/\.(jpg|jpeg|png|webp)(\?|$)/i.test(fileAbs)) {
+                      e.preventDefault()
+                      onExpand(fileAbs)
+                    }
+                  }}
+                  className="inline-flex items-center gap-1 text-xs text-blue-500 hover:text-blue-700 mt-1.5 transition"
+                >
+                  <FileText size={11} />Ver comprovante
+                </a>
+              )}
             </div>
           </div>
         )
@@ -234,9 +325,8 @@ function MaintenanceTimeline({ records, onAdd, onEdit }: {
   )
 }
 
-// FIX 3: Rewritten CustodyTimeline with photos, return info, condition badges
-function CustodyTimeline({ custodies }: { custodies: Custody[] }) {
-
+// FIX 1+3: CustodyTimeline with PhotoThumb and rich return info
+function CustodyTimeline({ custodies, onExpand }: { custodies: Custody[]; onExpand: (u: string) => void }) {
   if (custodies.length === 0) {
     return (
       <div className="py-8 text-center text-sm text-gray-400">
@@ -248,16 +338,14 @@ function CustodyTimeline({ custodies }: { custodies: Custody[] }) {
   return (
     <div className="space-y-3">
       {custodies.map(c => {
-        const isOpen   = !c.returnedAt
-        const overdue  = !c.returnedAt && c.dueDate && new Date(c.dueDate) < new Date()
+        const isOpen  = !c.returnedAt
+        const overdue = !c.returnedAt && c.dueDate && new Date(c.dueDate) < new Date()
         const condReturn = c.conditionOnReturn ? (CONDITION_CONFIG[c.conditionOnReturn] ?? null) : null
 
         return (
           <div key={c.id} className={cn(
             'border-l-4 rounded-r-xl bg-white shadow-sm overflow-hidden',
-            isOpen
-              ? overdue ? 'border-l-red-400' : 'border-l-orange-400'
-              : 'border-l-green-400',
+            isOpen ? overdue ? 'border-l-red-400' : 'border-l-orange-400' : 'border-l-green-400',
           )}>
             {/* Header */}
             <div className={cn(
@@ -265,16 +353,11 @@ function CustodyTimeline({ custodies }: { custodies: Custody[] }) {
               isOpen ? overdue ? 'bg-red-50' : 'bg-orange-50' : 'bg-gray-50',
             )}>
               <div className="flex items-center gap-2">
-                <User size={13} className={
-                  isOpen ? overdue ? 'text-red-500' : 'text-orange-500' : 'text-gray-400'
-                } />
+                <User size={13} className={isOpen ? overdue ? 'text-red-500' : 'text-orange-500' : 'text-gray-400'} />
                 <span className="text-sm font-medium text-gray-800">{c.employee.name}</span>
-                {c.employee.position && (
-                  <span className="text-xs text-gray-400">· {c.employee.position}</span>
-                )}
+                {c.employee.position && <span className="text-xs text-gray-400">· {c.employee.position}</span>}
               </div>
-              <span className={cn(
-                'text-xs font-medium px-2 py-0.5 rounded-full',
+              <span className={cn('text-xs font-medium px-2 py-0.5 rounded-full',
                 isOpen
                   ? overdue ? 'bg-red-100 text-red-700' : 'bg-orange-100 text-orange-700'
                   : 'bg-green-100 text-green-700',
@@ -285,23 +368,17 @@ function CustodyTimeline({ custodies }: { custodies: Custody[] }) {
 
             {/* Body */}
             <div className="px-4 py-2.5 space-y-2">
-              {/* Dates + meta grid */}
+              {/* Meta grid */}
               <div className="grid grid-cols-2 gap-x-6 gap-y-0.5 text-xs text-gray-500">
                 <span>Saída: <strong className="text-gray-700">{formatDateBR(c.checkedOutAt)}</strong></span>
-                {c.dueDate && (
-                  <span>Prazo: <strong className={cn(overdue ? 'text-red-600' : 'text-gray-700')}>
-                    {formatDateBR(c.dueDate)}
-                  </strong></span>
-                )}
-                {c.returnedAt && (
-                  <span>Retorno: <strong className="text-gray-700">{formatDateBR(c.returnedAt)}</strong></span>
-                )}
+                {c.dueDate && <span>Prazo: <strong className={cn(overdue ? 'text-red-600' : 'text-gray-700')}>{formatDateBR(c.dueDate)}</strong></span>}
+                {c.returnedAt && <span>Retorno: <strong className="text-gray-700">{formatDateBR(c.returnedAt)}</strong></span>}
                 {c.project && <span>🏗️ {c.project.name}</span>}
                 <span>Qtd: <strong>{c.quantity}</strong></span>
                 {c.condition && <span>Estado saída: {c.condition}</span>}
               </div>
 
-              {/* Return details (when returned) */}
+              {/* Return details */}
               {c.returnedAt && (c.returnedBy || condReturn || c.returnNotes) && (
                 <div className="border-t border-gray-100 pt-2 space-y-1.5">
                   {c.returnedBy && (
@@ -310,44 +387,19 @@ function CustodyTimeline({ custodies }: { custodies: Custody[] }) {
                     </p>
                   )}
                   {condReturn && (
-                    <span className={cn(
-                      'inline-flex items-center text-xs font-medium px-2 py-0.5 rounded-full',
-                      condReturn.bg, condReturn.text,
-                    )}>
+                    <span className={cn('inline-flex items-center text-xs font-medium px-2 py-0.5 rounded-full', condReturn.bg, condReturn.text)}>
                       {condReturn.label}
                     </span>
                   )}
-                  {c.returnNotes && (
-                    <p className="text-xs text-gray-500 italic">{c.returnNotes}</p>
-                  )}
+                  {c.returnNotes && <p className="text-xs text-gray-500 italic">{c.returnNotes}</p>}
                 </div>
               )}
 
-              {/* Photos row */}
+              {/* Photos — FIX 1: PhotoThumb with expand */}
               {(c.photoUrl || c.photoOnReturnUrl) && (
-                <div className="flex gap-3 pt-1">
-                  {c.photoUrl && (
-                    <div className="text-center">
-                      <img
-                        src={toAbsUrl(c.photoUrl)}
-                        alt="Foto saída"
-                        className="w-16 h-12 object-cover rounded-lg border border-gray-200 cursor-pointer hover:opacity-80 transition"
-                        onClick={() => window.open(toAbsUrl(c.photoUrl), '_blank')}
-                      />
-                      <p className="text-xs text-gray-400 mt-0.5">📷 Saída</p>
-                    </div>
-                  )}
-                  {c.photoOnReturnUrl && (
-                    <div className="text-center">
-                      <img
-                        src={toAbsUrl(c.photoOnReturnUrl)}
-                        alt="Foto retorno"
-                        className="w-16 h-12 object-cover rounded-lg border border-gray-200 cursor-pointer hover:opacity-80 transition"
-                        onClick={() => window.open(toAbsUrl(c.photoOnReturnUrl), '_blank')}
-                      />
-                      <p className="text-xs text-gray-400 mt-0.5">📷 Retorno</p>
-                    </div>
-                  )}
+                <div className="flex gap-4 pt-1">
+                  {c.photoUrl        && <PhotoThumb url={c.photoUrl}        label="Saída"     onExpand={onExpand} />}
+                  {c.photoOnReturnUrl && <PhotoThumb url={c.photoOnReturnUrl} label="Devolução" onExpand={onExpand} />}
                 </div>
               )}
             </div>
@@ -358,7 +410,7 @@ function CustodyTimeline({ custodies }: { custodies: Custody[] }) {
   )
 }
 
-// ─── WaybillExits section ─────────────────────────────────────────────────────
+// ─── WaybillExits ─────────────────────────────────────────────────────────────
 
 function WaybillExitsSection({ exits }: { exits: WaybillExit[] }) {
   if (exits.length === 0) return null
@@ -391,35 +443,89 @@ function WaybillExitsSection({ exits }: { exits: WaybillExit[] }) {
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 const TABS = [
-  { id: 'info',         label: 'Ficha'        },
-  { id: 'maintenances', label: 'Manutenções'  },
-  { id: 'custodies',    label: 'Custódias'    },
+  { id: 'info',         label: 'Ficha'       },
+  { id: 'maintenances', label: 'Manutenções' },
+  { id: 'custodies',    label: 'Custódias'   },
 ]
 
-export function ToolDrawer({ tool, onClose, onNewMaintenance, onNewCustody, onEditMaintenance }: Props) {
-  const [tab,          setTab]          = useState<'info' | 'maintenances' | 'custodies'>('info')
-  const [maintenances, setMaintenances] = useState<MaintenanceRecord[]>([])
-  const [custodies,    setCustodies]    = useState<Custody[]>([])
-  const [waybillExits, setWaybillExits] = useState<WaybillExit[]>([])
-  const [loadingM,     setLoadingM]     = useState(false)
-  const [loadingC,     setLoadingC]     = useState(false)
+export function ToolDrawer({
+  tool, onClose, onNewMaintenance, onNewCustody, onEditMaintenance, onRefresh,
+}: Props) {
+  const [tab,           setTab]           = useState<'info' | 'maintenances' | 'custodies'>('info')
+  const [maintenances,  setMaintenances]  = useState<MaintenanceRecord[]>([])
+  const [custodies,     setCustodies]     = useState<Custody[]>([])
+  const [waybillExits,  setWaybillExits]  = useState<WaybillExit[]>([])
+  const [loadingM,      setLoadingM]      = useState(false)
+  const [loadingC,      setLoadingC]      = useState(false)
+  // FIX 1: photo lightbox
+  const [expandedPhoto, setExpandedPhoto] = useState<string | null>(null)
 
-  // FIX 1: use toAbsUrl to avoid double-slash
   const imgUrl = toAbsUrl(tool.imageUrl) || null
-
-  const maintenanceDays = daysFromNow(tool.nextMaintenance)
+  const maintenanceDays    = daysFromNow(tool.nextMaintenance)
   const maintenanceOverdue = maintenanceDays !== null && maintenanceDays < 0
+  const locationLabel      = tool.currentLocation || tool.currentProject?.name || tool.location || 'Depósito'
 
-  // FIX 4: Display currentLocation if available
-  const locationLabel = tool.currentLocation || tool.currentProject?.name || tool.location || 'Depósito'
+  // ─── Action handlers — FIX 4 ────────────────────────────────────────────────
+
+  const fetchTool = (path: string, body: object) =>
+    fetch(`${API}/api/v1/deposit/tools/${tool.id}/${path}`, {
+      method: 'PATCH',
+      headers: {
+        Authorization:  `Bearer ${getToken()}`,
+        'x-company-id': getCompanyId(),
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    })
+
+  const handleSendToMaintenance = async () => {
+    if (!confirm(`Confirma envio de "${tool.name}" para manutenção?`)) return
+    try {
+      const res = await fetchTool('send-maintenance', {})
+      if (!res.ok) throw new Error()
+      alert('✅ Ferramenta enviada para manutenção!')
+      onRefresh?.()
+    } catch { alert('Erro ao enviar para manutenção') }
+  }
+
+  const handleReturnFromMaintenance = async () => {
+    const nextDateStr = prompt('Próxima manutenção preventiva (DD/MM/AAAA) — opcional:') ?? ''
+    let nextMaintenanceDate: string | undefined
+    if (nextDateStr.trim()) {
+      const parts = nextDateStr.trim().split('/')
+      if (parts.length === 3) {
+        nextMaintenanceDate = `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`
+      }
+    }
+    try {
+      const res = await fetchTool('return-from-maintenance', { notes: '', nextMaintenanceDate })
+      if (!res.ok) throw new Error()
+      alert('✅ Ferramenta disponível novamente!')
+      onRefresh?.()
+    } catch { alert('Erro ao registrar retorno da manutenção') }
+  }
+
+  const handleDiscard = async () => {
+    const reason = prompt('Motivo do descarte:')
+    if (reason === null) return
+    if (!confirm('Confirma o descarte? O valor será zerado do estoque.')) return
+    try {
+      const res = await fetchTool('discard', { reason })
+      if (!res.ok) throw new Error()
+      alert('Ferramenta descartada e removida do estoque.')
+      onRefresh?.()
+      onClose()
+    } catch { alert('Erro ao descartar ferramenta') }
+  }
+
+  // ─── Effects ────────────────────────────────────────────────────────────────
 
   useEffect(() => {
-    const h = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    const h = (e: KeyboardEvent) => { if (e.key === 'Escape') { if (expandedPhoto) setExpandedPhoto(null); else onClose() } }
     window.addEventListener('keydown', h)
     return () => window.removeEventListener('keydown', h)
-  }, [onClose])
+  }, [onClose, expandedPhoto])
 
-  // FIX 1: Fixed d.records → d.maintenances ?? d.records
   useEffect(() => {
     if (tab === 'maintenances' && maintenances.length === 0) {
       setLoadingM(true)
@@ -433,7 +539,6 @@ export function ToolDrawer({ tool, onClose, onNewMaintenance, onNewCustody, onEd
     }
   }, [tab, tool.id])
 
-  // FIX 7: fetch custodies + waybillExits together
   useEffect(() => {
     if (tab === 'custodies' && custodies.length === 0) {
       setLoadingC(true)
@@ -441,17 +546,30 @@ export function ToolDrawer({ tool, onClose, onNewMaintenance, onNewCustody, onEd
         headers: { Authorization: `Bearer ${getToken()}`, 'x-company-id': getCompanyId() },
       })
         .then(r => r.ok ? r.json() : { custodies: [], waybillExits: [] })
-        .then(d => {
-          setCustodies(d.custodies ?? [])
-          setWaybillExits(d.waybillExits ?? [])
-        })
+        .then(d => { setCustodies(d.custodies ?? []); setWaybillExits(d.waybillExits ?? []) })
         .catch(() => {})
         .finally(() => setLoadingC(false))
     }
   }, [tab, tool.id])
 
+  // ─── Status badge for header ─────────────────────────────────────────────────
+  const STATUS_CFG: Record<string, { label: string; bg: string; text: string }> = {
+    AVAILABLE:   { label: '✅ Disponível',  bg: 'bg-green-100',  text: 'text-green-700'   },
+    IN_USE:      { label: '⚙️ Em uso',      bg: 'bg-blue-100',   text: 'text-blue-700'    },
+    MAINTENANCE: { label: '🔧 Manutenção',  bg: 'bg-purple-100', text: 'text-purple-700'  },
+    DAMAGED:     { label: '⚠️ Danificada',  bg: 'bg-amber-100',  text: 'text-amber-700'   },
+    LOST:        { label: '🚨 Extraviada',  bg: 'bg-red-100',    text: 'text-red-700'     },
+    DISCARDED:   { label: '🗑️ Descartada',  bg: 'bg-gray-100',   text: 'text-gray-500'    },
+  }
+  const statusCfg = STATUS_CFG[tool.toolStatus ?? 'AVAILABLE'] ?? STATUS_CFG.AVAILABLE
+
   return (
     <>
+      {/* Lightbox — FIX 1 */}
+      {expandedPhoto && (
+        <PhotoLightbox url={expandedPhoto} onClose={() => setExpandedPhoto(null)} />
+      )}
+
       <div className="fixed inset-0 z-40 bg-black/40 backdrop-blur-sm" onClick={onClose} />
 
       <div className="fixed right-0 top-0 bottom-0 z-50 flex flex-col bg-white shadow-2xl w-full sm:w-[480px] lg:w-[520px] overflow-hidden">
@@ -459,9 +577,13 @@ export function ToolDrawer({ tool, onClose, onNewMaintenance, onNewCustody, onEd
         {/* Photo Header */}
         <div className="relative flex-shrink-0">
           {imgUrl ? (
-            <div className="h-48 overflow-hidden">
+            <div className="h-48 overflow-hidden cursor-pointer" onClick={() => setExpandedPhoto(imgUrl)}>
               <img src={imgUrl} alt={tool.name} className="w-full h-full object-cover" />
               <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent" />
+              {/* Zoom hint */}
+              <div className="absolute bottom-16 right-3 bg-black/50 text-white rounded-lg p-1.5">
+                <ZoomIn size={14} />
+              </div>
             </div>
           ) : (
             <div className="h-36 bg-gradient-to-br from-slate-700 to-slate-900 flex items-center justify-center">
@@ -497,57 +619,88 @@ export function ToolDrawer({ tool, onClose, onNewMaintenance, onNewCustody, onEd
                   <p className={cn('text-xs', imgUrl ? 'text-white/70' : 'text-gray-400')}>{tool.category}</p>
                 )}
               </div>
+              {/* Status badge */}
+              <span className={cn('text-xs font-semibold px-2.5 py-1 rounded-full flex-shrink-0', statusCfg.bg, statusCfg.text)}>
+                {statusCfg.label}
+              </span>
             </div>
           </div>
         </div>
 
-        {/* FIX 4: Status cards row — use currentLocation */}
+        {/* Status cards row */}
         <div className="grid grid-cols-3 divide-x divide-gray-100 border-b border-gray-100 flex-shrink-0">
-          {/* Localização atual */}
           <div className="px-4 py-3 text-center">
             <p className="text-xs text-gray-400 mb-1">Localização</p>
-            <p className="text-xs font-semibold text-gray-700 truncate">
-              {locationLabel}
-            </p>
+            <p className="text-xs font-semibold text-gray-700 truncate">{locationLabel}</p>
           </div>
-          {/* Garantia */}
           <div className="px-4 py-3 text-center">
             <p className="text-xs text-gray-400 mb-1">Garantia</p>
-            {tool.isUnderWarranty ? (
-              <p className="text-xs font-semibold text-green-600">✅ Ativa</p>
-            ) : (
-              <p className="text-xs font-semibold text-gray-400">Não</p>
-            )}
+            {tool.isUnderWarranty
+              ? <p className="text-xs font-semibold text-green-600">✅ Ativa</p>
+              : <p className="text-xs font-semibold text-gray-400">Não</p>
+            }
           </div>
-          {/* Próx. Manutenção */}
           <div className="px-4 py-3 text-center">
             <p className="text-xs text-gray-400 mb-1">Próx. Manutenção</p>
-            {tool.nextMaintenance ? (
-              <p className={cn('text-xs font-semibold', maintenanceOverdue ? 'text-red-600' : 'text-gray-700')}>
-                {formatDateBR(tool.nextMaintenance)}
-              </p>
-            ) : (
-              <p className="text-xs text-gray-400">—</p>
-            )}
+            {tool.nextMaintenance
+              ? <p className={cn('text-xs font-semibold', maintenanceOverdue ? 'text-red-600' : 'text-gray-700')}>{formatDateBR(tool.nextMaintenance)}</p>
+              : <p className="text-xs text-gray-400">—</p>
+            }
           </div>
         </div>
 
-        {/* Quick actions */}
-        <div className="flex gap-2 px-5 py-3 flex-shrink-0 border-b border-gray-100">
-          {/* FIX 4: cautela manual removida — saída apenas via romaneio */}
-          <a
-            href="/app/deposito/romaneios"
-            className="flex-1 py-2 rounded-xl bg-[#F5A623] text-white text-xs font-semibold hover:bg-[#e09610] transition flex items-center justify-center gap-1.5"
-          >
-            <Package size={13} />Saída via romaneio
-          </a>
-          {onNewMaintenance && (
-            <button
-              onClick={() => onNewMaintenance(tool)}
-              className="flex-1 py-2 rounded-xl border border-gray-200 text-gray-700 text-xs font-semibold hover:bg-gray-50 transition flex items-center justify-center gap-1.5"
+        {/* Quick actions — FIX 4: contextual by toolStatus */}
+        <div className="flex gap-2 px-5 py-3 flex-shrink-0 border-b border-gray-100 flex-wrap">
+
+          {/* DAMAGED → send to maintenance */}
+          {tool.toolStatus === 'DAMAGED' && (
+            <button onClick={handleSendToMaintenance}
+              className="flex-1 min-w-[140px] py-2 rounded-xl bg-purple-600 text-white text-xs font-semibold hover:bg-purple-700 transition flex items-center justify-center gap-1.5"
             >
-              <Wrench size={13} />Nova Manutenção
+              <Wrench size={13} />Enviar p/ manutenção
             </button>
+          )}
+
+          {/* MAINTENANCE → return fixed | discard */}
+          {tool.toolStatus === 'MAINTENANCE' && (
+            <>
+              <button onClick={handleReturnFromMaintenance}
+                className="flex-1 min-w-[140px] py-2 rounded-xl bg-green-600 text-white text-xs font-semibold hover:bg-green-700 transition flex items-center justify-center gap-1.5"
+              >
+                <CheckCircle2 size={13} />Retornou consertada
+              </button>
+              <button onClick={handleDiscard}
+                className="flex-1 min-w-[120px] py-2 rounded-xl border border-red-300 text-red-600 text-xs font-semibold hover:bg-red-50 transition flex items-center justify-center gap-1.5"
+              >
+                <Trash2 size={13} />Descartar
+              </button>
+            </>
+          )}
+
+          {/* AVAILABLE / IN_USE / null → waybill exit + preventive maintenance */}
+          {(!tool.toolStatus || tool.toolStatus === 'AVAILABLE' || tool.toolStatus === 'IN_USE') && (
+            <>
+              <a href="/app/deposito/romaneios"
+                className="flex-1 min-w-[140px] py-2 rounded-xl bg-[#F5A623] text-white text-xs font-semibold hover:bg-[#e09610] transition flex items-center justify-center gap-1.5"
+              >
+                <Package size={13} />Saída via romaneio
+              </a>
+              {onNewMaintenance && (
+                <button onClick={() => onNewMaintenance(tool)}
+                  className="flex-1 min-w-[120px] py-2 rounded-xl border border-gray-200 text-gray-700 text-xs font-semibold hover:bg-gray-50 transition flex items-center justify-center gap-1.5"
+                >
+                  <Wrench size={13} />Manutenção prev.
+                </button>
+              )}
+            </>
+          )}
+
+          {/* DISCARDED / LOST — no actions */}
+          {tool.toolStatus === 'DISCARDED' && (
+            <p className="flex-1 py-2 text-center text-xs text-gray-400 font-medium">🗑️ Ferramenta descartada</p>
+          )}
+          {tool.toolStatus === 'LOST' && (
+            <p className="flex-1 py-2 text-center text-xs text-red-400 font-medium">🚨 Ferramenta extraviada</p>
           )}
         </div>
 
@@ -572,18 +725,17 @@ export function ToolDrawer({ tool, onClose, onNewMaintenance, onNewCustody, onEd
         {/* Tab content */}
         <div className="flex-1 overflow-y-auto">
 
-          {/* Ficha técnica */}
+          {/* Ficha */}
           {tab === 'info' && (
             <div className="p-5 space-y-4">
-              {/* Dados técnicos */}
               <div className="grid grid-cols-2 gap-3">
                 {[
-                  { label: 'Marca',      value: tool.brand,        icon: Tag     },
-                  { label: 'Modelo',     value: tool.model,        icon: Package },
-                  { label: 'Nº Série',   value: tool.serialNumber, icon: Hash    },
-                  { label: 'Localização',value: tool.currentLocation ?? tool.location, icon: MapPin },
+                  { label: 'Marca',        value: tool.brand,        icon: Tag     },
+                  { label: 'Modelo',       value: tool.model,        icon: Package },
+                  { label: 'Nº Série',     value: tool.serialNumber, icon: Hash    },
+                  { label: 'Localização',  value: tool.currentLocation ?? tool.location, icon: MapPin },
                   { label: 'Vl. Unitário', value: tool.unitCost ? formatCurrency(tool.unitCost) : null, icon: Package },
-                  { label: 'Qtd.',       value: `${tool.quantity} ${tool.unit}`, icon: Package },
+                  { label: 'Qtd.',         value: `${tool.quantity} ${tool.unit}`, icon: Package },
                 ].filter(r => r.value).map(r => (
                   <div key={r.label} className="bg-gray-50 rounded-xl p-3">
                     <div className="flex items-center gap-1 mb-0.5">
@@ -602,14 +754,9 @@ export function ToolDrawer({ tool, onClose, onNewMaintenance, onNewCustody, onEd
                 </div>
               )}
 
-              {/* Garantia */}
-              {tool.isUnderWarranty && (
-                <WarrantyCard tool={tool} />
-              )}
+              {tool.isUnderWarranty && <WarrantyCard tool={tool} />}
 
-              {/* Manutenção */}
-              <div className={cn(
-                'rounded-xl border p-4 space-y-2',
+              <div className={cn('rounded-xl border p-4 space-y-2',
                 maintenanceOverdue ? 'bg-red-50 border-red-200' : 'bg-gray-50 border-gray-100',
               )}>
                 <div className="flex items-center gap-2">
@@ -663,18 +810,18 @@ export function ToolDrawer({ tool, onClose, onNewMaintenance, onNewCustody, onEd
                 <MaintenanceTimeline
                   records={maintenances}
                   onAdd={onNewMaintenance ? () => onNewMaintenance(tool) : undefined}
-                  onEdit={onEditMaintenance ? (r) => onEditMaintenance(tool, r) : undefined}
+                  onEdit={onEditMaintenance ? r => onEditMaintenance(tool, r) : undefined}
+                  onExpand={setExpandedPhoto}
                 />
               )}
             </div>
           )}
 
-          {/* Custódias — FIX 3 (rich timeline) + FIX 7 (waybill exits) */}
+          {/* Custódias */}
           {tab === 'custodies' && (
             <div className="p-4">
               <div className="flex items-center justify-between mb-4">
                 <h4 className="text-sm font-semibold text-gray-700">Histórico de Custódia</h4>
-                {/* FIX 4: link to romaneios instead of CustodyModal */}
                 <a
                   href="/app/deposito/romaneios"
                   className="flex items-center gap-1 text-xs text-[#F5A623] font-medium hover:underline"
@@ -688,7 +835,7 @@ export function ToolDrawer({ tool, onClose, onNewMaintenance, onNewCustody, onEd
                 </div>
               ) : (
                 <>
-                  <CustodyTimeline custodies={custodies} />
+                  <CustodyTimeline custodies={custodies} onExpand={setExpandedPhoto} />
                   <WaybillExitsSection exits={waybillExits} />
                 </>
               )}

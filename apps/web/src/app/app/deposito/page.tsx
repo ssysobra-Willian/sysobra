@@ -1967,6 +1967,7 @@ export default function DepositoPage() {
           onNewMaintenance={() => { setMaintenanceTool(selectedTool); setMaintenanceRecord(null) }}
           onNewCustody={() => setCustodyItem(selectedTool)}
           onEditMaintenance={(_tool, record) => { setMaintenanceTool(selectedTool); setMaintenanceRecord(record) }}
+          onRefresh={() => loadAll()}
         />
       )}
 
