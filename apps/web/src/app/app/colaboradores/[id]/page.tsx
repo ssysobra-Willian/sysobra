@@ -49,6 +49,9 @@ interface Employee {
   locationName?:    string | null
   lastTransferDate?: string | null
   project?:         { id: string; name: string; code: string | null } | null
+  // Vínculo com fornecedor
+  supplierId?:      string | null
+  supplier?:        { id: string; name: string; type: string; cpfCnpj?: string | null; cnpj?: string | null; category?: string | null } | null
   // Dados PJ
   pjCnpj?:          string | null
   pjRazaoSocial?:   string | null
@@ -201,8 +204,9 @@ const STATUS_LABELS: Record<string, string> = { ACTIVE: 'Ativo', AWAY: 'Afastado
 const DOC_TYPES = ['RG','CPF','CTPS','ASO','NR35','NR18','CNH','HABILITACAO','CERTIFICADO','CONTRATO','OTHER']
 const VAC_STATUS_LABELS: Record<string, string> = { SCHEDULED: 'Agendado', ACTIVE: 'Em férias', COMPLETED: 'Concluído', CANCELLED: 'Cancelado' }
 
-type Tab = 'Dados pessoais' | 'Documentos' | 'Treinamentos' | 'EPIs' | 'Férias' | 'Histórico de obras'
-const TABS: Tab[] = ['Dados pessoais', 'Documentos', 'Treinamentos', 'EPIs', 'Férias', 'Histórico de obras']
+type Tab = 'Dados pessoais' | 'Documentos' | 'Treinamentos' | 'EPIs' | 'Férias' | 'Financeiro' | 'Histórico de obras'
+const TABS_BASE: Tab[] = ['Dados pessoais', 'Documentos', 'Treinamentos', 'EPIs', 'Férias', 'Histórico de obras']
+const PJ_TYPES = ['PJ', 'THIRD_PARTY']
 
 // ─── Componente ───────────────────────────────────────────────────────────────
 
@@ -398,12 +402,15 @@ export default function ColaboradorPerfilPage() {
       {/* ── Abas ──────────────────────────────────────────────────────── */}
       <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
         <div className="flex border-b border-gray-100 overflow-x-auto">
-          {TABS.map(t => (
+          {(PJ_TYPES.includes(employee.type)
+            ? ['Dados pessoais', 'Documentos', 'Treinamentos', 'EPIs', 'Férias', 'Financeiro', 'Histórico de obras'] as Tab[]
+            : TABS_BASE
+          ).map(t => (
             <button key={t} onClick={() => setTab(t)}
               className={`px-4 py-3.5 text-sm font-medium whitespace-nowrap transition-colors ${
                 tab === t ? 'text-[#F5A623] border-b-2 border-[#F5A623]' : 'text-gray-500 hover:text-gray-700'
               }`}>
-              {t}
+              {t === 'Financeiro' ? '💰 Financeiro' : t}
             </button>
           ))}
         </div>
@@ -606,6 +613,11 @@ export default function ColaboradorPerfilPage() {
             deliveries={employee.epiDeliveries}
             employeeName={employee.name}
           />
+        )}
+
+        {/* Financeiro */}
+        {tab === 'Financeiro' && (
+          <FinancialPanel employee={employee} onOpenEdit={() => setShowEdit(true)} />
         )}
 
         {/* Histórico de obras */}
@@ -1528,6 +1540,175 @@ function HistoryPanel({ employeeId }: { employeeId: string }) {
           })}
         </div>
       </div>
+    </div>
+  )
+}
+
+// ─── Subcomp: Financeiro / NFs ────────────────────────────────────────────────
+
+function fmtCurrency(v: number | null | undefined): string {
+  if (v == null) return '—'
+  return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v)
+}
+
+function FinancialPanel({
+  employee, onOpenEdit,
+}: {
+  employee: Employee
+  onOpenEdit: () => void
+}) {
+  const [data,    setData]    = useState<any>(null)
+  const [loading, setLoading] = useState(false)
+  const [error,   setError]   = useState('')
+
+  useEffect(() => {
+    if (!employee.supplierId) return
+    setLoading(true); setError('')
+    fetch(`${API}/api/v1/employees/${employee.id}/financial-summary`, { headers: getHeaders() })
+      .then(r => r.json())
+      .then(setData)
+      .catch(() => setError('Erro ao carregar dados financeiros'))
+      .finally(() => setLoading(false))
+  }, [employee.id, employee.supplierId])
+
+  if (!employee.supplierId) {
+    return (
+      <div className="flex flex-col items-center justify-center py-14 px-6 text-center">
+        <div className="w-16 h-16 rounded-2xl bg-gray-100 flex items-center justify-center mb-4">
+          <DollarSign size={28} className="text-gray-300" />
+        </div>
+        <p className="text-sm font-semibold text-gray-700 mb-1">Nenhum fornecedor vinculado</p>
+        <p className="text-xs text-gray-400 mb-4 max-w-xs">
+          Vincule um fornecedor para rastrear pagamentos e NFs deste colaborador
+        </p>
+        <button
+          onClick={onOpenEdit}
+          className="px-5 py-2 bg-[#F5A623] text-white text-sm font-semibold rounded-xl hover:bg-[#d4891a] transition-colors"
+        >
+          Vincular fornecedor
+        </button>
+      </div>
+    )
+  }
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-14">
+        <Loader2 size={22} className="animate-spin text-[#F5A623]" />
+      </div>
+    )
+  }
+
+  if (error) {
+    return <div className="p-6 text-sm text-red-600">{error}</div>
+  }
+
+  if (!data?.hasSupplier) {
+    return <div className="p-6 text-sm text-gray-400">Sem dados financeiros.</div>
+  }
+
+  const { supplier, summary, porObra, porMes, ultimosLancamentos } = data
+
+  return (
+    <div className="p-5 space-y-5">
+      {/* Link para o fornecedor */}
+      <div className="flex items-center gap-3 p-3 bg-gray-50 border border-gray-200 rounded-xl">
+        <div className="w-9 h-9 rounded-xl bg-amber-100 flex items-center justify-center font-bold text-sm text-amber-800 flex-shrink-0">
+          {supplier.name.slice(0, 2).toUpperCase()}
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="text-sm font-semibold text-gray-800 truncate">{supplier.name}</div>
+          <div className="text-xs text-gray-500">
+            {supplier.cpfCnpj || supplier.cnpj || '—'}
+          </div>
+        </div>
+        <Link
+          href={`/app/financeiro/fornecedores/${employee.supplierId}`}
+          className="text-xs text-[#F5A623] font-medium flex items-center gap-1 flex-shrink-0 hover:underline"
+        >
+          Ver cadastro <ExternalLink size={11} />
+        </Link>
+      </div>
+
+      {/* Cards de métricas */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        {[
+          { label: 'Total pago',       value: fmtCurrency(summary.totalPago) },
+          { label: 'Total de NFs',     value: String(summary.totalNFs) },
+          { label: 'Ticket médio',     value: fmtCurrency(summary.ticketMedio) },
+          {
+            label: 'Último pagamento',
+            value: summary.ultimoLancamento
+              ? new Date(summary.ultimoLancamento).toLocaleDateString('pt-BR')
+              : '—',
+          },
+        ].map(({ label, value }) => (
+          <div key={label} className="bg-gray-50 border border-gray-200 rounded-xl p-3.5">
+            <div className="text-xs text-gray-500 mb-1">{label}</div>
+            <div className="text-lg font-bold text-gray-800">{value}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Gastos por obra */}
+      {porObra?.length > 0 && (
+        <div>
+          <h4 className="text-sm font-semibold text-gray-700 mb-3">Pagamentos por obra</h4>
+          <div className="space-y-2">
+            {porObra.map((obra: any) => (
+              <div key={obra.projectId || 'sem'} className="flex items-center gap-3">
+                <span className="flex-1 text-sm text-gray-700 truncate min-w-0">{obra.name}</span>
+                <div className="w-32 h-2 bg-gray-100 rounded-full overflow-hidden flex-shrink-0">
+                  <div
+                    className="h-full bg-[#F5A623] rounded-full"
+                    style={{ width: `${summary.totalPago > 0 ? (obra.total / summary.totalPago) * 100 : 0}%` }}
+                  />
+                </div>
+                <span className="text-sm font-semibold text-gray-800 w-28 text-right flex-shrink-0">
+                  {fmtCurrency(obra.total)}
+                </span>
+                <span className="text-xs text-gray-400 w-10 flex-shrink-0">
+                  {obra.count}NF{obra.count > 1 ? 's' : ''}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Últimos lançamentos */}
+      {ultimosLancamentos?.length > 0 && (
+        <div>
+          <div className="flex items-center justify-between mb-3">
+            <h4 className="text-sm font-semibold text-gray-700">Últimos pagamentos</h4>
+            <Link
+              href={`/app/financeiro/fornecedores/${employee.supplierId}`}
+              className="text-xs text-[#F5A623] hover:underline"
+            >
+              Ver todos →
+            </Link>
+          </div>
+          <div className="divide-y divide-gray-100">
+            {ultimosLancamentos.map((t: any) => (
+              <div key={t.id} className="flex items-center gap-3 py-2.5">
+                <div className="w-8 h-8 rounded-full bg-red-50 flex items-center justify-center flex-shrink-0">
+                  <DollarSign size={14} className="text-red-500" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-medium text-gray-800 truncate">{t.description}</div>
+                  <div className="text-xs text-gray-400">
+                    {t.project?.name || 'Sem obra'}
+                    {t.paymentDate && ` · ${new Date(t.paymentDate).toLocaleDateString('pt-BR')}`}
+                  </div>
+                </div>
+                <div className="text-sm font-semibold text-red-600 flex-shrink-0">
+                  {fmtCurrency(t.netValue ?? t.amount)}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   )
 }

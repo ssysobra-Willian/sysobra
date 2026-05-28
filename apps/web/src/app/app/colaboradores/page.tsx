@@ -38,6 +38,8 @@ interface Employee {
   admissionDate: string | null
   projectId?:    string | null
   project?:      { id: string; name: string; code: string | null } | null
+  supplierId?:   string | null
+  supplier?:     { id: string; name: string } | null
   documents?:    { id: string; expiryDate?: string | null; isExpired?: boolean; isExpiringSoon?: boolean }[]
   hasExpiredDocs?:  boolean
   hasExpiringDocs?: boolean
@@ -562,9 +564,19 @@ export default function ColaboradoresPage() {
                             <span className="font-mono text-xs text-gray-500">{emp.code}</span>
                           </td>
                           <td className="px-3 py-3">
-                            <span className={`text-[11px] font-medium px-2 py-0.5 rounded-full border ${TYPE_COLORS[emp.type] ?? 'bg-gray-100 text-gray-600 border-gray-200'}`}>
-                              {TYPE_LABELS[emp.type] ?? emp.type}
-                            </span>
+                            <div className="flex items-center gap-1.5">
+                              <span className={`text-[11px] font-medium px-2 py-0.5 rounded-full border ${TYPE_COLORS[emp.type] ?? 'bg-gray-100 text-gray-600 border-gray-200'}`}>
+                                {TYPE_LABELS[emp.type] ?? emp.type}
+                              </span>
+                              {emp.supplierId && (
+                                <span title={`Fornecedor: ${emp.supplier?.name ?? 'vinculado'}`}
+                                  className="text-[#F5A623] text-xs">🔗</span>
+                              )}
+                              {['PJ', 'THIRD_PARTY'].includes(emp.type) && !emp.supplierId && (
+                                <span title="Sem fornecedor vinculado — pagamentos não rastreados"
+                                  className="text-amber-500 text-xs">⚠️</span>
+                              )}
+                            </div>
                           </td>
                           <td className="px-3 py-3 text-xs text-gray-600">{emp.role ?? '—'}</td>
                           <td className="px-3 py-3 text-xs text-gray-600">

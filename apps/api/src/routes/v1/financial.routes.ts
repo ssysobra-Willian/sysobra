@@ -286,6 +286,7 @@ export async function financialRoutes(app: FastifyInstance) {
       topProjects,
       recentTx,
       bankAccounts,
+      pjSemFornecedor,
     ] = await Promise.all([
       // saldo atual: INCOME pago - EXPENSE pago
       prisma.financialTransaction.aggregate({
@@ -404,6 +405,16 @@ export async function financialRoutes(app: FastifyInstance) {
         where: { companyId, isActive: true },
         select: { id: true, name: true, balance: true, accountType: true },
       }),
+      // PJ/Terceirizado sem fornecedor vinculado
+      (prisma as any).employee.count({
+        where: {
+          companyId,
+          isActive:    true,
+          status:      'ACTIVE',
+          type:        { in: ['PJ', 'THIRD_PARTY'] },
+          supplierId:  null,
+        },
+      }),
     ])
 
     // ── cashflow por mês ──────────────────────────────────────────────────
@@ -463,6 +474,9 @@ export async function financialRoutes(app: FastifyInstance) {
       expensesByCategory,
       topProjectsByExpense,
       recentAuditLogs: recentTx,
+      alerts: {
+        pjSemFornecedor: pjSemFornecedor ?? 0,
+      },
     })
   })
 

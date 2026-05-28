@@ -60,6 +60,7 @@ interface DashboardData {
   expensesByCategory:{ id: string; name: string; color: string; total: number }[]
   topProjectsByExpense: { id: string; name: string; total: number }[]
   recentTransactions: Transaction[]
+  alerts?: { pjSemFornecedor?: number }
 }
 
 interface Transaction {
@@ -213,11 +214,13 @@ function AlertsCard({ data, loading }: { data: DashboardData | null; loading: bo
   const alerts = []
   if (data) {
     if (data.overduePayable.count > 0)
-      alerts.push({ color: 'red',  icon: AlertTriangle, title: `${data.overduePayable.count} conta(s) a pagar vencida(s)`, desc: `Total: ${fmt(data.overduePayable.amount)}` })
+      alerts.push({ color: 'red',  icon: AlertTriangle, title: `${data.overduePayable.count} conta(s) a pagar vencida(s)`, desc: `Total: ${fmt(data.overduePayable.amount)}`, href: undefined })
     if (data.overdueReceivable.count > 0)
-      alerts.push({ color: 'amber', icon: AlertTriangle, title: `${data.overdueReceivable.count} recebimento(s) vencido(s)`, desc: `Total: ${fmt(data.overdueReceivable.amount)}` })
+      alerts.push({ color: 'amber', icon: AlertTriangle, title: `${data.overdueReceivable.count} recebimento(s) vencido(s)`, desc: `Total: ${fmt(data.overdueReceivable.amount)}`, href: undefined })
     if (data.payableToday.count > 0)
-      alerts.push({ color: 'blue',  icon: Clock, title: `${data.payableToday.count} vencimento(s) hoje`, desc: `Total: ${fmt(data.payableToday.amount)}` })
+      alerts.push({ color: 'blue',  icon: Clock, title: `${data.payableToday.count} vencimento(s) hoje`, desc: `Total: ${fmt(data.payableToday.amount)}`, href: undefined })
+    if ((data.alerts?.pjSemFornecedor ?? 0) > 0)
+      alerts.push({ color: 'amber', icon: AlertTriangle, title: `${data.alerts!.pjSemFornecedor} colaborador(es) PJ/Terceirizado sem fornecedor`, desc: 'Pagamentos destes colaboradores não estão sendo rastreados', href: '/app/colaboradores' })
   }
   const scheme = {
     red:   { bg: 'bg-red-50',    border: 'border-red-200',    icon: 'text-red-500',    text: 'text-red-700'    },
@@ -242,9 +245,14 @@ function AlertsCard({ data, loading }: { data: DashboardData | null; loading: bo
           return (
             <div key={i} className={`flex items-start gap-3 p-3 rounded-xl border ${s.bg} ${s.border}`}>
               <a.icon size={15} className={`flex-shrink-0 mt-0.5 ${s.icon}`} />
-              <div>
+              <div className="flex-1 min-w-0">
                 <p className={`text-xs font-semibold ${s.text}`}>{a.title}</p>
                 <p className="text-[11px] text-gray-500 mt-0.5">{a.desc}</p>
+                {a.href && (
+                  <a href={a.href} className={`text-[11px] font-medium mt-1 block hover:underline ${s.text}`}>
+                    Ver colaboradores →
+                  </a>
+                )}
               </div>
             </div>
           )

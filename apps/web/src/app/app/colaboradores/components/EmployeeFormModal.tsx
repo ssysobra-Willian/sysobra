@@ -163,6 +163,16 @@ const EMPTY: EmployeeFormData = {
 
 // ─── Componente ───────────────────────────────────────────────────────────────
 
+interface SupplierResult {
+  id:        string
+  name:      string
+  type:      string
+  document?: string | null
+  cpfCnpj?:  string | null
+  cnpj?:     string | null
+  category?: string | null
+}
+
 export function EmployeeFormModal({ isOpen, onClose, onSuccess, editId, projects: projectsProp = [] }: Props) {
   const [form,           setForm]           = useState<EmployeeFormData>(EMPTY)
   const [loading,        setLoading]        = useState(false)
@@ -172,6 +182,13 @@ export function EmployeeFormModal({ isOpen, onClose, onSuccess, editId, projects
   const [uploadingPhoto, setUploadingPhoto] = useState(false)
   const [cepLoading,     setCepLoading]     = useState(false)
   const [projects,       setProjects]       = useState<Project[]>(projectsProp)
+
+  // Vínculo com fornecedor
+  const [supplierId,      setSupplierId]      = useState('')
+  const [supplierName,    setSupplierName]    = useState('')
+  const [supplierSearch,  setSupplierSearch]  = useState('')
+  const [supplierResults, setSupplierResults] = useState<SupplierResult[]>([])
+  const [supplierSearchT, setSupplierSearchT] = useState<ReturnType<typeof setTimeout> | null>(null)
 
   const isEdit = !!editId
 
@@ -187,6 +204,13 @@ export function EmployeeFormModal({ isOpen, onClose, onSuccess, editId, projects
       const active = list.filter((p: any) => !['COMPLETED','CANCELLED'].includes(p.status))
       setProjects(active.map((p: any) => ({ id: p.id, name: p.name, code: p.code ?? null })))
     }).catch(() => {})
+  }, [isOpen])
+
+  // Reset supplier state ao fechar
+  useEffect(() => {
+    if (!isOpen) {
+      setSupplierId(''); setSupplierName(''); setSupplierSearch(''); setSupplierResults([])
+    }
   }, [isOpen])
 
   // Carregar dados para edição
@@ -252,6 +276,8 @@ export function EmployeeFormModal({ isOpen, onClose, onSuccess, editId, projects
                 : maskCnpj(emp.bankHolderDoc))
             : '',
         })
+        if (emp.supplierId)      setSupplierId(emp.supplierId)
+        if (emp.supplier?.name)  setSupplierName(emp.supplier.name)
       }).finally(() => setLoadingInit(false))
     }
   }, [isOpen, editId])
@@ -278,6 +304,25 @@ export function EmployeeFormModal({ isOpen, onClose, onSuccess, editId, projects
       setCepLoading(false)
     }
   }, [])
+
+  const searchSuppliers = useCallback((query: string) => {
+    setSupplierSearch(query)
+    if (supplierSearchT) clearTimeout(supplierSearchT)
+    if (query.length < 2) { setSupplierResults([]); return }
+    const t = setTimeout(async () => {
+      try {
+        const token     = localStorage.getItem('token')     ?? ''
+        const companyId = localStorage.getItem('companyId') ?? ''
+        const res  = await fetch(
+          `${API}/api/v1/suppliers?search=${encodeURIComponent(query)}&limit=5`,
+          { headers: { Authorization: `Bearer ${token}`, 'x-company-id': companyId } },
+        )
+        const data = await res.json()
+        setSupplierResults(data.suppliers ?? data ?? [])
+      } catch { setSupplierResults([]) }
+    }, 300)
+    setSupplierSearchT(t)
+  }, [supplierSearchT])
 
   const handlePhotoUpload = useCallback(async (file: File) => {
     setUploadingPhoto(true)
@@ -371,6 +416,7 @@ export function EmployeeFormModal({ isOpen, onClose, onSuccess, editId, projects
           bankAccountType: form.bankType === 'TED_DOC' ? (form.bankAccountType || null) : null,
           bankHolderName:  form.bankHolderName  || null,
           bankHolderDoc:   form.bankHolderDoc   ? form.bankHolderDoc.replace(/\D/g,'') : null,
+          supplierId:      supplierId || null,
         }),
       })
       const data = await res.json()
@@ -622,6 +668,82 @@ export function EmployeeFormModal({ isOpen, onClose, onSuccess, editId, projects
                     </div>
                   </div>
                 </div>
+
+                {/* ── Vínculo com fornecedor (PJ / Terceirizado) ── */}
+                {['PJ', 'THIRD_PARTY'].includes(form.type) && (
+                  <div className="mt-4 bg-gray-50 border border-gray-200 rounded-xl p-4 space-y-3">
+                    <div className="flex items-center gap-2 mb-1">
+                      <Building2 size={14} className="text-[#F5A623]" />
+                      <h4 className="text-sm font-semibold text-gray-700">Vínculo com fornecedor</h4>
+                    </div>
+                    <p className="text-xs text-gray-500">
+                      Colaboradores {form.type === 'PJ' ? 'PJ' : 'terceirizados'} podem ser vinculados
+                      a um fornecedor para rastrear pagamentos e NFs.
+                    </p>
+                    {!supplierId ? (
+                      <div className="relative">
+                        <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
+                          Buscar fornecedor cadastrado
+                        </label>
+                        <div className="relative">
+                          <input
+                            type="text"
+                            value={supplierSearch}
+                            onChange={e => searchSuppliers(e.target.value)}
+                            placeholder="Buscar por nome, CPF ou CNPJ..."
+                            className="w-full border border-gray-200 rounded-xl px-3 py-2.5 pl-9 text-sm focus:outline-none focus:ring-2 focus:ring-orange-300"
+                          />
+                          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs">🔍</span>
+                        </div>
+                        {supplierResults.length > 0 && (
+                          <div className="absolute z-10 left-0 right-0 bg-white border border-gray-200 rounded-xl mt-1 shadow-lg max-h-48 overflow-y-auto">
+                            {supplierResults.map(s => (
+                              <button
+                                key={s.id}
+                                type="button"
+                                onClick={() => {
+                                  setSupplierId(s.id)
+                                  setSupplierName(s.name)
+                                  setSupplierSearch('')
+                                  setSupplierResults([])
+                                }}
+                                className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-gray-50 text-left border-b border-gray-100 last:border-0"
+                              >
+                                <div className="w-8 h-8 rounded-full bg-amber-100 flex items-center justify-center font-bold text-xs text-amber-800 flex-shrink-0">
+                                  {s.name.slice(0, 2).toUpperCase()}
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <div className="text-sm font-medium text-gray-800 truncate">{s.name}</div>
+                                  <div className="text-xs text-gray-500">
+                                    {s.cpfCnpj || s.cnpj || '—'}
+                                    {s.category && ` · ${s.category}`}
+                                  </div>
+                                </div>
+                                <span className="text-[#F5A623] text-xs">Vincular →</span>
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                        <p className="text-xs text-gray-400 mt-1.5">Deixe em branco para vincular depois</p>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-3 p-3 bg-green-50 border border-green-200 rounded-xl">
+                        <span className="text-green-600 text-base">✓</span>
+                        <div className="flex-1 min-w-0">
+                          <div className="text-sm font-semibold text-green-800 truncate">{supplierName}</div>
+                          <div className="text-xs text-green-700 opacity-80">Fornecedor vinculado — pagamentos serão rastreados</div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => { setSupplierId(''); setSupplierName('') }}
+                          className="text-xs text-red-500 hover:text-red-700 flex-shrink-0"
+                        >
+                          <X size={14} />
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 {/* ── FIX 2: Dados da empresa PJ (condicional) ── */}
                 {form.type === 'PJ' && (

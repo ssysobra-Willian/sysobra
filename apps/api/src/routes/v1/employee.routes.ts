@@ -238,6 +238,7 @@ export async function employeeRoutes(app: FastifyInstance) {
         where,
         include: {
           project:   { select: { id: true, name: true, code: true } },
+          supplier:  { select: { id: true, name: true } },
           documents: { where: { isActive: true }, select: { id: true, expiryDate: true, type: true, name: true } },
           _count:    { select: { trainings: { where: { isActive: true } } } },
         },
@@ -314,6 +315,7 @@ export async function employeeRoutes(app: FastifyInstance) {
       bankAccountType?:  string
       bankHolderName?:   string
       bankHolderDoc?:    string
+      supplierId?:       string | null
     }
 
     if (!body.name || !body.admissionDate || !body.type || !body.role) {
@@ -341,6 +343,14 @@ export async function employeeRoutes(app: FastifyInstance) {
         where: { id: body.projectId, companyId, isActive: true },
       })
       if (!project) return reply.status(404).send({ error: 'Obra não encontrada' })
+    }
+
+    // Validar fornecedor se fornecido
+    if (body.supplierId) {
+      const supplier = await p.supplier.findFirst({ where: { id: body.supplierId, companyId } })
+      if (!supplier) {
+        return reply.status(400).send({ error: 'INVALID_SUPPLIER', message: 'Fornecedor não encontrado ou não pertence a esta empresa' })
+      }
     }
 
     const code = await nextEmployeeCode(companyId)
@@ -391,10 +401,14 @@ export async function employeeRoutes(app: FastifyInstance) {
         bankAccountType: body.bankAccountType  ?? null,
         bankHolderName:  body.bankHolderName  ?? null,
         bankHolderDoc:   body.bankHolderDoc   ? body.bankHolderDoc.replace(/\D/g, '') : null,
+        supplierId:      body.supplierId       ?? null,
         status:        'ACTIVE',
         isActive:      true,
       },
-      include: { project: { select: { id: true, name: true, code: true } } },
+      include: {
+        project:  { select: { id: true, name: true, code: true } },
+        supplier: { select: { id: true, name: true, type: true, cpfCnpj: true, cnpj: true } },
+      },
     })
 
     await createAuditLog({
@@ -424,6 +438,7 @@ export async function employeeRoutes(app: FastifyInstance) {
       where: { id, companyId, isActive: true },
       include: {
         project:    { select: { id: true, name: true, code: true, status: true } },
+        supplier:   { select: { id: true, name: true, type: true, cpfCnpj: true, cnpj: true, category: true } },
         documents:  { where: { isActive: true }, orderBy: { expiryDate: 'asc' } },
         trainings:  { where: { isActive: true }, orderBy: { expiresAt:  'asc' } },
         vacations:  { where: { isActive: true }, orderBy: { startDate: 'desc' } },
@@ -465,6 +480,14 @@ export async function employeeRoutes(app: FastifyInstance) {
       })
       if (dup) return reply.status(409).send({ error: `CPF já cadastrado para o colaborador "${dup.name}"` })
       body.cpf = cleanCpf
+    }
+
+    // Validar fornecedor se fornecido
+    if (body.supplierId) {
+      const supplier = await p.supplier.findFirst({ where: { id: body.supplierId, companyId } })
+      if (!supplier) {
+        return reply.status(400).send({ error: 'INVALID_SUPPLIER', message: 'Fornecedor não encontrado ou não pertence a esta empresa' })
+      }
     }
 
     const updated = await p.employee.update({
@@ -512,8 +535,12 @@ export async function employeeRoutes(app: FastifyInstance) {
         bankAccountType: body.bankAccountType  !== undefined ? (body.bankAccountType  || null) : undefined,
         bankHolderName:  body.bankHolderName  !== undefined ? (body.bankHolderName  || null) : undefined,
         bankHolderDoc:   body.bankHolderDoc   !== undefined ? (body.bankHolderDoc ? body.bankHolderDoc.replace(/\D/g, '') : null) : undefined,
+        supplierId:      body.supplierId      !== undefined ? (body.supplierId || null) : undefined,
       },
-      include: { project: { select: { id: true, name: true, code: true } } },
+      include: {
+        project:  { select: { id: true, name: true, code: true } },
+        supplier: { select: { id: true, name: true, type: true, cpfCnpj: true, cnpj: true } },
+      },
     })
 
     await createAuditLog({
@@ -528,6 +555,79 @@ export async function employeeRoutes(app: FastifyInstance) {
     })
 
     return reply.send(serialiseEmployee(updated))
+  })
+
+  /**
+   * GET /api/v1/employees/:id/financial-summary
+   * Resumo financeiro do colaborador PJ/Terceirizado via fornecedor vinculado.
+   */
+  app.get('/:id/financial-summary', async (request, reply) => {
+    const req       = request as RequestWithMember
+    const companyId = req.companyId!
+    const { id }    = request.params as { id: string }
+
+    const employee = await p.employee.findFirst({
+      where:   { id, companyId, isActive: true },
+      include: { supplier: true },
+    })
+    if (!employee) return reply.status(404).send({ error: 'Colaborador não encontrado' })
+
+    if (!employee.supplierId) {
+      return reply.send({ hasSupplier: false })
+    }
+
+    const transactions = await p.financialTransaction.findMany({
+      where: {
+        companyId,
+        supplierId: employee.supplierId,
+        isActive:   true,
+        isPaid:     true,
+        type:       'EXPENSE',
+      },
+      include: {
+        project:  { select: { id: true, name: true } },
+        category: { select: { id: true, name: true } },
+      },
+      orderBy: { paymentDate: 'desc' },
+    })
+
+    const totalPago  = transactions.reduce((s: number, t: any) => s + Number(t.netValue ?? t.amount ?? 0), 0)
+    const totalNFs   = transactions.length
+    const ticketMedio = totalNFs > 0 ? totalPago / totalNFs : 0
+
+    const porObraMap: Record<string, any> = {}
+    for (const t of transactions) {
+      const key  = t.projectId || 'sem-obra'
+      const name = t.project?.name || 'Sem obra'
+      if (!porObraMap[key]) porObraMap[key] = { projectId: t.projectId, name, total: 0, count: 0 }
+      porObraMap[key].total += Number(t.netValue ?? t.amount ?? 0)
+      porObraMap[key].count++
+    }
+
+    const porMesMap: Record<string, any> = {}
+    for (const t of transactions) {
+      const mes = t.paymentDate
+        ? new Date(t.paymentDate).toISOString().slice(0, 7)
+        : 'sem-data'
+      if (!porMesMap[mes]) porMesMap[mes] = { mes, total: 0, count: 0 }
+      porMesMap[mes].total += Number(t.netValue ?? t.amount ?? 0)
+      porMesMap[mes].count++
+    }
+
+    return reply.send({
+      hasSupplier: true,
+      supplier:    employee.supplier,
+      summary: {
+        totalPago,
+        totalNFs,
+        ticketMedio,
+        primeiroLancamento: transactions.length > 0 ? transactions[transactions.length - 1].paymentDate : null,
+        ultimoLancamento:   transactions.length > 0 ? transactions[0].paymentDate : null,
+      },
+      porObra:            Object.values(porObraMap).sort((a: any, b: any) => b.total - a.total),
+      porMes:             Object.values(porMesMap).sort((a: any, b: any) => a.mes.localeCompare(b.mes)),
+      ultimosLancamentos: transactions.slice(0, 10),
+    })
   })
 
   /**
