@@ -309,7 +309,11 @@ export async function depositRoutes(app: FastifyInstance) {
       where.isUniform       = false
       where.requiresCustody = false
     }
-    if (waybillCategory === 'TOOL')        where.requiresCustody = true
+    if (waybillCategory === 'TOOL') {
+      where.requiresCustody = true
+      // Só mostrar ferramentas disponíveis no seletor de romaneio
+      where.OR = [{ toolStatus: null }, { toolStatus: 'AVAILABLE' }]
+    }
     if (waybillCategory === 'EPI_UNIFORM') where.OR = [{ isEpi: true }, { isUniform: true }]
 
     // ── Quando locationId é fornecido: mostrar itens com saldo no local ──────
@@ -2070,7 +2074,7 @@ ${_basketFooter}
       maintenanceId: z.string().optional(),
       performedBy:   z.string().optional(),
       description:   z.string().optional(),
-    }).parse(request.body)
+    }).parse(request.body ?? {})
 
     const item = await p().stockItem.findFirst({
       where: { id, companyId: cid, isActive: true },
@@ -2105,7 +2109,7 @@ ${_basketFooter}
     const body = z.object({
       notes:               z.string().optional(),
       nextMaintenanceDate: z.string().optional(),
-    }).parse(request.body)
+    }).parse(request.body ?? {})
 
     const item = await p().stockItem.findFirst({ where: { id, companyId: cid, isActive: true } })
     if (!item) return reply.status(404).send({ error: 'Ferramenta não encontrada' })

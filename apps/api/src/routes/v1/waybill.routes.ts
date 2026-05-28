@@ -146,10 +146,12 @@ async function baixarEstoque(
       })
 
       // Atualizar StockItem.quantity (campo global — exibido na UI de estoque)
-      // + currentLocation para ferramentas
+      // + toolStatus/currentLocation para ferramentas
       const stockItemData: any = { quantity: { decrement: qty } }
       if (waybill?.category === 'TOOL') {
-        stockItemData.currentLocation = destLabel
+        stockItemData.currentLocation  = destLabel
+        stockItemData.toolStatus       = 'IN_USE'
+        stockItemData.currentProjectId = waybill?.destinationProject?.id ?? null
       }
       await tx.stockItem.update({
         where: { id: itemId },

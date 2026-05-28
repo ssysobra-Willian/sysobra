@@ -480,6 +480,7 @@ const TOOL_STATUS_CONFIG: Record<string, { label: string; bg: string; text: stri
   MAINTENANCE: { label: '🔧 Manutenção',   bg: 'bg-purple-100', text: 'text-purple-700' },
   DAMAGED:     { label: '❌ Danificada',   bg: 'bg-red-100',    text: 'text-red-700'    },
   LOST:        { label: '🚨 Extraviada',   bg: 'bg-red-100',    text: 'text-red-700'    },
+  DISCARDED:   { label: '🗑️ Descartada',   bg: 'bg-gray-100',   text: 'text-gray-500'   },
 }
 
 function ToolsTable({ items, onView, onEdit, onCustody, onMaintenance, onSendToMaintenance, onReturn, selectedLocationId }: {
