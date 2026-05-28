@@ -1252,6 +1252,9 @@ model StockItem {
   // Manutenção preventiva
   lastMaintenance  DateTime? @map("last_maintenance")
   nextMaintenance  DateTime? @map("next_maintenance")
+  // Status operacional (ferramentas/equipamentos)
+  toolStatus       String?   @default("AVAILABLE") @map("tool_status")
+  // AVAILABLE | IN_USE | MAINTENANCE | DAMAGED | LOST
   createdAt        DateTime @default(now()) @map("created_at")
   updatedAt        DateTime @updatedAt @map("updated_at")
 
@@ -1426,10 +1429,17 @@ model ToolCustody {
   checkedOutAt    DateTime  @default(now()) @map("checked_out_at")
   dueDate         DateTime? @map("due_date")
   returnedAt      DateTime? @map("returned_at")
-  condition       String?
-  conditionOnReturn String? @map("condition_on_return")
-  notes           String?
-  createdAt       DateTime  @default(now()) @map("created_at")
+  condition           String?
+  conditionOnReturn   String?   @map("condition_on_return")
+  notes               String?
+  // Foto e assinatura na saída
+  photoUrl            String?   @map("photo_url")
+  // Devolução enriquecida
+  photoOnReturnUrl    String?   @map("photo_on_return_url")
+  returnSignatureUrl  String?   @map("return_signature_url")
+  returnedBy          String?   @map("returned_by")
+  returnNotes         String?   @map("return_notes")
+  createdAt           DateTime  @default(now()) @map("created_at")
 
   company     Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
   stockItem   StockItem @relation(fields: [stockItemId], references: [id], onDelete: Cascade)

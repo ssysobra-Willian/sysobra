@@ -7,7 +7,7 @@ import {
   Filter, ChevronDown, ChevronUp, MoreHorizontal, Eye, Edit2, Trash2,
   ArrowDownToLine, ArrowUpFromLine, RotateCcw, XCircle, Loader2,
   CheckCircle2, Calendar, MapPin, Tag, Users, SlidersHorizontal, X,
-  ArrowLeftRight, Zap, Warehouse,
+  ArrowLeftRight, Zap, Warehouse, Camera, PenLine, CornerDownLeft,
 } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { cn } from '@/lib/utils'
@@ -86,6 +86,8 @@ interface StockItem {
   brand?:         string | null
   model?:         string | null
   serialNumber?:  string | null
+  toolType?:      string | null
+  toolStatus?:    string | null
   isConsumable:   boolean
   requiresCustody:boolean
   isEpi:          boolean
@@ -97,6 +99,7 @@ interface StockItem {
   nextMaintenance?:   string | null
   currentLocation?:   string | null
   currentProject?:    { id: string; name: string } | null
+  stockBalances?:     { locationId: string; quantity: number }[] | null
   supplierLots?:     any[]
   _count?:           { movements: number; custodies: number; epiDeliveries: number }
 }
@@ -463,36 +466,74 @@ function MaterialsTable({ items, onView, onEdit, onCustody, onBasket }: {
 
 // ─── Tools Table ─────────────────────────────────────────────────────────────
 
-function ToolsTable({ items, onView, onEdit, onCustody, onMaintenance }: {
-  items:          StockItem[]
-  onView:         (item: StockItem) => void
-  onEdit?:        (item: StockItem) => void
-  onCustody:      (item: StockItem) => void
-  onMaintenance:  (item: StockItem) => void
+const TOOL_TYPE_LABEL: Record<string, string> = {
+  MANUAL:     '🔧 Manual',
+  ELECTRIC:   '⚡ Elétrica',
+  PNEUMATIC:  '💨 Pneumática',
+  HYDRAULIC:  '💧 Hidráulica',
+  MEASURING:  '📐 Medição',
+}
+
+const TOOL_STATUS_CONFIG: Record<string, { label: string; bg: string; text: string }> = {
+  AVAILABLE:   { label: '✅ Disponível',   bg: 'bg-green-100',  text: 'text-green-700'  },
+  IN_USE:      { label: '⚙️ Em uso',       bg: 'bg-blue-100',   text: 'text-blue-700'   },
+  MAINTENANCE: { label: '🔧 Manutenção',   bg: 'bg-purple-100', text: 'text-purple-700' },
+  DAMAGED:     { label: '❌ Danificada',   bg: 'bg-red-100',    text: 'text-red-700'    },
+  LOST:        { label: '🚨 Extraviada',   bg: 'bg-red-100',    text: 'text-red-700'    },
+}
+
+function ToolsTable({ items, onView, onEdit, onCustody, onMaintenance, onReturn, selectedLocationId }: {
+  items:              StockItem[]
+  onView:             (item: StockItem) => void
+  onEdit?:            (item: StockItem) => void
+  onCustody:          (item: StockItem) => void
+  onMaintenance:      (item: StockItem) => void
+  onReturn?:          (item: StockItem) => void
+  selectedLocationId?:string
 }) {
   const [query, setQuery] = useState('')
   const filtered = items.filter(i =>
     !query ||
     i.name.toLowerCase().includes(query.toLowerCase()) ||
     i.serialNumber?.toLowerCase().includes(query.toLowerCase()) ||
-    i.brand?.toLowerCase().includes(query.toLowerCase()),
+    i.brand?.toLowerCase().includes(query.toLowerCase()) ||
+    i.code?.toLowerCase().includes(query.toLowerCase()),
   )
 
-  function warrantyBadge(item: StockItem) {
-    if (!item.isUnderWarranty) return <span className="text-xs text-gray-400">—</span>
-    const days = daysFromNow(item.warrantyExpiry)
-    if (days === null) return (
-      <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-green-100 text-green-700">Ativa</span>
-    )
-    if (days < 0) return (
-      <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-red-100 text-red-700">Vencida</span>
-    )
-    if (days <= 30) return (
-      <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-yellow-100 text-yellow-700">
-        {days}d
+  function locationBadge(item: StockItem) {
+    if (item.currentProject) return (
+      <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-orange-100 text-orange-700 truncate max-w-[130px] block">
+        🏗️ {item.currentProject.name}
       </span>
     )
-    return <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-green-100 text-green-700">Ativa</span>
+    const loc = item.currentLocation
+    if (!loc || loc === 'DEPOSIT' || loc === 'Depósito') return (
+      <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-green-100 text-green-700">🏭 Depósito</span>
+    )
+    if (loc === 'Em manutenção' || loc === 'MAINTENANCE') return (
+      <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-purple-100 text-purple-700">🔧 Manutenção</span>
+    )
+    if (loc === 'Extraviada' || loc === 'LOST') return (
+      <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-red-100 text-red-700">🚨 Extraviada</span>
+    )
+    if (loc === 'PROJECT') return (
+      <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-blue-100 text-blue-700">🏗️ Em obra</span>
+    )
+    return (
+      <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 truncate max-w-[130px] block">
+        🏗️ {loc.replace(/^OBRA: /, '')}
+      </span>
+    )
+  }
+
+  function statusBadge(item: StockItem) {
+    const cfg = TOOL_STATUS_CONFIG[item.toolStatus ?? 'AVAILABLE']
+              ?? TOOL_STATUS_CONFIG.AVAILABLE
+    return (
+      <span className={cn('text-xs font-medium px-2 py-0.5 rounded-full whitespace-nowrap', cfg.bg, cfg.text)}>
+        {cfg.label}
+      </span>
+    )
   }
 
   function maintenanceBadge(item: StockItem) {
@@ -500,46 +541,24 @@ function ToolsTable({ items, onView, onEdit, onCustody, onMaintenance }: {
     const days = daysFromNow(item.nextMaintenance)!
     if (days < 0) return (
       <div className="flex items-center gap-1">
-        <AlertTriangle size={12} className="text-red-500" />
+        <AlertTriangle size={11} className="text-red-500" />
         <span className="text-xs font-medium text-red-600">{formatDateBR(item.nextMaintenance)}</span>
       </div>
     )
     if (days <= 7) return (
       <div className="flex items-center gap-1">
-        <Clock size={12} className="text-yellow-500" />
+        <Clock size={11} className="text-yellow-500" />
         <span className="text-xs font-medium text-yellow-700">{formatDateBR(item.nextMaintenance)}</span>
       </div>
     )
-    return <span className="text-xs text-gray-600">{formatDateBR(item.nextMaintenance)}</span>
+    return <span className="text-xs text-gray-500">{formatDateBR(item.nextMaintenance)}</span>
   }
 
-  function locationBadge(item: StockItem) {
-    if (item.currentProject) return (
-      <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-orange-100 text-orange-700 truncate max-w-[120px] block">
-        🏗️ {item.currentProject.name}
-      </span>
-    )
-    if (item.currentLocation) {
-      const isObra  = item.currentLocation.startsWith('OBRA')
-      const isExt   = item.currentLocation.startsWith('EXTERNO')
-      const isUso   = item.currentLocation === 'EM USO'
-      const bg      = isObra  ? 'bg-blue-100 text-blue-700'
-                    : isUso   ? 'bg-yellow-100 text-yellow-700'
-                    :           'bg-gray-100 text-gray-600'
-      const prefix  = isObra ? '🏗️ ' : isExt ? '🚚 ' : isUso ? '⚙️ ' : ''
-      const label   = item.currentLocation
-        .replace(/^OBRA: /, '')
-        .replace(/^EXTERNO: /, '')
-      return (
-        <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${bg} truncate max-w-[120px] block`}>
-          {prefix}{label}
-        </span>
-      )
-    }
-    if (item.location) return (
-      <span className="text-xs text-gray-600 truncate block max-w-[100px]">{item.location}</span>
-    )
-    return <span className="text-xs text-gray-400">🏭 Depósito</span>
+  const isAway = (item: StockItem) => {
+    const s = item.toolStatus ?? 'AVAILABLE'
+    const loc = item.currentLocation ?? ''
+    return s === 'IN_USE' || s === 'DAMAGED' ||
+      (loc !== 'Depósito' && loc !== 'DEPOSIT' && loc !== '' && loc !== 'Em manutenção' && loc !== 'MAINTENANCE')
   }
 
   return (
@@ -548,13 +567,15 @@ function ToolsTable({ items, onView, onEdit, onCustody, onMaintenance }: {
         <div className="relative flex-1 max-w-xs">
           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
           <input
-            type="text"
-            value={query}
-            onChange={e => setQuery(e.target.value)}
-            placeholder="Buscar ferramenta, nº série..."
+            type="text" value={query} onChange={e => setQuery(e.target.value)}
+            placeholder="Buscar ferramenta, cód., nº série..."
             className="w-full pl-9 pr-3 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-[#F5A623]"
           />
-          {query && <button onClick={() => setQuery('')} className="absolute right-2 top-1/2 -translate-y-1/2"><X size={13} className="text-gray-400" /></button>}
+          {query && (
+            <button onClick={() => setQuery('')} className="absolute right-2 top-1/2 -translate-y-1/2">
+              <X size={13} className="text-gray-400" />
+            </button>
+          )}
         </div>
         <span className="text-xs text-gray-400 ml-auto">{filtered.length} ferramenta{filtered.length !== 1 ? 's' : ''}</span>
       </div>
@@ -563,51 +584,102 @@ function ToolsTable({ items, onView, onEdit, onCustody, onMaintenance }: {
       <div className="hidden md:block overflow-x-auto rounded-xl border border-gray-100">
         <table className="w-full text-sm">
           <thead>
-            <tr className="bg-gray-50 border-b border-gray-100 text-xs font-semibold text-gray-500">
-              <th className="px-3 py-2.5 text-left w-16">Cód.</th>
+            <tr className="bg-gray-50 border-b border-gray-100 text-xs font-semibold text-gray-500 uppercase tracking-wide">
               <th className="px-3 py-2.5 text-left">Ferramenta</th>
-              <th className="px-3 py-2.5 text-left w-28">Nº Série</th>
-              <th className="px-3 py-2.5 text-left w-28">Localização</th>
-              <th className="px-3 py-2.5 text-left w-20">Garantia</th>
+              <th className="px-3 py-2.5 text-left w-28">Cód. / Série</th>
+              <th className="px-3 py-2.5 text-left w-24">Tipo</th>
+              <th className="px-3 py-2.5 text-left w-36">Localização</th>
+              <th className="px-3 py-2.5 text-center w-24">Qtd</th>
+              <th className="px-3 py-2.5 text-right w-24">Valor unit.</th>
+              <th className="px-3 py-2.5 text-left w-28">Status</th>
               <th className="px-3 py-2.5 text-left w-32">Próx. Manutenção</th>
               <th className="px-3 py-2.5 w-8"></th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-50">
             {filtered.length === 0 ? (
-              <tr><td colSpan={7} className="px-4 py-10 text-center text-sm text-gray-400">Nenhuma ferramenta encontrada</td></tr>
-            ) : filtered.map(item => (
-              <tr
-                key={item.id}
-                className="hover:bg-gray-50/70 transition-colors cursor-pointer"
-                onClick={() => onView(item)}
-              >
-                <td className="px-3 py-2.5">
-                  <span className="text-xs font-mono text-gray-400">{item.code ?? '—'}</span>
-                </td>
-                <td className="px-3 py-2.5">
-                  <div>
-                    <p className="font-medium text-gray-800">{item.name}</p>
-                    {(item.brand || item.model) && (
-                      <p className="text-xs text-gray-400">{[item.brand, item.model].filter(Boolean).join(' · ')}</p>
-                    )}
-                  </div>
-                </td>
-                <td className="px-3 py-2.5">
-                  <span className="text-xs font-mono text-gray-500">{item.serialNumber ?? '—'}</span>
-                </td>
-                <td className="px-3 py-2.5">{locationBadge(item)}</td>
-                <td className="px-3 py-2.5">{warrantyBadge(item)}</td>
-                <td className="px-3 py-2.5">{maintenanceBadge(item)}</td>
-                <td className="px-3 py-2.5" onClick={e => e.stopPropagation()}>
-                  <ActionMenu
-                    onView={() => onView(item)}
-                    onEdit={onEdit ? () => onEdit(item) : undefined}
-                    onCustody={() => onCustody(item)}
-                  />
+              <tr>
+                <td colSpan={9} className="px-4 py-10 text-center text-sm text-gray-400">
+                  Nenhuma ferramenta encontrada
                 </td>
               </tr>
-            ))}
+            ) : filtered.map(item => {
+              const localQty = selectedLocationId && selectedLocationId !== 'all'
+                ? item.stockBalances?.find(b => b.locationId === selectedLocationId)?.quantity ?? null
+                : null
+              const away = isAway(item)
+              return (
+                <tr
+                  key={item.id}
+                  className="hover:bg-gray-50/70 transition-colors cursor-pointer"
+                  onClick={() => onView(item)}
+                >
+                  <td className="px-3 py-2.5">
+                    <p className="font-medium text-gray-800 leading-tight">{item.name}</p>
+                    {(item.brand || item.model) && (
+                      <p className="text-xs text-gray-400 mt-0.5">{[item.brand, item.model].filter(Boolean).join(' · ')}</p>
+                    )}
+                  </td>
+                  <td className="px-3 py-2.5">
+                    {item.code && <p className="text-xs font-mono text-gray-500">{item.code}</p>}
+                    {item.serialNumber
+                      ? <p className="text-xs font-mono text-gray-400">S/N: {item.serialNumber}</p>
+                      : (!item.code && <span className="text-xs text-gray-300">—</span>)
+                    }
+                  </td>
+                  <td className="px-3 py-2.5">
+                    <span className="text-xs text-gray-600">
+                      {item.toolType ? (TOOL_TYPE_LABEL[item.toolType] ?? item.toolType) : '—'}
+                    </span>
+                  </td>
+                  <td className="px-3 py-2.5">{locationBadge(item)}</td>
+                  <td className="px-3 py-2.5 text-center">
+                    <div className="font-semibold text-sm text-gray-800">{Number(item.quantity)}</div>
+                    {localQty !== null && (
+                      <div className="text-xs text-gray-400">{Number(localQty)} aqui</div>
+                    )}
+                  </td>
+                  <td className="px-3 py-2.5 text-right">
+                    <span className="text-xs text-gray-700">
+                      {item.unitCost ? formatCurrency(item.unitCost) : '—'}
+                    </span>
+                  </td>
+                  <td className="px-3 py-2.5">{statusBadge(item)}</td>
+                  <td className="px-3 py-2.5">{maintenanceBadge(item)}</td>
+                  <td className="px-3 py-2.5" onClick={e => e.stopPropagation()}>
+                    <div className="flex items-center gap-1">
+                      {/* Devolver — só se estiver fora */}
+                      {away && onReturn && item.toolStatus !== 'MAINTENANCE' && item.toolStatus !== 'LOST' && (
+                        <button
+                          onClick={e => { e.stopPropagation(); onReturn(item) }}
+                          className="flex items-center gap-1 px-2 py-1 rounded-lg border border-green-300 text-green-700 text-xs font-medium hover:bg-green-50 transition"
+                          title="Devolver ao depósito"
+                        >
+                          <CornerDownLeft size={11} />
+                          Devolver
+                        </button>
+                      )}
+                      {/* Enviar manutenção — só se DAMAGED */}
+                      {item.toolStatus === 'DAMAGED' && (
+                        <button
+                          onClick={e => { e.stopPropagation(); onMaintenance(item) }}
+                          className="flex items-center gap-1 px-2 py-1 rounded-lg border border-purple-300 text-purple-700 text-xs font-medium hover:bg-purple-50 transition"
+                          title="Enviar para manutenção"
+                        >
+                          <Wrench size={11} />
+                          Manutenção
+                        </button>
+                      )}
+                      <ActionMenu
+                        onView={() => onView(item)}
+                        onEdit={onEdit ? () => onEdit(item) : undefined}
+                        onCustody={() => onCustody(item)}
+                      />
+                    </div>
+                  </td>
+                </tr>
+              )
+            })}
           </tbody>
         </table>
       </div>
@@ -615,27 +687,320 @@ function ToolsTable({ items, onView, onEdit, onCustody, onMaintenance }: {
       {/* Mobile cards */}
       <div className="md:hidden space-y-2">
         {filtered.map(item => {
-          const overdueM = item.nextMaintenance && daysFromNow(item.nextMaintenance)! < 0
+          const away = isAway(item)
           return (
             <div
               key={item.id}
-              className={cn('bg-white border rounded-xl p-3 shadow-sm cursor-pointer', overdueM ? 'border-red-200' : 'border-gray-100')}
+              className={cn(
+                'bg-white border rounded-xl p-3 shadow-sm cursor-pointer',
+                away ? 'border-blue-100' : 'border-gray-100',
+              )}
               onClick={() => onView(item)}
             >
               <div className="flex items-start justify-between gap-2 mb-2">
-                <div>
-                  <p className="font-medium text-gray-800 text-sm">{item.name}</p>
-                  {item.serialNumber && <p className="text-xs text-gray-400 font-mono">Série: {item.serialNumber}</p>}
+                <div className="flex-1 min-w-0">
+                  <p className="font-medium text-gray-800 text-sm truncate">{item.name}</p>
+                  {item.serialNumber && (
+                    <p className="text-xs text-gray-400 font-mono">S/N: {item.serialNumber}</p>
+                  )}
+                  {(item.brand || item.model) && (
+                    <p className="text-xs text-gray-400">{[item.brand, item.model].filter(Boolean).join(' · ')}</p>
+                  )}
                 </div>
-                {warrantyBadge(item)}
+                <div className="flex flex-col items-end gap-1 flex-shrink-0">
+                  {statusBadge(item)}
+                  {item.unitCost && (
+                    <span className="text-xs text-gray-500">{formatCurrency(item.unitCost)}</span>
+                  )}
+                </div>
               </div>
-              <div className="flex items-center gap-3 text-xs">
+              <div className="flex items-center gap-2 flex-wrap">
                 {locationBadge(item)}
-                {item.nextMaintenance && maintenanceBadge(item)}
+                {item.toolType && (
+                  <span className="text-xs text-gray-500">
+                    {TOOL_TYPE_LABEL[item.toolType] ?? item.toolType}
+                  </span>
+                )}
               </div>
+              {away && onReturn && item.toolStatus !== 'MAINTENANCE' && item.toolStatus !== 'LOST' && (
+                <button
+                  onClick={e => { e.stopPropagation(); onReturn(item) }}
+                  className="mt-2 w-full flex items-center justify-center gap-1.5 py-1.5 rounded-lg border border-green-300 text-green-700 text-xs font-medium hover:bg-green-50 transition"
+                >
+                  <CornerDownLeft size={12} /> Devolver ao depósito
+                </button>
+              )}
             </div>
           )
         })}
+      </div>
+    </div>
+  )
+}
+
+// ─── SignaturePadReturn ───────────────────────────────────────────────────────
+
+function SignaturePadReturn({ onSave, onClear }: { onSave: (s: string) => void; onClear: () => void }) {
+  const ref      = useRef<HTMLCanvasElement>(null)
+  const drawing  = useRef(false)
+  const [has, setHas] = useState(false)
+
+  function getPos(e: React.MouseEvent | React.TouchEvent, c: HTMLCanvasElement) {
+    const r = c.getBoundingClientRect()
+    const src = 'touches' in e ? e.touches[0] : e
+    return {
+      x: (src.clientX - r.left) * (c.width  / r.width),
+      y: (src.clientY - r.top)  * (c.height / r.height),
+    }
+  }
+
+  const onStart = (e: React.MouseEvent | React.TouchEvent) => {
+    e.preventDefault()
+    const c = ref.current; if (!c) return
+    drawing.current = true
+    const p = getPos(e, c)
+    const ctx = c.getContext('2d')!
+    ctx.beginPath(); ctx.moveTo(p.x, p.y)
+  }
+  const onMove = (e: React.MouseEvent | React.TouchEvent) => {
+    e.preventDefault()
+    if (!drawing.current) return
+    const c = ref.current; if (!c) return
+    const p = getPos(e, c)
+    const ctx = c.getContext('2d')!
+    ctx.lineTo(p.x, p.y); ctx.strokeStyle = '#111827'
+    ctx.lineWidth = 2; ctx.lineCap = 'round'; ctx.stroke()
+    setHas(true)
+  }
+  const onEnd = () => {
+    if (!drawing.current) return
+    drawing.current = false
+    if (ref.current) onSave(ref.current.toDataURL())
+  }
+  const clear = () => {
+    const c = ref.current; if (!c) return
+    c.getContext('2d')!.clearRect(0, 0, c.width, c.height)
+    setHas(false); onClear()
+  }
+
+  return (
+    <div className={cn('rounded-xl overflow-hidden border-2 transition-colors', has ? 'border-green-400' : 'border-gray-200')}>
+      <canvas
+        ref={ref} width={460} height={110}
+        style={{ width: '100%', height: 110, cursor: 'crosshair', display: 'block', background: '#fff' }}
+        onMouseDown={onStart} onMouseMove={onMove} onMouseUp={onEnd} onMouseLeave={onEnd}
+        onTouchStart={onStart} onTouchMove={onMove} onTouchEnd={onEnd}
+      />
+      <div className="flex items-center justify-between px-3 py-1.5 bg-gray-50 border-t border-gray-100">
+        <span className="text-xs text-gray-400 flex items-center gap-1">
+          <PenLine size={11} />
+          {has ? '✓ Assinatura coletada' : 'Assine acima com o dedo ou mouse'}
+        </span>
+        <button onClick={clear} className="text-xs text-red-400 hover:text-red-600 transition">Limpar</button>
+      </div>
+    </div>
+  )
+}
+
+// ─── ReturnToolModal ──────────────────────────────────────────────────────────
+
+function ReturnToolModal({
+  tool, onClose, onSuccess,
+}: {
+  tool:      StockItem
+  onClose:   () => void
+  onSuccess: () => void
+}) {
+  const [condition,   setCondition]   = useState<'BOM' | 'DANIFICADO' | 'PERDIDO'>('BOM')
+  const [returnedBy,  setReturnedBy]  = useState('')
+  const [notes,       setNotes]       = useState('')
+  const [photo,       setPhoto]       = useState<string | null>(null)
+  const [signature,   setSignature]   = useState<string | null>(null)
+  const [loading,     setLoading]     = useState(false)
+  const photoRef = useRef<HTMLInputElement>(null)
+
+  const handlePhoto = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0]; if (!f) return
+    const r = new FileReader()
+    r.onload = ev => setPhoto(ev.target?.result as string)
+    r.readAsDataURL(f)
+    e.target.value = ''
+  }
+
+  const handleConfirm = async () => {
+    if (!returnedBy.trim()) return
+    setLoading(true)
+    try {
+      // Buscar custódia ativa
+      const custRes = await apiFetch(`/api/v1/deposit/tools/${tool.id}/custodies`)
+      let custodyId: string | undefined
+      if (custRes.ok) {
+        const d = await custRes.json()
+        custodyId = (d.custodies as any[])?.find(c => !c.returnedAt)?.id
+      }
+
+      const res = await apiFetch(`/api/v1/deposit/tools/${tool.id}/return`, {
+        method: 'PATCH',
+        body:   JSON.stringify({
+          custodyId,
+          condition,
+          returnedBy:        returnedBy.trim(),
+          returnNotes:       notes.trim() || undefined,
+          photoOnReturnUrl:  photo       ?? undefined,
+          returnSignatureUrl:signature   ?? undefined,
+        }),
+      })
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}))
+        throw new Error(d.error ?? `Erro ${res.status}`)
+      }
+      const data = await res.json()
+      if (data.maintenanceAlert) {
+        alert(`✅ Ferramenta devolvida!\n⚠️ Alerta de manutenção criado para "${tool.name}".`)
+      }
+      onSuccess()
+      onClose()
+    } catch (err: any) {
+      alert(err.message ?? 'Erro ao registrar devolução')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const condOptions: { v: 'BOM' | 'DANIFICADO' | 'PERDIDO'; label: string; icon: string; scheme: string }[] = [
+    { v: 'BOM',       label: 'Bom estado',  icon: '✅', scheme: 'border-green-400 bg-green-50 text-green-700'  },
+    { v: 'DANIFICADO',label: 'Danificada',  icon: '⚠️', scheme: 'border-amber-400 bg-amber-50 text-amber-700'  },
+    { v: 'PERDIDO',   label: 'Perdida',     icon: '🚨', scheme: 'border-red-400 bg-red-50 text-red-700'        },
+  ]
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
+      <div className="bg-white rounded-2xl w-full max-w-[520px] max-h-[90vh] overflow-y-auto shadow-2xl">
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+          <div>
+            <h3 className="text-base font-bold text-gray-900">Devolver ao depósito</h3>
+            <p className="text-xs text-gray-500 mt-0.5">
+              <strong>{tool.name}</strong>
+              {tool.serialNumber && ` — S/N: ${tool.serialNumber}`}
+            </p>
+          </div>
+          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-gray-100 transition">
+            <X size={16} className="text-gray-400" />
+          </button>
+        </div>
+
+        <div className="p-5 space-y-5">
+          {/* Estado da ferramenta */}
+          <div>
+            <label className="block text-sm font-semibold text-gray-700 mb-2">Estado ao devolver *</label>
+            <div className="grid grid-cols-3 gap-2">
+              {condOptions.map(opt => (
+                <button
+                  key={opt.v}
+                  onClick={() => setCondition(opt.v)}
+                  className={cn(
+                    'flex flex-col items-center gap-1.5 py-3 rounded-xl border-2 text-xs font-semibold transition',
+                    condition === opt.v ? opt.scheme : 'border-gray-200 text-gray-500 hover:border-gray-300',
+                  )}
+                >
+                  <span className="text-lg leading-none">{opt.icon}</span>
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+            {condition === 'DANIFICADO' && (
+              <div className="mt-2 flex items-center gap-2 px-3 py-2 rounded-lg bg-amber-50 border border-amber-200 text-xs text-amber-700">
+                <AlertTriangle size={13} className="flex-shrink-0" />
+                Alerta de manutenção será criado automaticamente.
+              </div>
+            )}
+          </div>
+
+          {/* Devolvido por */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">Devolvido por *</label>
+            <input
+              value={returnedBy}
+              onChange={e => setReturnedBy(e.target.value)}
+              placeholder="Nome de quem está devolvendo"
+              className="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-[#F5A623]"
+            />
+          </div>
+
+          {/* Data e hora */}
+          <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-gray-50 border border-gray-100 text-xs text-gray-500">
+            <Calendar size={13} />
+            Data de devolução:{' '}
+            <strong className="text-gray-700">{new Date().toLocaleString('pt-BR')}</strong>
+          </div>
+
+          {/* Foto do estado */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">Foto do estado (opcional)</label>
+            <input ref={photoRef} type="file" accept="image/*" capture="environment"
+              className="hidden" onChange={handlePhoto} />
+            {photo ? (
+              <div className="relative inline-block">
+                <img src={photo} className="w-28 h-20 object-cover rounded-xl border-2 border-gray-200" alt="foto" />
+                <button
+                  onClick={() => setPhoto(null)}
+                  className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-red-500 text-white rounded-full flex items-center justify-center text-xs hover:bg-red-600"
+                >×</button>
+              </div>
+            ) : (
+              <button
+                onClick={() => photoRef.current?.click()}
+                className="flex items-center gap-2 px-4 py-2 border border-dashed border-gray-300 rounded-xl text-sm text-gray-500 hover:border-gray-400 transition"
+              >
+                <Camera size={15} /> Tirar foto / selecionar
+              </button>
+            )}
+          </div>
+
+          {/* Observações */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">Observações</label>
+            <textarea
+              value={notes} onChange={e => setNotes(e.target.value)}
+              placeholder="Descreva o estado ou observações..."
+              rows={2}
+              className="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-[#F5A623] resize-none"
+            />
+          </div>
+
+          {/* Assinatura */}
+          <div>
+            <label className="block text-sm font-semibold text-gray-700 mb-2">Assinatura de quem devolve *</label>
+            <SignaturePadReturn onSave={setSignature} onClear={() => setSignature(null)} />
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div className="flex items-center gap-2 px-5 py-4 border-t border-gray-100">
+          <button
+            onClick={onClose}
+            className="flex-1 py-2.5 rounded-xl border border-gray-200 text-sm font-medium text-gray-600 hover:bg-gray-50 transition"
+          >
+            Cancelar
+          </button>
+          <button
+            onClick={handleConfirm}
+            disabled={!returnedBy.trim() || !signature || loading}
+            className={cn(
+              'flex-[2] py-2.5 rounded-xl text-sm font-bold text-white transition flex items-center justify-center gap-2',
+              returnedBy.trim() && signature && !loading
+                ? 'bg-green-600 hover:bg-green-700'
+                : 'bg-gray-300 cursor-not-allowed',
+            )}
+          >
+            {loading ? (
+              <><Loader2 size={14} className="animate-spin" /> Salvando...</>
+            ) : (
+              <><CornerDownLeft size={14} /> Confirmar devolução</>
+            )}
+          </button>
+        </div>
       </div>
     </div>
   )
@@ -918,6 +1283,7 @@ export default function DepositoPage() {
   const [selectedTool,      setSelectedTool]      = useState<StockItem | null>(null)
   const [custodyItem,       setCustodyItem]        = useState<StockItem | null>(null)
   const [maintenanceTool,   setMaintenanceTool]   = useState<StockItem | null>(null)
+  const [returnToolItem,    setReturnToolItem]    = useState<StockItem | null>(null)
   const [maintenanceRecord, setMaintenanceRecord] = useState<any>(null)
   const [receiptBasketId,   setReceiptBasketId]   = useState<string | null>(null)
   const [basketOpen,        setBasketOpen]        = useState(false)
@@ -1483,6 +1849,8 @@ export default function DepositoPage() {
                     onEdit={item => { setEditingTool(item); setToolFormOpen(true) }}
                     onCustody={item => setCustodyItem(item)}
                     onMaintenance={item => { setMaintenanceTool(item); setMaintenanceRecord(null) }}
+                    onReturn={item => setReturnToolItem(item)}
+                    selectedLocationId={selectedLocation !== 'all' ? selectedLocation : undefined}
                   />
                 )}
                 {tab === 'epis' && (
@@ -1560,6 +1928,14 @@ export default function DepositoPage() {
           existing={maintenanceRecord ?? undefined}
           onClose={() => { setMaintenanceTool(null); setMaintenanceRecord(null) }}
           onSaved={() => { setMaintenanceTool(null); setMaintenanceRecord(null); loadAll() }}
+        />
+      )}
+
+      {returnToolItem && (
+        <ReturnToolModal
+          tool={returnToolItem}
+          onClose={() => setReturnToolItem(null)}
+          onSuccess={() => { setReturnToolItem(null); loadAll() }}
         />
       )}
 

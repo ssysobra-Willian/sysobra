@@ -120,6 +120,8 @@ const itemCreateSchema = z.object({
   // Manutenção
   lastMaintenance: z.string().optional(),
   nextMaintenance: z.string().optional(),
+  // Status operacional (ferramentas)
+  toolStatus:      z.string().optional(),
   // Lotes de fornecedor (criados junto com o item)
   lots: z.array(z.object({
     supplierId:    z.string().optional(),
@@ -158,6 +160,7 @@ const custodyCreateSchema = z.object({
   dueDate:       z.string().optional(),
   condition:     z.string().optional(),
   notes:         z.string().optional(),
+  photoUrl:      z.string().optional(),   // foto do estado na saída
 })
 
 const custodyReturnSchema = z.object({
@@ -361,6 +364,7 @@ export async function depositRoutes(app: FastifyInstance) {
         orderBy: { name: 'asc' },
         include: {
           currentProject: { select: { id: true, name: true } },
+          stockBalances: { select: { locationId: true, quantity: true } },
           supplierLots: {
             orderBy: { createdAt: 'desc' },
             take: 5,
@@ -721,6 +725,7 @@ export async function depositRoutes(app: FastifyInstance) {
           dueDate:       body.dueDate ? new Date(body.dueDate) : null,
           condition:     body.condition ?? null,
           notes:         body.notes ?? null,
+          photoUrl:      body.photoUrl ?? null,
         },
       }),
       p().stockItem.update({
@@ -728,6 +733,7 @@ export async function depositRoutes(app: FastifyInstance) {
         data: {
           quantity:        Number(item.quantity) - body.quantity,
           currentLocation: 'PROJECT',
+          toolStatus:      'IN_USE',
         },
       }),
       p().stockMovement.create({
@@ -1861,6 +1867,168 @@ ${_basketFooter}
 
     const updated = await p().toolMaintenanceRecord.update({ where: { id: maintenanceId }, data })
     return reply.send({ maintenance: updated })
+  })
+
+  // ── TOOL RETURN (rich) ───────────────────────────────────────────────────
+  // PATCH /api/v1/deposit/tools/:id/return
+  app.patch('/tools/:id/return', { preHandler }, async (request, reply) => {
+    const req = request as RequestWithMember
+    const cid = companyId(req)
+    const { id } = request.params as { id: string }
+
+    const body = z.object({
+      custodyId:          z.string().optional(),
+      condition:          z.enum(['BOM', 'DANIFICADO', 'PERDIDO']).default('BOM'),
+      returnedBy:         z.string().optional(),
+      returnNotes:        z.string().optional(),
+      photoOnReturnUrl:   z.string().optional(),
+      returnSignatureUrl: z.string().optional(),
+    }).parse(request.body)
+
+    const item = await p().stockItem.findFirst({
+      where: { id, companyId: cid, isActive: true, requiresCustody: true },
+    })
+    if (!item) return reply.status(404).send({ error: 'Ferramenta não encontrada' })
+
+    // Salvar arquivos base64 em disco
+    const uploadsRoot = process.env.UPLOADS_PATH ?? path.join(process.cwd(), 'uploads')
+    let photoUrl = body.photoOnReturnUrl
+    let sigUrl   = body.returnSignatureUrl
+
+    if (photoUrl?.startsWith('data:image')) {
+      const buf  = Buffer.from(photoUrl.replace(/^data:image\/\w+;base64,/, ''), 'base64')
+      const dir  = path.join(uploadsRoot, 'tools', cid)
+      fs.mkdirSync(dir, { recursive: true })
+      const file = `${Date.now()}-return-photo.jpg`
+      fs.writeFileSync(path.join(dir, file), buf)
+      photoUrl = `/uploads/tools/${cid}/${file}`
+    }
+
+    if (sigUrl?.startsWith('data:image')) {
+      const buf  = Buffer.from(sigUrl.replace(/^data:image\/\w+;base64,/, ''), 'base64')
+      const dir  = path.join(uploadsRoot, 'tools', cid)
+      fs.mkdirSync(dir, { recursive: true })
+      const file = `${Date.now()}-return-sig.png`
+      fs.writeFileSync(path.join(dir, file), buf)
+      sigUrl = `/uploads/tools/${cid}/${file}`
+    }
+
+    const now = new Date()
+
+    // Buscar custódia ativa
+    const custWhere: any = { stockItemId: id, companyId: cid, returnedAt: null }
+    if (body.custodyId) custWhere.id = body.custodyId
+    const custody = await p().toolCustody.findFirst({ where: custWhere })
+
+    const newToolStatus = body.condition === 'DANIFICADO' ? 'MAINTENANCE'
+                        : body.condition === 'PERDIDO'    ? 'LOST'
+                        : 'AVAILABLE'
+    const newLocation   = newToolStatus === 'AVAILABLE'   ? 'Depósito'
+                        : newToolStatus === 'MAINTENANCE'  ? 'Em manutenção'
+                        : 'Extraviada'
+
+    const ops: any[] = []
+
+    if (custody) {
+      ops.push(p().toolCustody.update({
+        where: { id: custody.id },
+        data: {
+          returnedAt:         now,
+          conditionOnReturn:  body.condition,
+          photoOnReturnUrl:   photoUrl  ?? null,
+          returnSignatureUrl: sigUrl    ?? null,
+          returnedBy:         body.returnedBy  ?? null,
+          returnNotes:        body.returnNotes ?? null,
+        },
+      }))
+    }
+
+    ops.push(p().stockItem.update({
+      where: { id },
+      data: {
+        currentLocation:  newLocation,
+        currentProjectId: null,
+        toolStatus:       newToolStatus,
+        ...(newToolStatus === 'AVAILABLE' && custody ? {
+          quantity: { increment: Number(custody.quantity) },
+        } : {}),
+      },
+    }))
+
+    if (custody) {
+      ops.push(p().stockMovement.create({
+        data: {
+          companyId:     cid,
+          stockItemId:   id,
+          projectId:     custody.projectId ?? null,
+          employeeId:    custody.employeeId,
+          responsibleId: userId(request) ?? null,
+          type:          'RETURN',
+          quantity:      Number(custody.quantity),
+          reason:        `Devolução: ${body.condition}`,
+          notes:         body.returnNotes ?? null,
+        },
+      }))
+    }
+
+    await p().$transaction(ops)
+
+    // Alerta de manutenção se danificada
+    let maintenanceAlert = false
+    if (body.condition === 'DANIFICADO') {
+      await p().toolMaintenanceRecord.create({
+        data: {
+          companyId:   cid,
+          stockItemId: id,
+          type:        'CORRECTIVE',
+          date:        now,
+          description: `Devolvida com dano. ${body.returnNotes ?? ''}`.trim(),
+          result:      'NEEDS_PARTS',
+          performedBy: body.returnedBy ?? 'Não informado',
+          cost:        null,
+          notes:       body.returnNotes ?? null,
+        },
+      })
+      maintenanceAlert = true
+    }
+
+    return reply.send({ success: true, toolStatus: newToolStatus, maintenanceAlert })
+  })
+
+  // ── TOOL SEND TO MAINTENANCE ──────────────────────────────────────────────
+  // PATCH /api/v1/deposit/tools/:id/send-maintenance
+  app.patch('/tools/:id/send-maintenance', { preHandler }, async (request, reply) => {
+    const req = request as RequestWithMember
+    const cid = companyId(req)
+    const { id } = request.params as { id: string }
+
+    const body = z.object({
+      maintenanceId: z.string().optional(),
+      performedBy:   z.string().optional(),
+      description:   z.string().optional(),
+    }).parse(request.body)
+
+    const item = await p().stockItem.findFirst({
+      where: { id, companyId: cid, isActive: true },
+    })
+    if (!item) return reply.status(404).send({ error: 'Ferramenta não encontrada' })
+
+    await p().stockItem.update({
+      where: { id },
+      data: { currentLocation: 'Em manutenção', toolStatus: 'MAINTENANCE' },
+    })
+
+    if (body.maintenanceId) {
+      await p().toolMaintenanceRecord.update({
+        where: { id: body.maintenanceId },
+        data: {
+          ...(body.performedBy ? { performedBy: body.performedBy } : {}),
+          ...(body.description ? { description: body.description } : {}),
+        },
+      })
+    }
+
+    return reply.send({ success: true })
   })
 
   // PATCH /api/v1/deposit/baskets/:id/cancel
