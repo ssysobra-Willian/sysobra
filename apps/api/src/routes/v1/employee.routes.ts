@@ -1607,6 +1607,23 @@ export async function employeeRoutes(app: FastifyInstance) {
   })
 
   /**
+   * DELETE /api/v1/employees/payroll-draft?month=&year=
+   * Descarta rascunho de folha.
+   */
+  app.delete('/payroll-draft', async (request, reply) => {
+    const req       = request as RequestWithMember
+    const companyId = req.companyId!
+    const q         = request.query as { month?: string; year?: string }
+    const month     = parseInt(q.month ?? '', 10)
+    const year      = parseInt(q.year  ?? '', 10)
+    if (!month || !year) {
+      return reply.status(400).send({ error: 'month e year são obrigatórios' })
+    }
+    await p.payrollDraft.deleteMany({ where: { companyId, month, year } })
+    return reply.send({ ok: true })
+  })
+
+  /**
    * POST /api/v1/employees/payroll-pdf
    * Gera PDF profissional da folha (A4 paisagem) via Puppeteer.
    */

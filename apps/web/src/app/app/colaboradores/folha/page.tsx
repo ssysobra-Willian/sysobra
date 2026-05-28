@@ -5,7 +5,7 @@ import Link from 'next/link'
 import {
   Loader2, Calculator, DollarSign, Users,
   AlertTriangle, CheckCircle, FileSpreadsheet,
-  ArrowRight, Save, FileDown, Clock,
+  ArrowRight, Save, FileDown, Clock, Trash2, X, UserPlus,
 } from 'lucide-react'
 import { Breadcrumb } from '@/components/ui/Breadcrumb'
 import {
@@ -34,7 +34,7 @@ interface PayrollEntry {
   valorHorasExtras:    number
   salarioBruto:        number
   inss:                number
-  irrfBase:            number
+  irrfBase?:           number
   irrf:                number
   salarioLiquido:      number
   fgts:                number
@@ -155,8 +155,15 @@ export default function FolhaPagamentoPage() {
     he60: number; he100: number; projectId: string | null; desconto: number; dependentes: number
   }>>({})
 
-  // Toggle para incluir PJ e Terceirizados na folha
-  const [includePj, setIncludePj] = useState(false)
+  // Toggle visual: mostra/oculta PJ na tabela
+  const [includePj,   setIncludePj]   = useState(false)
+
+  // Modal de seleção de PJ/Terceirizados
+  const [showPjModal, setShowPjModal] = useState(false)
+  const [pjEmployees, setPjEmployees] = useState<any[]>([])
+  const [pjSelected,  setPjSelected]  = useState<Record<string, { selected: boolean; salary: number }>>({})
+  const [loadingPj,   setLoadingPj]   = useState(false)
+  const [discarding,  setDiscarding]  = useState(false)
 
   // Carregar obras ativas
   useEffect(() => {
@@ -239,15 +246,11 @@ export default function FolhaPagamentoPage() {
     }
   }, [month, year, includePj])
 
-  // Re-buscar quando o toggle muda — se a folha já foi calculada
-  useEffect(() => {
-    if (calculated) handleCalculate(includePj)
-  // Intencional: só re-buscar quando includePj muda, não quando handleCalculate muda
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [includePj])
-
-  // Todas as linhas já vêm filtradas do backend; mantemos o useMemo por compatibilidade
-  const filteredEntries = useMemo(() => entries, [entries])
+  // Filtra visualmente PJ da tabela quando toggle está off
+  const filteredEntries = useMemo(
+    () => includePj ? entries : entries.filter(e => e.isClt),
+    [entries, includePj]
+  )
 
   // Linhas com overrides aplicados
   const computedEntries = useMemo(() => {
@@ -468,6 +471,102 @@ export default function FolhaPagamentoPage() {
     }))
   }
 
+  // ─── Abrir modal de seleção PJ ─────────────────────────────────────────────
+  const openPjModal = useCallback(async () => {
+    setShowPjModal(true)
+    setLoadingPj(true)
+    try {
+      const res = await fetch(
+        `${API}/api/v1/employees?type=PJ,THIRD_PARTY&status=ACTIVE&limit=200`,
+        { headers: getHeaders() }
+      )
+      const data = await res.json()
+      const list: any[] = data.employees ?? []
+      setPjEmployees(list)
+      const sel: Record<string, { selected: boolean; salary: number }> = {}
+      for (const emp of list) {
+        const inEntries = entries.find(e => e.employeeId === emp.id)
+        sel[emp.id] = {
+          selected: !!inEntries,
+          salary:   inEntries?.salarioBase ?? (parseFloat(emp.salary) || 0),
+        }
+      }
+      setPjSelected(sel)
+    } catch {} finally {
+      setLoadingPj(false)
+    }
+  }, [entries])
+
+  // ─── Confirmar seleção PJ ──────────────────────────────────────────────────
+  const confirmPjSelection = useCallback(() => {
+    const cltEntries  = entries.filter(e => e.isClt)
+    const newPjEntries: PayrollEntry[] = pjEmployees
+      .filter(emp => pjSelected[emp.id]?.selected)
+      .map(emp => {
+        const salary = pjSelected[emp.id]?.salary ?? 0
+        return {
+          employeeId:          emp.id,
+          name:                emp.name,
+          type:                emp.type,
+          role:                emp.role    ?? null,
+          projectId:           emp.projectId ?? null,
+          project:             emp.project  ?? null,
+          supplierId:          emp.supplierId      ?? null,
+          supplierName:        emp.supplier?.name  ?? null,
+          salarioBase:         salary,
+          horasExtras60:       0,
+          horasExtras100:      0,
+          valorHorasExtras60:  0,
+          valorHorasExtras100: 0,
+          valorHorasExtras:    0,
+          salarioBruto:        salary,
+          inss:                0,
+          irrfBase:            0,
+          irrf:                0,
+          salarioLiquido:      salary,
+          fgts:                0,
+          encargosPatronais:   0,
+          custoTotal:          salary,
+          isClt:               false,
+        }
+      })
+    const merged = [...cltEntries, ...newPjEntries]
+    setEntries(merged)
+    setOverrides(prev => {
+      const next: typeof prev = {}
+      for (const e of cltEntries) {
+        if (prev[e.employeeId]) next[e.employeeId] = prev[e.employeeId]
+      }
+      for (const e of newPjEntries) {
+        next[e.employeeId] = prev[e.employeeId] ?? {
+          he60: 0, he100: 0, projectId: e.projectId, desconto: 0, dependentes: 0,
+        }
+      }
+      return next
+    })
+    const hasAnyPj = newPjEntries.length > 0
+    setIncludePj(hasAnyPj)
+    setShowPjModal(false)
+  }, [entries, pjEmployees, pjSelected])
+
+  // ─── Descartar rascunho ────────────────────────────────────────────────────
+  const handleDiscardDraft = useCallback(async () => {
+    if (!window.confirm('Descartar o rascunho? Todos os ajustes não salvos serão perdidos.')) return
+    setDiscarding(true)
+    try {
+      await fetch(
+        `${API}/api/v1/employees/payroll-draft?month=${month}&year=${year}`,
+        { method: 'DELETE', headers: getHeaders() }
+      )
+    } catch {}
+    setEntries([])
+    setOverrides({})
+    setCalculated(false)
+    setDraftSavedAt(null)
+    setIncludePj(false)
+    setDiscarding(false)
+  }, [month, year])
+
   const years = Array.from({ length: 5 }, (_, i) => now.getFullYear() - i)
 
   return (
@@ -526,9 +625,20 @@ export default function FolhaPagamentoPage() {
       {draftSavedAt && !success && (
         <div className="flex items-center gap-2 bg-blue-50 border border-blue-200 rounded-xl px-4 py-2.5">
           <Clock size={13} className="text-blue-500 flex-shrink-0" />
-          <p className="text-xs text-blue-700">
+          <p className="text-xs text-blue-700 flex-1">
             Rascunho salvo em {fmtDateTime(draftSavedAt)} — edite e salve novamente se necessário
           </p>
+          <button
+            onClick={handleDiscardDraft}
+            disabled={discarding}
+            className="flex items-center gap-1 text-xs text-red-500 hover:text-red-700 px-2.5 py-1.5 rounded-lg border border-red-200 hover:bg-red-50 transition-colors disabled:opacity-50 flex-shrink-0"
+          >
+            {discarding
+              ? <Loader2 size={11} className="animate-spin" />
+              : <Trash2 size={11} />
+            }
+            Descartar rascunho
+          </button>
         </div>
       )}
 
@@ -595,16 +705,32 @@ export default function FolhaPagamentoPage() {
                     <span className="px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 font-medium">Terceirizado</span>
                   </>}
                 </div>
-                {/* Toggle PJ */}
-                <label className="flex items-center gap-2 cursor-pointer select-none">
-                  <div
-                    className={`w-9 h-5 rounded-full transition-colors ${includePj ? 'bg-purple-500' : 'bg-gray-300'} relative`}
-                    onClick={() => setIncludePj(v => !v)}
-                  >
-                    <div className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${includePj ? 'translate-x-4' : 'translate-x-0.5'}`} />
-                  </div>
-                  <span className="text-xs text-gray-500">Incluir PJ e Terceirizados</span>
-                </label>
+                {/* Botão selecionar PJ */}
+                {(() => {
+                  const pjCount = entries.filter(e => !e.isClt).length
+                  return (
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={openPjModal}
+                        className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-purple-200 text-purple-700 bg-purple-50 hover:bg-purple-100 transition-colors font-medium"
+                      >
+                        <UserPlus size={13} />
+                        {pjCount > 0 ? `PJ/Terceirizados (${pjCount})` : 'Adicionar PJ / Terceirizados'}
+                      </button>
+                      {pjCount > 0 && (
+                        <label className="flex items-center gap-1.5 cursor-pointer select-none">
+                          <div
+                            className={`w-8 h-4 rounded-full transition-colors ${includePj ? 'bg-purple-500' : 'bg-gray-300'} relative`}
+                            onClick={() => setIncludePj(v => !v)}
+                          >
+                            <div className={`absolute top-0.5 w-3 h-3 bg-white rounded-full shadow transition-transform ${includePj ? 'translate-x-4' : 'translate-x-0.5'}`} />
+                          </div>
+                          <span className="text-[11px] text-gray-400">exibir</span>
+                        </label>
+                      )}
+                    </div>
+                  )
+                })()}
               </div>
               <div className="flex items-center gap-2">
                 {/* Salvar rascunho */}
@@ -887,6 +1013,168 @@ export default function FolhaPagamentoPage() {
           <p className="text-sm font-medium text-gray-600">Selecione o mês e clique em &ldquo;Calcular folha&rdquo;</p>
           <p className="text-xs text-gray-400">O sistema irá buscar todos os colaboradores ativos com salário cadastrado</p>
           <p className="text-xs text-gray-400">Se houver rascunho salvo para o período selecionado, ele será carregado automaticamente.</p>
+        </div>
+      )}
+
+      {/* ── Modal seleção PJ / Terceirizados ──────────────────────────────────── */}
+      {showPjModal && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
+          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setShowPjModal(false)} />
+          <div className="relative bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl w-full sm:max-w-[560px] max-h-[85vh] flex flex-col">
+
+            {/* Header */}
+            <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between flex-shrink-0">
+              <div>
+                <h3 className="font-semibold text-gray-900">PJ e Terceirizados</h3>
+                <p className="text-xs text-gray-400 mt-0.5">
+                  Selecione quem deve aparecer nesta folha e informe o valor combinado
+                </p>
+              </div>
+              <button onClick={() => setShowPjModal(false)}
+                className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 transition-colors">
+                <X size={16} />
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="flex-1 overflow-y-auto p-4 space-y-2">
+              {loadingPj ? (
+                <div className="flex items-center justify-center py-12">
+                  <Loader2 size={22} className="animate-spin text-gray-300" />
+                </div>
+              ) : pjEmployees.length === 0 ? (
+                <div className="text-center py-10 space-y-2">
+                  <Users size={32} className="mx-auto text-gray-200" />
+                  <p className="text-sm text-gray-500">Nenhum colaborador PJ ou Terceirizado ativo encontrado.</p>
+                  <Link href="/app/colaboradores"
+                    className="text-sm text-[#F5A623] hover:underline font-medium">
+                    Cadastrar colaborador PJ →
+                  </Link>
+                </div>
+              ) : (
+                <>
+                  {/* Selecionar / desmarcar todos */}
+                  <div className="flex items-center justify-between pb-2 border-b border-gray-100">
+                    <p className="text-xs text-gray-500">
+                      {pjEmployees.length} colaborador(es) encontrado(s)
+                    </p>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => setPjSelected(prev => {
+                          const next = { ...prev }
+                          for (const emp of pjEmployees) next[emp.id] = { ...next[emp.id], selected: true }
+                          return next
+                        })}
+                        className="text-xs text-purple-600 hover:underline"
+                      >Selecionar todos</button>
+                      <span className="text-gray-300">|</span>
+                      <button
+                        onClick={() => setPjSelected(prev => {
+                          const next = { ...prev }
+                          for (const emp of pjEmployees) next[emp.id] = { ...next[emp.id], selected: false }
+                          return next
+                        })}
+                        className="text-xs text-gray-400 hover:underline"
+                      >Desmarcar todos</button>
+                    </div>
+                  </div>
+
+                  {pjEmployees.map(emp => {
+                    const sel = pjSelected[emp.id]
+                    const isSelected = sel?.selected ?? false
+                    return (
+                      <div key={emp.id}
+                        className={`flex items-center gap-3 p-3 rounded-xl border transition-colors ${
+                          isSelected ? 'border-purple-200 bg-purple-50/60' : 'border-gray-100 hover:border-gray-200 bg-white'
+                        }`}>
+                        {/* Checkbox */}
+                        <button
+                          type="button"
+                          onClick={() => setPjSelected(prev => ({
+                            ...prev,
+                            [emp.id]: { salary: prev[emp.id]?.salary ?? 0, selected: !isSelected },
+                          }))}
+                          className={`w-5 h-5 rounded border-2 flex-shrink-0 flex items-center justify-center transition-colors ${
+                            isSelected ? 'bg-purple-500 border-purple-500' : 'border-gray-300 bg-white'
+                          }`}
+                        >
+                          {isSelected && (
+                            <svg className="w-3 h-3 text-white" viewBox="0 0 12 10" fill="none" stroke="currentColor" strokeWidth="2">
+                              <polyline points="1,5 4,9 11,1" />
+                            </svg>
+                          )}
+                        </button>
+
+                        {/* Info */}
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-gray-800 truncate">{emp.name}</p>
+                          <p className="text-xs text-gray-400">{emp.role ?? (TYPE_LABELS[emp.type] ?? emp.type)}</p>
+                          {emp.supplier?.name && (
+                            <p className="text-[11px] text-purple-500 mt-0.5">⚡ {emp.supplier.name}</p>
+                          )}
+                        </div>
+
+                        {/* Badge tipo */}
+                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-purple-100 text-purple-700 font-medium flex-shrink-0 whitespace-nowrap">
+                          {TYPE_LABELS[emp.type] ?? emp.type}
+                        </span>
+
+                        {/* Salary input */}
+                        <div className="flex-shrink-0 w-28">
+                          <div className="relative">
+                            <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[11px] text-gray-400 pointer-events-none">R$</span>
+                            <input
+                              type="number"
+                              min="0"
+                              step="100"
+                              value={sel?.salary ?? 0}
+                              onChange={e => setPjSelected(prev => ({
+                                ...prev,
+                                [emp.id]: { ...prev[emp.id], salary: parseFloat(e.target.value) || 0 },
+                              }))}
+                              onClick={() => {
+                                if (!isSelected) {
+                                  setPjSelected(prev => ({
+                                    ...prev,
+                                    [emp.id]: { salary: prev[emp.id]?.salary ?? 0, selected: true },
+                                  }))
+                                }
+                              }}
+                              className="w-full pl-7 pr-1.5 py-1.5 text-xs border border-gray-200 rounded-lg text-right focus:outline-none focus:ring-1 focus:ring-purple-300 bg-white"
+                            />
+                          </div>
+                          <p className="text-[10px] text-gray-400 text-right mt-0.5">valor / mês</p>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="px-5 py-4 border-t border-gray-100 flex items-center justify-between flex-shrink-0">
+              <p className="text-xs text-gray-500">
+                <span className="font-semibold text-purple-700">
+                  {Object.values(pjSelected).filter(s => s.selected).length}
+                </span> selecionado(s)
+              </p>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setShowPjModal(false)}
+                  className="px-4 py-2 text-sm border border-gray-200 rounded-xl text-gray-600 hover:bg-gray-50 transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={confirmPjSelection}
+                  className="px-4 py-2 text-sm bg-purple-600 hover:bg-purple-700 text-white font-semibold rounded-xl transition-colors"
+                >
+                  Confirmar seleção
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
       )}
     </div>
