@@ -18,11 +18,6 @@ import { ActivityFeed }                              from '@/components/ui/Activ
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
 
-const ProjectFilesReadOnly = dynamic(
-  () => import('../../components/ProjectFilesReadOnly'),
-  { ssr: false, loading: () => null },
-)
-
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
 interface StageEntry {
@@ -661,8 +656,6 @@ export default function RdoDetailPage() {
             </Card>
           )}
 
-          {/* Pasta de Projetos — somente leitura */}
-          <ProjectFilesReadOnly projectId={projectId} projectName={entry.project?.name} />
         </div>
 
         {/* ── Coluna lateral: comentários ────────────────────────────────── */}

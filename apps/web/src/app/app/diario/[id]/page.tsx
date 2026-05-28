@@ -17,6 +17,12 @@ import { PhotoCarousel }                     from '../components/PhotoCarousel'
 // RainChart carregado dinamicamente (usa recharts)
 const RainChart = dynamic(() => import('@/components/diary/RainChart'), { ssr: false })
 
+// Pasta de projetos — carregada dinamicamente (somente leitura)
+const ProjectFilesReadOnly = dynamic(
+  () => import('../components/ProjectFilesReadOnly'),
+  { ssr: false, loading: () => null },
+)
+
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
@@ -130,7 +136,7 @@ function fmtDate(iso: string) {
   return `${dd}/${m}/${y}`
 }
 
-type TabId    = 'reports' | 'stages' | 'rain' | 'photos' | 'occurrences'
+type TabId    = 'reports' | 'stages' | 'rain' | 'photos' | 'files' | 'occurrences'
 type ViewMode = 'lista' | 'card' | 'compacto'
 
 const LS_VIEW_KEY = 'sysobra:rdo-view-mode'
@@ -241,6 +247,7 @@ export default function DiarioProjectPage() {
     { id: 'stages',      label: 'Etapas' },
     { id: 'rain',        label: rainTabLabel },
     { id: 'photos',      label: `Fotos${allPhotos.length > 0 ? ` (${allPhotos.length})` : ''}` },
+    { id: 'files',       label: '📁 Pasta de Projetos' },
     { id: 'occurrences', label: `Ocorrências${allOccurrences.length > 0 ? ` (${allOccurrences.length})` : ''}` },
   ]
 
@@ -631,6 +638,16 @@ export default function DiarioProjectPage() {
             </>
           )}
         </div>
+      )}
+
+      {/* ── Tab: Pasta de Projetos ───────────────────────────────────────── */}
+      {tab === 'files' && (
+        <ProjectFilesReadOnly
+          projectId={projectId}
+          projectName={project?.name}
+          defaultExpanded
+          hideHeader
+        />
       )}
 
       {/* ── Tab: Ocorrências ─────────────────────────────────────────────── */}

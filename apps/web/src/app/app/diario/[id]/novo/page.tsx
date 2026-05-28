@@ -10,12 +10,6 @@ import { usePermissions }                    from '@/hooks/usePermissions'
 import DDSThemeSelector, { getSuggestedDdsTheme, type DdsStaticTheme } from '../../components/DDSThemeSelector'
 import { PhotoUpload, type PhotoItem } from '../../components/PhotoUpload'
 import { todayLocalDate } from '@/lib/format'
-import dynamic from 'next/dynamic'
-
-const ProjectFilesReadOnly = dynamic(
-  () => import('../../components/ProjectFilesReadOnly'),
-  { ssr: false, loading: () => null },
-)
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
 
@@ -871,9 +865,6 @@ export default function NovoRdoPage() {
             </button>
           )}
         </Section>
-
-        {/* ── Pasta de projetos — somente leitura (consulta durante preenchimento) */}
-        <ProjectFilesReadOnly projectId={projectId} projectName={projectName} />
 
         {/* ── Seção 7: Observações gerais ────────────────────────────────── */}
         <Section number={8} title="Observações Gerais">

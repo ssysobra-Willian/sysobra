@@ -11,8 +11,10 @@ function authHeaders() {
 }
 
 interface ProjectFilesReadOnlyProps {
-  projectId:    string
-  projectName?: string
+  projectId:        string
+  projectName?:     string
+  defaultExpanded?: boolean   // true = já começa expandido (uso como aba)
+  hideHeader?:      boolean   // true = esconde o botão colapsível (uso como aba)
 }
 
 function formatBytes(bytes?: number | null): string {
@@ -32,8 +34,8 @@ function getFileIcon(type: string): { icon: string; color: string } {
   return map[type] ?? { icon: '📎', color: '#6B7280' }
 }
 
-export default function ProjectFilesReadOnly({ projectId, projectName }: ProjectFilesReadOnlyProps) {
-  const [expanded, setExpanded] = useState(false)
+export default function ProjectFilesReadOnly({ projectId, projectName, defaultExpanded = false, hideHeader = false }: ProjectFilesReadOnlyProps) {
+  const [expanded, setExpanded] = useState(defaultExpanded)
   const [tree,     setTree]     = useState<any>(null)
   const [loading,  setLoading]  = useState(false)
 
@@ -124,6 +126,46 @@ export default function ProjectFilesReadOnly({ projectId, projectName }: Project
 
   const totalFiles = tree?.stats?.totalFiles ?? 0
 
+  // Modo aba: sem card wrapper, sem header colapsível, sem max-height limitado
+  if (hideHeader) {
+    return (
+      <div>
+        {loading && (
+          <div className="flex items-center justify-center gap-2 py-12 text-gray-400 text-sm">
+            <Loader2 size={16} className="animate-spin" />
+            Carregando arquivos...
+          </div>
+        )}
+        {!loading && tree && (
+          <div className="bg-white rounded-2xl border border-gray-200 shadow-sm">
+            <div className="p-2">
+              {tree.rootFiles?.map((f: any) => renderFile(f, 0))}
+              {tree.tree?.map((folder: any) => renderFolder(folder, 0))}
+              {totalFiles === 0 && (
+                <div className="flex flex-col items-center justify-center py-12 text-gray-400">
+                  <FileText size={32} className="mb-3 opacity-30" />
+                  <p className="text-sm font-medium mb-1">Nenhum arquivo cadastrado</p>
+                  <p className="text-xs text-gray-400">Os arquivos são gerenciados no Centro de Custo da obra</p>
+                </div>
+              )}
+            </div>
+            {totalFiles > 0 && (
+              <div className="px-4 py-2.5 border-t border-gray-100 flex items-center justify-between">
+                <span className="text-xs text-gray-400">
+                  {totalFiles} arquivo{totalFiles > 1 ? 's' : ''} · {tree?.stats?.totalFolders ?? 0} pasta{(tree?.stats?.totalFolders ?? 0) !== 1 ? 's' : ''}
+                </span>
+                <span className="text-xs text-gray-400 flex items-center gap-1">
+                  <FolderOpen size={11} />
+                  Somente leitura — edição no Centro de Custo
+                </span>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    )
+  }
+
   return (
     <>
       <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden mt-4">
@@ -162,11 +204,8 @@ export default function ProjectFilesReadOnly({ projectId, projectName }: Project
 
             {!loading && tree && (
               <div className="p-2">
-                {/* Arquivos na raiz */}
                 {tree.rootFiles?.map((f: any) => renderFile(f, 0))}
-                {/* Pastas */}
                 {tree.tree?.map((folder: any) => renderFolder(folder, 0))}
-                {/* Vazio */}
                 {totalFiles === 0 && (
                   <div className="flex flex-col items-center justify-center py-8 text-gray-400">
                     <FileText size={28} className="mb-2 opacity-30" />
@@ -178,7 +217,6 @@ export default function ProjectFilesReadOnly({ projectId, projectName }: Project
           </div>
         )}
       </div>
-
     </>
   )
 }

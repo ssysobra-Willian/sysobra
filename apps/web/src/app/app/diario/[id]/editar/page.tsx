@@ -9,12 +9,6 @@ import { SemAcesso }                         from '@/components/SemAcesso'
 import { usePermissions }                    from '@/hooks/usePermissions'
 import DDSThemeSelector, { getSuggestedDdsTheme, type DdsStaticTheme } from '../../components/DDSThemeSelector'
 import { PhotoUpload, type PhotoItem } from '../../components/PhotoUpload'
-import dynamic from 'next/dynamic'
-
-const ProjectFilesReadOnly = dynamic(
-  () => import('../../components/ProjectFilesReadOnly'),
-  { ssr: false, loading: () => null },
-)
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
 
@@ -644,9 +638,6 @@ export default function EditarRdoPage() {
             </button>
           )}
         </Section>
-
-        {/* ── Pasta de projetos — somente leitura */}
-        {projectId && <ProjectFilesReadOnly projectId={projectId} projectName={projectName} />}
 
         {/* ── Seção 7: Observações gerais ────────────────────────────────── */}
         <Section number={stages.length > 0 ? 7 : 6} title="Observações Gerais">
