@@ -104,7 +104,12 @@
       "PowerShell($env:DATABASE_URL = \"postgresql://sysobra:sysobra123@127.0.0.1:5432/sysobra\"; cd C:\\\\projetos\\\\sysobra\\\\packages\\\\database; npx prisma db push 2>&1 | Write-Output)",
       "PowerShell(Select-String *)",
       "PowerShell(npx kill-port 3000 2>&1; npx kill-port 3001 2>&1)",
-      "Bash(echo \"---exit: $?\")"
+      "Bash(echo \"---exit: $?\")",
+      "Bash(find apps/web/src -name \"Breadcrumb*\")",
+      "Bash(find apps/web/src -name \"EmployeeFormModal*\")",
+      "Bash(find apps/web/src -name \"DismissalModal*\")",
+      "Bash(find apps/web/src -name \"TransferProjectModal*\")",
+      "Bash(find apps/web/src -name \"imageUrl*\")"
     ]
   }
 }
