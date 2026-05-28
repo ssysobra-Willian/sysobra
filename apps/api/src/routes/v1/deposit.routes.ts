@@ -308,22 +308,17 @@ export async function depositRoutes(app: FastifyInstance) {
     if (waybillCategory === 'TOOL')        where.requiresCustody = true
     if (waybillCategory === 'EPI_UNIFORM') where.OR = [{ isEpi: true }, { isUniform: true }]
 
-    // ── Quando locationId é fornecido: filtrar por saldo disponível ──────────
+    // ── Quando locationId é fornecido: mostrar itens com saldo no local ──────
     if (locationId) {
+      // 1. Buscar TODOS os saldos do local (sem filtro de quantity)
+      //    → inclui qty=0 para que itens com saldo zero apareçam como "indisponíveis"
+      //    → inclui locais sem StockBalance (novo almoxarifado) para que a lista não fique vazia
       const balances = await p().stockBalance.findMany({
-        where: { locationId, companyId: cid, quantity: { gt: 0 } },
+        where: { locationId, companyId: cid },
         select: { itemId: true, quantity: true, reservedQty: true },
       })
-      const idsWithStock = balances.map((b: any) => b.itemId)
 
-      // Se não houver nenhum item com estoque neste local, retornar lista vazia
-      if (idsWithStock.length === 0) {
-        return reply.send({ items: [], total: 0, page: parseInt(page), limit: take })
-      }
-
-      // Intersectar com filtros já definidos
-      where.id = { in: idsWithStock }
-
+      // 2. Buscar itens da categoria (sem restrição de ID — usa filtros de where acima)
       const [items, total] = await Promise.all([
         p().stockItem.findMany({
           where,
@@ -340,9 +335,10 @@ export async function depositRoutes(app: FastifyInstance) {
         p().stockItem.count({ where }),
       ])
 
+      // 3. Combinar: itens sem saldo recebem availableQty=0 (UI desabilita adição)
       const withBalance = items.map((item: any) => {
-        const bal = balances.find((b: any) => b.itemId === item.id)
-        const qty       = Number(bal?.quantity   ?? 0)
+        const bal       = balances.find((b: any) => b.itemId === item.id)
+        const qty       = Number(bal?.quantity    ?? 0)
         const reserved  = Number(bal?.reservedQty ?? 0)
         return {
           ...item,
