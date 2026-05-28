@@ -11,6 +11,7 @@ import {
 } from '../../middlewares/auth.middleware'
 import { createAuditLog } from '../../utils/audit'
 import { generatePdf }    from '../../utils/pdf'
+import { getPdfHeader, getPdfFooter, PDF_BASE_STYLES } from '../../utils/pdfTemplate'
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
@@ -712,7 +713,7 @@ export async function waybillRoutes(app: FastifyInstance) {
 
     const company = await p().company.findUnique({
       where:  { id: companyId },
-      select: { name: true, cnpj: true },
+      select: { name: true, cnpj: true, logo: true },
     })
 
     const [senderSigB64, driverSigB64, receiverSigB64] = await Promise.all([
@@ -1220,51 +1221,36 @@ function gerarHtmlRomaneio({
     </tr>
   `).join('')
 
+  const statusBadgeHtml = `<span style="display:inline-block;padding:2px 8px;border-radius:99px;font-size:10px;font-weight:700;background:${STATUS_COLORS[waybill.status] ?? '#6B7280'};color:#fff;">${STATUS_LABELS[waybill.status] ?? waybill.status}</span>`
+  const docHeader = getPdfHeader({
+    title:       `ROMANEIO — ${CAT_LABELS[waybill.category] ?? waybill.category}`,
+    docNumber:   waybill.docNumber,
+    company:     { name: company?.name ?? '', document: company?.cnpj ?? null, logo: company?.logo ?? null },
+    date:        fmtDate(waybill.emittedAt),
+    statusBadge: statusBadgeHtml,
+  })
+  const docFooter = getPdfFooter(company?.name ?? '')
+
   return `<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
   <meta charset="UTF-8" />
   <title>Romaneio ${waybill.docNumber}</title>
   <style>
-    * { margin:0; padding:0; box-sizing:border-box; }
-    body { font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif; color:#111827; font-size:13px; line-height:1.5; }
-    @page { size:A4; margin:0; }
-    .header { background:#111827; color:#fff; padding:20px 36px; display:flex; align-items:center; justify-content:space-between; }
-    .body { padding:24px 36px; }
-    .section { margin-bottom:20px; }
-    .section-title { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:0.05em; color:#6B7280; margin-bottom:8px; padding-bottom:4px; border-bottom:1px solid #E5E7EB; }
-    .info-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; }
+    ${PDF_BASE_STYLES}
+    /* ── Overrides específicos do romaneio ── */
+    thead tr { background: #374151; }
+    th { font-size: 10px; font-weight: 700; letter-spacing: 0.04em; }
     .info-item label { display:block; font-size:10px; color:#9CA3AF; font-weight:600; text-transform:uppercase; letter-spacing:0.04em; }
     .info-item span  { display:block; font-size:12px; color:#111827; font-weight:500; margin-top:2px; }
-    table { width:100%; border-collapse:collapse; }
-    thead tr { background:#F3F4F6; }
-    th { padding:8px 10px; text-align:left; font-size:11px; font-weight:700; color:#374151; border-bottom:2px solid #E5E7EB; }
-    .right { text-align:right; }
-    .center { text-align:center; }
-    .badge { display:inline-block; padding:2px 8px; border-radius:99px; font-size:10px; font-weight:700; }
     .no-break { page-break-inside: avoid; }
   </style>
 </head>
 <body>
-  <!-- ── HEADER ── -->
-  <div class="header">
-    <div>
-      <div style="font-size:18px;font-weight:800;letter-spacing:2px;">SYS<span style="color:#F5A623;">OBRA</span></div>
-      <div style="font-size:11px;color:#9CA3AF;margin-top:2px;">${company?.name ?? ''}</div>
-    </div>
-    <div style="text-align:right;">
-      <div style="font-size:14px;font-weight:700;color:#F5A623;">ROMANEIO</div>
-      <div style="font-size:18px;font-weight:800;">${waybill.docNumber}</div>
-      <div style="margin-top:4px;">
-        <span class="badge" style="background:${STATUS_COLORS[waybill.status] ?? '#6B7280'};color:#fff;">
-          ${STATUS_LABELS[waybill.status] ?? waybill.status}
-        </span>
-      </div>
-    </div>
-  </div>
+  ${docHeader}
 
   <!-- ── BODY ── -->
-  <div class="body">
+  <div class="doc-body">
 
     <!-- Informações principais -->
     <div class="section">
@@ -1353,11 +1339,7 @@ function gerarHtmlRomaneio({
 
   </div>
 
-  <!-- ── FOOTER ── -->
-  <div style="position:fixed;bottom:0;left:0;right:0;padding:10px 36px;background:#F9FAFB;border-top:1px solid #E5E7EB;display:flex;justify-content:space-between;align-items:center;">
-    <span style="font-size:10px;color:#9CA3AF;">SYSOBRA — Sistema de Gestão de Obras | ${company?.name ?? ''}</span>
-    <span style="font-size:10px;color:#9CA3AF;">Gerado em ${new Date().toLocaleString('pt-BR')}</span>
-  </div>
+  ${docFooter}
 
 </body>
 </html>`

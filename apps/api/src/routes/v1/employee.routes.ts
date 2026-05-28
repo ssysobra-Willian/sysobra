@@ -11,6 +11,7 @@ import {
 } from '../../middlewares/auth.middleware'
 import { createAuditLog } from '../../utils/audit'
 import { processAndSaveImage } from '../../utils/imageProcessor'
+import { getPdfHeader, getPdfFooter } from '../../utils/pdfTemplate'
 
 const p = prisma as any
 
@@ -1677,7 +1678,7 @@ export async function employeeRoutes(app: FastifyInstance) {
     // Buscar dados da empresa
     const company = await p.company.findUnique({
       where:  { id: companyId },
-      select: { name: true, cnpj: true, city: true, state: true },
+      select: { name: true, cnpj: true, city: true, state: true, logo: true },
     })
     const companyName = company?.name ?? 'Empresa'
 
@@ -1802,22 +1803,30 @@ export async function employeeRoutes(app: FastifyInstance) {
 
   .disclaimer { font-size: 7px; color: #9CA3AF; margin-top: 8px; text-align: center;
                 border-top: 1px solid #E5E7EB; padding-top: 6px; }
+
+  /* ── Cabeçalho / Rodapé SYSOBRA (classes do pdfTemplate) ── */
+  .doc-header { background: #111827; color: #fff; padding: 14px 36px; display: flex; align-items: center; justify-content: space-between; margin: -12mm -10mm 10px; }
+  .doc-header .logo { font-size: 18px; font-weight: 800; letter-spacing: 2px; color: #fff; }
+  .doc-header .logo span { color: #F5A623; }
+  .doc-header .sub { font-size: 9px; color: rgba(255,255,255,0.55); margin-top: 2px; }
+  .doc-header .doc-info { text-align: right; }
+  .doc-header .doc-info .company { font-size: 11px; font-weight: 600; color: #fff; }
+  .doc-header .doc-info .meta { font-size: 9px; color: rgba(255,255,255,0.6); margin-top: 1px; }
+  .doc-header .doc-info .doc-title { font-size: 10px; font-weight: 700; color: #F5A623; margin-top: 4px; text-transform: uppercase; }
+  .doc-header .doc-info .doc-num { font-size: 12px; font-weight: 800; color: #fff; margin-top: 2px; }
+  .header-stripe { height: 3px; background: linear-gradient(90deg, #F5A623, #D4860F); margin: 0 -12mm 10px; }
+  .doc-footer { background: #F3F4F6; border-top: 2px solid #F5A623; padding: 7px 36px; display: flex; justify-content: space-between; align-items: center; font-size: 8px; color: #6B7280; margin-top: 12px; }
+  .doc-footer .logo-sm { font-weight: 800; color: #111827; font-size: 9px; }
+  .doc-footer .logo-sm span { color: #F5A623; }
 </style>
 </head>
 <body>
-  <!-- Cabeçalho -->
-  <div class="header">
-    <div class="header-left">
-      <h1>Folha de Pagamento</h1>
-      <h2>${mesLabel} / ${body.year} &nbsp;·&nbsp; <span class="badge-period">${body.entries.length} colaborador${body.entries.length !== 1 ? 'es' : ''}</span></h2>
-    </div>
-    <div class="header-right">
-      <div class="company">${companyName}</div>
-      ${company?.cnpj ? `<div class="meta">CNPJ: ${company.cnpj}</div>` : ''}
-      ${company?.city ? `<div class="meta">${company.city}${company.state ? ` — ${company.state}` : ''}</div>` : ''}
-      <div class="meta">Emitido em: ${new Date().toLocaleDateString('pt-BR', { day:'2-digit', month:'long', year:'numeric' })}</div>
-    </div>
-  </div>
+${getPdfHeader({
+    title:     'FOLHA DE PAGAMENTO',
+    docNumber: `${mesLabel} / ${body.year} · ${body.entries.length} colaborador${body.entries.length !== 1 ? 'es' : ''}`,
+    company:   { name: companyName, document: company?.cnpj ?? null, logo: company?.logo ?? null },
+    date:      `${company?.city ?? ''}${company?.state ? ` — ${company.state}` : ''} · ${new Date().toLocaleDateString('pt-BR', { day:'2-digit', month:'long', year:'numeric' })}`,
+  })}
 
   <!-- Cards de totais -->
   <div class="cards">
@@ -1931,6 +1940,7 @@ export async function employeeRoutes(app: FastifyInstance) {
       </p>
     </div>
   </div>
+${getPdfFooter(companyName)}
 </body>
 </html>`
 

@@ -1,3 +1,6 @@
+import path from 'path'
+import fs   from 'fs'
+
 // ─── Paleta de cores SYSOBRA ──────────────────────────────────────────────────
 
 export const PDF_COLORS = {
@@ -299,6 +302,60 @@ export const PDF_BASE_STYLES = `
   }
 `
 
+// ─── Logo helpers ─────────────────────────────────────────────────────────────
+
+/**
+ * Converte um arquivo de imagem em data URI base64.
+ * Aceita caminhos absolutos ou relativos do tipo /uploads/...
+ */
+export function fileToBase64(filePath: string): string | null {
+  try {
+    let absPath: string
+    if (path.isAbsolute(filePath)) {
+      absPath = filePath
+    } else if (filePath.startsWith('/uploads/')) {
+      const uploadsRoot = process.env.UPLOADS_PATH ?? path.join(process.cwd(), 'uploads')
+      absPath = path.join(uploadsRoot, filePath.replace(/^\/uploads\//, ''))
+    } else {
+      absPath = path.join(process.cwd(), filePath)
+    }
+    if (!fs.existsSync(absPath)) return null
+    const data = fs.readFileSync(absPath)
+    const ext  = path.extname(absPath).toLowerCase().slice(1)
+    const mime = ext === 'svg' ? 'image/svg+xml'
+               : ext === 'webp' ? 'image/webp'
+               : ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg'
+               : 'image/png'
+    return `data:${mime};base64,${data.toString('base64')}`
+  } catch {
+    return null
+  }
+}
+
+let _sysobraLogoCache: string | null | undefined = undefined
+
+/** Retorna a logo SYSOBRA (logo-dark.png) em base64, com cache em memória. */
+export function getSysobraLogoBase64(): string | null {
+  if (_sysobraLogoCache !== undefined) return _sysobraLogoCache
+  const candidates = [
+    path.join(process.cwd(), '..', 'web', 'public', 'logo-dark.png'),
+    path.join(process.cwd(), 'public', 'logo-dark.png'),
+    // __dirname = apps/api/src/utils OR apps/api/dist/utils → 3 levels up = apps/
+    path.join(__dirname, '..', '..', '..', 'web', 'public', 'logo-dark.png'),
+  ]
+  for (const c of candidates) {
+    if (fs.existsSync(c)) {
+      try {
+        const data = fs.readFileSync(c)
+        _sysobraLogoCache = `data:image/png;base64,${data.toString('base64')}`
+        return _sysobraLogoCache
+      } catch { continue }
+    }
+  }
+  _sysobraLogoCache = null
+  return null
+}
+
 // ─── Header HTML ──────────────────────────────────────────────────────────────
 
 export function getPdfHeader(params: {
@@ -308,8 +365,14 @@ export function getPdfHeader(params: {
   date:         string
   statusBadge?: string   // HTML de badge pré-formatado
 }) {
-  const logoHtml = params.company.logo
-    ? `<img src="${params.company.logo}" alt="Logo" style="height:36px;max-width:160px;object-fit:contain;border-radius:4px;" />`
+  // Auto-resolve caminhos relativos (ex: /uploads/logos/...) → base64 data URI
+  let logoSrc = params.company.logo ?? null
+  if (logoSrc && !logoSrc.startsWith('data:') && !logoSrc.startsWith('http')) {
+    logoSrc = fileToBase64(logoSrc)
+  }
+
+  const logoHtml = logoSrc
+    ? `<img src="${logoSrc}" alt="Logo" style="height:36px;max-width:160px;object-fit:contain;border-radius:4px;" />`
     : `<div class="logo">SYS<span>O</span>BRA</div>
        <div class="sub">Sistema de Gestão de Obras</div>`
 
@@ -332,12 +395,16 @@ export function getPdfHeader(params: {
 // ─── Footer HTML ──────────────────────────────────────────────────────────────
 
 export function getPdfFooter(company: string) {
-  const now = new Date()
-  const date = now.toLocaleDateString('pt-BR')
-  const time = now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+  const now        = new Date()
+  const date       = now.toLocaleDateString('pt-BR')
+  const time       = now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+  const sysobraB64 = getSysobraLogoBase64()
+  const logoEl     = sysobraB64
+    ? `<img src="${sysobraB64}" alt="SYSOBRA" style="height:14px;opacity:.75;vertical-align:middle;" />`
+    : `<span class="logo-sm">SYS<span>O</span>BRA</span>`
   return `
     <div class="doc-footer">
-      <div class="logo-sm">SYS<span>O</span>BRA · Sistema de Gestão de Obras</div>
+      <div style="display:flex;align-items:center;gap:5px;">${logoEl}<span>Sistema de Gestão de Obras</span></div>
       <div>${company}</div>
       <div>Gerado em ${date} às ${time}</div>
     </div>

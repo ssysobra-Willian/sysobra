@@ -9,6 +9,7 @@ import {
   RequestWithMember,
   JwtPayload,
 } from '../../middlewares/auth.middleware'
+import { getPdfHeader, getPdfFooter, PDF_BASE_STYLES } from '../../utils/pdfTemplate'
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
@@ -1473,57 +1474,35 @@ export async function depositRoutes(app: FastifyInstance) {
       `).join('')}
     </div>`
 
+    const _basketHeader = getPdfHeader({
+      title:     `ROMANEIO DE ${docTitle}`,
+      docNumber: basket.docNumber,
+      company:   { name: basket.company?.name ?? '', document: basket.company?.cnpj ?? null, logo: basket.company?.logo ?? null },
+      date:      fmtDateTime(basket.createdAt),
+    })
+    const _basketFooter = getPdfFooter(basket.company?.name ?? '')
+
     const html = `<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
 <style>
-* { margin:0; padding:0; box-sizing:border-box; }
-body { font-family: Arial, sans-serif; font-size:11px; color:#111827; background:#fff; }
-@page { size: A4; margin: 0; }
-.header { background:#111827; color:#fff; padding:20px 32px; display:flex; align-items:center; justify-content:space-between; }
-.logo { font-size:20px; font-weight:800; letter-spacing:2px; }
-.logo span { color:#F5A623; }
-.doc-info { text-align:right; }
-.doc-title { font-size:13px; font-weight:700; color:#F5A623; text-transform:uppercase; letter-spacing:.06em; }
-.doc-num { font-size:16px; font-weight:800; color:#fff; margin-top:3px; }
-.doc-meta { font-size:9px; color:rgba(255,255,255,.6); margin-top:2px; }
-.body { padding:20px 32px; }
-.section { margin-bottom:16px; }
-.section-title { font-size:8px; font-weight:700; color:#6b7280; letter-spacing:.1em; text-transform:uppercase; border-bottom:1px solid #e5e7eb; padding-bottom:4px; margin-bottom:8px; }
+${PDF_BASE_STYLES}
+/* ── Overrides romaneio de depósito ── */
 .grid-2 { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
 .origin-box { border:1px solid #e5e7eb; border-radius:8px; padding:12px; }
 .origin-label { font-size:8px; font-weight:700; color:#6b7280; letter-spacing:.1em; text-transform:uppercase; margin-bottom:6px; }
 .origin-name { font-size:13px; font-weight:700; color:#111827; }
 .origin-detail { font-size:10px; color:#6b7280; margin-top:2px; }
 .lbl { font-weight:600; color:#374151; }
-table { width:100%; border-collapse:collapse; margin-top:4px; }
-th { background:#111827; color:#fff; font-size:9px; font-weight:700; padding:7px 8px; text-align:left; letter-spacing:.04em; }
-td { padding:6px 8px; font-size:10px; border-bottom:1px solid #f3f4f6; }
-tr:nth-child(even) td { background:#fafafa; }
 .total-row td { font-weight:700; background:#fff3dc !important; border-top:2px solid #F5A623; }
 .notes-box { background:#f9fafb; border:1px dashed #d1d5db; border-radius:6px; padding:10px 12px; min-height:40px; margin-top:4px; font-size:10px; color:#374151; }
-.footer { border-top:1px solid #e5e7eb; margin:16px 32px 0; padding:12px 0 16px; display:flex; align-items:center; justify-content:space-between; }
-.footer .brand { font-size:9px; color:#9ca3af; }
-.footer .brand span { color:#F5A623; font-weight:700; }
-.footer .hash { font-size:8px; color:#d1d5db; font-family:monospace; }
 </style>
 </head>
 <body>
-<div class="header">
-  <div>
-    <div class="logo">SYS<span>OBRA</span></div>
-    <div style="font-size:11px;color:rgba(255,255,255,.7);margin-top:3px">${basket.company?.name ?? ''}</div>
-    ${basket.company?.cnpj ? `<div style="font-size:9px;color:rgba(255,255,255,.5)">CNPJ: ${basket.company.cnpj}</div>` : ''}
-  </div>
-  <div class="doc-info">
-    <div class="doc-title">ROMANEIO DE ${docTitle}</div>
-    <div class="doc-num">${basket.docNumber}</div>
-    <div class="doc-meta">Emitido em ${fmtDateTime(basket.createdAt)}</div>
-  </div>
-</div>
+${_basketHeader}
 
-<div class="body">
+<div class="doc-body">
   <!-- Origem e Destino -->
   <div class="section">
     <div class="section-title">Origem e Destino</div>
@@ -1597,10 +1576,7 @@ tr:nth-child(even) td { background:#fafafa; }
   </div>
 </div>
 
-<div class="footer">
-  <div class="brand"><span>SYS</span>OBRA · Sistema de Gestão de Obras</div>
-  <div class="hash">DOC: ${basket.docNumber} · ${new Date().toISOString().slice(0,10)}</div>
-</div>
+${_basketFooter}
 </body></html>`
 
     try {
@@ -2655,55 +2631,38 @@ tr:nth-child(even) td { background:#fafafa; }
 <html lang="pt-BR"><head>
 <meta charset="UTF-8">
 <style>
-  * { margin:0; padding:0; box-sizing:border-box; }
-  body { font-family: Arial, sans-serif; font-size: 11px; color: #111827; background:#fff; padding:20px 28px; }
-  @page { size: A4; margin: 0; }
-  .header { display:flex; justify-content:space-between; align-items:center; background:#111827; color:#fff; padding:16px 20px; border-radius:8px; margin-bottom:16px; }
-  .logo { font-size:18px; font-weight:900; }
-  .logo span { color:#F5A623; }
-  .title { text-align:center; font-size:15px; font-weight:bold; text-transform:uppercase; letter-spacing:.08em; color:#111827; margin-bottom:14px; border-bottom:2px solid #F5A623; padding-bottom:6px; }
-  .section { margin-bottom:14px; }
-  .stitle { font-size:8px; font-weight:700; text-transform:uppercase; color:#6B7280; letter-spacing:.1em; border-bottom:1px solid #e5e7eb; padding-bottom:3px; margin-bottom:8px; }
-  .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:6px; }
-  .grid3 { display:grid; grid-template-columns:1fr 1fr 1fr; gap:6px; }
-  .lbl { font-size:9px; color:#9ca3af; margin-bottom:1px; }
-  .val { font-size:11px; font-weight:500; color:#111827; }
-  table { width:100%; border-collapse:collapse; }
-  th { background:#111827; color:#fff; font-size:9px; font-weight:700; padding:5px 7px; text-align:left; letter-spacing:.03em; }
-  td { padding:5px 7px; font-size:10px; border-bottom:1px solid #f3f4f6; vertical-align:middle; }
-  tr:nth-child(even) td { background:#fafafa; }
-  .termo { background:#fffbeb; border:1px solid #fcd34d; border-radius:6px; padding:10px 12px; font-size:9.5px; line-height:1.6; margin:12px 0; }
-  .sig-grid { display:grid; grid-template-columns:1fr 1fr; gap:24px; margin-top:16px; }
-  .sig-box { text-align:center; border:1px solid #e5e7eb; border-radius:6px; padding:10px; }
-  .sig-label { font-size:8px; font-weight:700; text-transform:uppercase; color:#6b7280; letter-spacing:.08em; margin-bottom:6px; }
-  .sig-img { height:60px; margin:0 auto 6px; display:flex; align-items:center; justify-content:center; }
-  .sig-line { width:160px; border-top:1px solid #374151; margin:0 auto 4px; }
-  .sig-name { font-size:10px; font-weight:600; }
-  .sig-meta { font-size:9px; color:#9ca3af; margin-top:1px; }
-  .selfie-row { display:flex; gap:8px; flex-wrap:wrap; margin-top:8px; }
-  .selfie-item { text-align:center; }
-  .selfie-item img { width:70px; height:70px; object-fit:cover; border-radius:6px; border:1px solid #e5e7eb; }
-  .selfie-item p { font-size:8px; color:#9ca3af; margin-top:2px; }
-  .footer-bar { border-top:1px solid #e5e7eb; margin-top:16px; padding-top:8px; display:flex; justify-content:space-between; align-items:center; }
-  .footer-bar .brand { font-size:9px; color:#9ca3af; }
-  .footer-bar .brand b { color:#F5A623; }
-  .footer-bar .hash { font-size:8px; color:#d1d5db; font-family:monospace; }
+${PDF_BASE_STYLES}
+/* ── Overrides cautela EPI ── */
+body { padding: 0; }
+.doc-body { padding: 20px 28px 70px; }
+.stitle { font-size:8px; font-weight:700; text-transform:uppercase; color:#6B7280; letter-spacing:.1em; border-bottom:1px solid #e5e7eb; padding-bottom:3px; margin-bottom:8px; }
+.grid2 { display:grid; grid-template-columns:1fr 1fr; gap:6px; }
+.grid3 { display:grid; grid-template-columns:1fr 1fr 1fr; gap:6px; }
+.lbl { font-size:9px; color:#9ca3af; margin-bottom:1px; }
+.val { font-size:11px; font-weight:500; color:#111827; }
+td { padding:5px 7px; font-size:10px; border-bottom:1px solid #f3f4f6; vertical-align:middle; }
+tr:nth-child(even) td { background:#fafafa; }
+.termo { background:#fffbeb; border:1px solid #fcd34d; border-radius:6px; padding:10px 12px; font-size:9.5px; line-height:1.6; margin:12px 0; }
+.sig-grid { display:grid; grid-template-columns:1fr 1fr; gap:24px; margin-top:16px; }
+.sig-box { text-align:center; border:1px solid #e5e7eb; border-radius:6px; padding:10px; }
+.sig-label { font-size:8px; font-weight:700; text-transform:uppercase; color:#6b7280; letter-spacing:.08em; margin-bottom:6px; }
+.sig-img { height:60px; margin:0 auto 6px; display:flex; align-items:center; justify-content:center; }
+.sig-line { width:160px; border-top:1px solid #374151; margin:0 auto 4px; }
+.sig-name { font-size:10px; font-weight:600; }
+.sig-meta { font-size:9px; color:#9ca3af; margin-top:1px; }
+.selfie-row { display:flex; gap:8px; flex-wrap:wrap; margin-top:8px; }
+.selfie-item { text-align:center; }
+.selfie-item img { width:70px; height:70px; object-fit:cover; border-radius:6px; border:1px solid #e5e7eb; }
+.selfie-item p { font-size:8px; color:#9ca3af; margin-top:2px; }
 </style>
 </head><body>
-  <!-- Cabeçalho -->
-  <div class="header">
-    <div>
-      <div class="logo">SYS<span>OBRA</span></div>
-      <div style="font-size:10px;color:rgba(255,255,255,.6);margin-top:2px">${delivery.company.name}</div>
-      ${delivery.company.cnpj ? `<div style="font-size:9px;color:rgba(255,255,255,.4)">CNPJ: ${delivery.company.cnpj}</div>` : ''}
-    </div>
-    <div style="text-align:right">
-      <div style="font-size:11px;color:#F5A623;font-weight:700">CAUTELA DE EPI</div>
-      <div style="font-size:9px;color:rgba(255,255,255,.5)">Portaria MTE 485/2005 — NR-6</div>
-      <div style="font-size:9px;color:rgba(255,255,255,.5)">Emitido: ${fmtDateTime(new Date())}</div>
-    </div>
-  </div>
+${getPdfHeader({
+    title:    'CAUTELA DE EPI',
+    company:  { name: delivery.company.name, document: delivery.company.cnpj ?? null, logo: delivery.company.logo ?? null },
+    date:     `Portaria MTE 485/2005 — NR-6 · Emitido: ${fmtDateTime(new Date())}`,
+  })}
 
+<div class="doc-body">
   <!-- Dados do colaborador -->
   <div class="section">
     <div class="stitle">Dados do Colaborador</div>
@@ -2814,10 +2773,8 @@ tr:nth-child(even) td { background:#fafafa; }
     </div>
   </div>` : ''}
 
-  <div class="footer-bar">
-    <div class="brand"><b>SYS</b>OBRA · Sistema de Gestão de Obras</div>
-    <div class="hash">DOC: CAUTELA-${delivery.id.slice(-8).toUpperCase()} · ${new Date().toISOString().slice(0,10)}</div>
-  </div>
+</div>
+${getPdfFooter(delivery.company.name)}
 </body></html>`
 
     // Tentar usar puppeteer se disponível, senão retornar HTML
@@ -2826,7 +2783,7 @@ tr:nth-child(even) td { background:#fafafa; }
       const browser = await puppeteer.launch({ args: ['--no-sandbox', '--disable-setuid-sandbox'] })
       const page    = await browser.newPage()
       await page.setContent(html, { waitUntil: 'networkidle0' })
-      const pdf = await page.pdf({ format: 'A4', margin: { top: '10mm', bottom: '10mm', left: '10mm', right: '10mm' } })
+      const pdf = await page.pdf({ format: 'A4', printBackground: true, margin: { top: '0', bottom: '0', left: '0', right: '0' } })
       await browser.close()
       reply.header('Content-Type', 'application/pdf')
       reply.header('Content-Disposition', `inline; filename="cautela-epi-${id}.pdf"`)
@@ -2909,53 +2866,37 @@ tr:nth-child(even) td { background:#fafafa; }
 <html lang="pt-BR"><head>
 <meta charset="UTF-8">
 <style>
-  * { margin:0; padding:0; box-sizing:border-box; }
-  body { font-family: Arial, sans-serif; font-size: 10px; color: #111827; background:#fff; padding:20px 28px; }
-  @page { size: A4; margin: 0; }
-  .header { display:flex; justify-content:space-between; align-items:center; background:#111827; color:#fff; padding:14px 18px; border-radius:8px; margin-bottom:14px; }
-  .logo { font-size:17px; font-weight:900; }
-  .logo span { color:#F5A623; }
-  .title { text-align:center; font-size:13px; font-weight:bold; text-transform:uppercase; letter-spacing:.08em; color:#111827; margin-bottom:12px; border-bottom:2px solid #F5A623; padding-bottom:5px; }
-  .section { margin-bottom:12px; }
-  .stitle { font-size:8px; font-weight:700; text-transform:uppercase; color:#6B7280; letter-spacing:.1em; border-bottom:1px solid #e5e7eb; padding-bottom:3px; margin-bottom:7px; }
-  .grid3 { display:grid; grid-template-columns:1fr 1fr 1fr; gap:6px; }
-  .lbl { font-size:8px; color:#9ca3af; margin-bottom:1px; }
-  .val { font-size:10px; font-weight:500; color:#111827; }
-  table { width:100%; border-collapse:collapse; font-size:9px; }
-  th { background:#111827; color:#fff; font-size:8px; font-weight:700; padding:5px 6px; text-align:left; letter-spacing:.03em; }
-  td { padding:4px 6px; border-bottom:1px solid #f3f4f6; vertical-align:middle; }
-  tr:nth-child(even) td { background:#fafafa; }
-  .termo { background:#fffbeb; border:1px solid #fcd34d; border-radius:6px; padding:9px 11px; font-size:9px; line-height:1.65; margin:10px 0; }
-  .sig-grid { display:grid; grid-template-columns:1fr 1fr; gap:22px; margin-top:14px; }
-  .sig-box { text-align:center; border:1px solid #e5e7eb; border-radius:6px; padding:10px; }
-  .sig-label { font-size:8px; font-weight:700; text-transform:uppercase; color:#6b7280; letter-spacing:.08em; margin-bottom:5px; }
-  .sig-img { height:55px; margin:0 auto 5px; display:flex; align-items:center; justify-content:center; }
-  .sig-line { width:150px; border-top:1px solid #374151; margin:0 auto 3px; }
-  .sig-name { font-size:10px; font-weight:600; }
-  .sig-meta { font-size:8px; color:#9ca3af; margin-top:1px; }
-  .selfie-row { display:flex; gap:7px; flex-wrap:wrap; margin-top:7px; }
-  .selfie-item { text-align:center; }
-  .selfie-item img { width:65px; height:65px; object-fit:cover; border-radius:5px; border:1px solid #e5e7eb; }
-  .selfie-item p { font-size:7px; color:#9ca3af; margin-top:2px; }
-  .footer-bar { border-top:1px solid #e5e7eb; margin-top:14px; padding-top:7px; display:flex; justify-content:space-between; align-items:center; }
-  .footer-bar .brand { font-size:8px; color:#9ca3af; }
-  .footer-bar .brand b { color:#F5A623; }
-  .footer-bar .hash { font-size:7px; color:#d1d5db; font-family:monospace; }
+${PDF_BASE_STYLES}
+/* ── Overrides cautela EPI ficha completa ── */
+body { padding: 0; }
+.doc-body { padding: 20px 28px 70px; }
+.stitle { font-size:8px; font-weight:700; text-transform:uppercase; color:#6B7280; letter-spacing:.1em; border-bottom:1px solid #e5e7eb; padding-bottom:3px; margin-bottom:7px; }
+.grid3 { display:grid; grid-template-columns:1fr 1fr 1fr; gap:6px; }
+.lbl { font-size:8px; color:#9ca3af; margin-bottom:1px; }
+.val { font-size:10px; font-weight:500; color:#111827; }
+table { font-size:9px; }
+td { padding:4px 6px; border-bottom:1px solid #f3f4f6; vertical-align:middle; }
+tr:nth-child(even) td { background:#fafafa; }
+.termo { background:#fffbeb; border:1px solid #fcd34d; border-radius:6px; padding:9px 11px; font-size:9px; line-height:1.65; margin:10px 0; }
+.sig-grid { display:grid; grid-template-columns:1fr 1fr; gap:22px; margin-top:14px; }
+.sig-box { text-align:center; border:1px solid #e5e7eb; border-radius:6px; padding:10px; }
+.sig-label { font-size:8px; font-weight:700; text-transform:uppercase; color:#6b7280; letter-spacing:.08em; margin-bottom:5px; }
+.sig-img { height:55px; margin:0 auto 5px; display:flex; align-items:center; justify-content:center; }
+.sig-line { width:150px; border-top:1px solid #374151; margin:0 auto 3px; }
+.sig-name { font-size:10px; font-weight:600; }
+.sig-meta { font-size:8px; color:#9ca3af; margin-top:1px; }
+.selfie-row { display:flex; gap:7px; flex-wrap:wrap; margin-top:7px; }
+.selfie-item { text-align:center; }
+.selfie-item img { width:65px; height:65px; object-fit:cover; border-radius:5px; border:1px solid #e5e7eb; }
+.selfie-item p { font-size:7px; color:#9ca3af; margin-top:2px; }
 </style>
 </head><body>
-  <div class="header">
-    <div>
-      <div class="logo">SYS<span>OBRA</span></div>
-      <div style="font-size:9px;color:rgba(255,255,255,.6);margin-top:2px">${company?.name ?? ''}</div>
-      ${company?.cnpj ? `<div style="font-size:8px;color:rgba(255,255,255,.4)">CNPJ: ${company.cnpj}</div>` : ''}
-    </div>
-    <div style="text-align:right">
-      <div style="font-size:11px;color:#F5A623;font-weight:700">CAUTELA DE EPI — FICHA COMPLETA</div>
-      <div style="font-size:8px;color:rgba(255,255,255,.5)">Portaria MTE 485/2005 — NR-6</div>
-      <div style="font-size:8px;color:rgba(255,255,255,.5)">Emitido: ${fmtDT(new Date())}</div>
-    </div>
-  </div>
-
+${getPdfHeader({
+    title:   'CAUTELA DE EPI — FICHA COMPLETA',
+    company: { name: company?.name ?? '', document: company?.cnpj ?? null, logo: company?.logo ?? null },
+    date:    `Portaria MTE 485/2005 — NR-6 · Emitido: ${fmtDT(new Date())}`,
+  })}
+<div class="doc-body">
   <div class="section">
     <div class="stitle">Dados do Colaborador</div>
     <div class="grid3">
@@ -3047,10 +2988,8 @@ tr:nth-child(even) td { background:#fafafa; }
     </div>
   </div>` : ''}
 
-  <div class="footer-bar">
-    <div class="brand"><b>SYS</b>OBRA · Sistema de Gestão de Obras</div>
-    <div class="hash">DOC: CAUTELA-FULL-${employeeId.slice(-8).toUpperCase()} · ${new Date().toISOString().slice(0,10)}</div>
-  </div>
+</div>
+${getPdfFooter(company?.name ?? '')}
 </body></html>`
 
     try {
@@ -3058,7 +2997,7 @@ tr:nth-child(even) td { background:#fafafa; }
       const browser = await puppeteer.launch({ args: ['--no-sandbox', '--disable-setuid-sandbox'] })
       const page    = await browser.newPage()
       await page.setContent(html, { waitUntil: 'networkidle0' })
-      const pdf = await page.pdf({ format: 'A4', margin: { top: '10mm', bottom: '10mm', left: '10mm', right: '10mm' } })
+      const pdf = await page.pdf({ format: 'A4', printBackground: true, margin: { top: '0', bottom: '0', left: '0', right: '0' } })
       await browser.close()
       reply.header('Content-Type', 'application/pdf')
       reply.header('Content-Disposition', `inline; filename="cautela-completa-epi-${employeeId.slice(-8)}.pdf"`)
