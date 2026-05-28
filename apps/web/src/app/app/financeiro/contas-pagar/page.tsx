@@ -1,4 +1,4 @@
-﻿'use client'
+'use client'
 
 export const dynamic = 'force-dynamic'
 
@@ -188,7 +188,7 @@ export default function ContasPagarPage() {
   // â”€â”€ Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   function headers() {
-    const token = localStorage.getItem('token') || ''
+    const token = typeof window !== 'undefined' ? localStorage.getItem('token') || '' : ''
     return { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }
   }
 
@@ -558,7 +558,7 @@ export default function ContasPagarPage() {
           open={showModal}
           onClose={handleClose}
           onSaved={() => { handleClose(); load(); invalidateDashboard() }}
-          token={localStorage.getItem('token') ?? ''}
+          token={typeof window !== 'undefined' ? localStorage.getItem('token') ?? '' : ''}
           defaultType="EXPENSE"
           editId={editingTx?.id ?? null}
         />
@@ -568,7 +568,7 @@ export default function ContasPagarPage() {
       <TransactionReceiptModal
         open={!!viewingTxId}
         txId={viewingTxId}
-        token={localStorage.getItem('token') ?? ''}
+        token={typeof window !== 'undefined' ? localStorage.getItem('token') ?? '' : ''}
         onClose={() => setViewingTxId(null)}
       />
 

@@ -2,7 +2,7 @@
 
 export const dynamic = 'force-dynamic'
 
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, Suspense } from 'react'
 import Link from 'next/link'
 import { useSearchParams, useRouter } from 'next/navigation'
 import {
@@ -118,7 +118,7 @@ type Tab = typeof TABS[number]
 
 // ─── Componente ───────────────────────────────────────────────────────────────
 
-export default function ColaboradoresPage() {
+function ColaboradoresContent() {
   const searchParams = useSearchParams()
   const router       = useRouter()
 
@@ -1374,5 +1374,14 @@ function EmptyState({ label, icon = '📭' }: { label: string; icon?: string }) 
       <span className="text-3xl block mb-2">{icon}</span>
       <p className="text-sm text-gray-400">{label}</p>
     </div>
+  )
+}
+
+// Wrapper: Suspense boundary exigida pelo Next.js 14 para useSearchParams em 'use client'
+export default function ColaboradoresPage() {
+  return (
+    <Suspense fallback={null}>
+      <ColaboradoresContent />
+    </Suspense>
   )
 }

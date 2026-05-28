@@ -2,7 +2,7 @@
 
 export const dynamic = 'force-dynamic'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, Suspense } from 'react'
 import {
   ComposedChart, AreaChart, Bar, Line, Area,
   PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -269,7 +269,7 @@ function AlertsCard({ data, loading }: { data: DashboardData | null; loading: bo
 
 const TX_PER_PAGE = 15
 
-export default function FinanceiroPage() {
+function FinanceiroContent() {
   const router       = useRouter()
   const searchParams = useSearchParams()
 
@@ -990,5 +990,14 @@ export default function FinanceiroPage() {
         }))}
       />
     </div>
+  )
+}
+
+// Wrapper: Suspense boundary exigida pelo Next.js 14 para useSearchParams em 'use client'
+export default function FinanceiroPage() {
+  return (
+    <Suspense fallback={null}>
+      <FinanceiroContent />
+    </Suspense>
   )
 }

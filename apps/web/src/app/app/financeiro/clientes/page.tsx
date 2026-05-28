@@ -302,7 +302,7 @@ export default function ClientesPage() {
   const LIMIT = 20
   const pages = Math.max(1, Math.ceil(total / LIMIT))
 
-  function token() { return localStorage.getItem('token') || '' }
+  function token() { return typeof window !== 'undefined' ? localStorage.getItem('token') || '' : '' }
   function headers() { return { Authorization: `Bearer ${token()}`, 'Content-Type': 'application/json' } }
 
   const load = useCallback(async () => {
