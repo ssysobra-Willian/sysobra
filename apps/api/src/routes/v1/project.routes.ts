@@ -1124,6 +1124,160 @@ export async function projectRoutes(app: FastifyInstance) {
     }
   })
 
+  // ── GET /:id/folders — árvore de pastas ──────────────────────────────────
+  app.get('/:id/folders', { preHandler: [requireCompany] }, async (request, reply) => {
+    const req       = request as RequestWithMember
+    const companyId = req.companyId!
+    const { id }    = request.params as { id: string }
+
+    const project = await p.project.findFirst({ where: { id, companyId, isActive: true } })
+    if (!project) return reply.status(404).send({ error: 'Obra não encontrada' })
+
+    const folders = await p.projectFolder.findMany({
+      where:   { projectId: id, companyId, isActive: true },
+      orderBy: [{ order: 'asc' }, { name: 'asc' }],
+    })
+
+    // Construir árvore
+    function buildTree(parentId: string | null): any[] {
+      return folders
+        .filter((f: any) => f.parentId === parentId)
+        .map((f: any) => ({ ...f, children: buildTree(f.id) }))
+    }
+    const tree = buildTree(null)
+
+    return reply.send({ folders, tree })
+  })
+
+  // ── POST /:id/folders — criar pasta ──────────────────────────────────────
+  app.post('/:id/folders', { preHandler: [requireCompany] }, async (request, reply) => {
+    const req       = request as RequestWithMember
+    const companyId = req.companyId!
+    const { id }    = request.params as { id: string }
+
+    const project = await p.project.findFirst({ where: { id, companyId, isActive: true } })
+    if (!project) return reply.status(404).send({ error: 'Obra não encontrada' })
+
+    const body = z.object({
+      name:     z.string().min(1).max(120),
+      parentId: z.string().nullable().optional(),
+      color:    z.string().optional().nullable(),
+      order:    z.number().int().optional(),
+    }).parse(request.body)
+
+    // Calcular path
+    let path_ = body.name
+    if (body.parentId) {
+      const parent = await p.projectFolder.findFirst({
+        where: { id: body.parentId, projectId: id, isActive: true },
+      })
+      if (!parent) return reply.status(404).send({ error: 'Pasta pai não encontrada' })
+      path_ = `${parent.path}/${body.name}`
+    }
+
+    const folder = await p.projectFolder.create({
+      data: {
+        companyId,
+        projectId: id,
+        name:     body.name,
+        parentId: body.parentId ?? null,
+        path:     path_,
+        color:    body.color ?? null,
+        order:    body.order ?? 0,
+      },
+    })
+
+    return reply.status(201).send({ folder })
+  })
+
+  // ── PUT /:id/folders/:folderId — renomear / alterar cor ──────────────────
+  app.put('/:id/folders/:folderId', { preHandler: [requireCompany] }, async (request, reply) => {
+    const req                  = request as RequestWithMember
+    const companyId            = req.companyId!
+    const { id, folderId }     = request.params as { id: string; folderId: string }
+
+    const folder = await p.projectFolder.findFirst({
+      where: { id: folderId, projectId: id, companyId, isActive: true },
+    })
+    if (!folder) return reply.status(404).send({ error: 'Pasta não encontrada' })
+
+    const body = z.object({
+      name:  z.string().min(1).max(120).optional(),
+      color: z.string().nullable().optional(),
+      order: z.number().int().optional(),
+    }).parse(request.body)
+
+    const data: any = {}
+    if (body.name  !== undefined) {
+      data.name = body.name
+      // Recalcular path
+      const parentPath = folder.parentId
+        ? (await p.projectFolder.findFirst({ where: { id: folder.parentId } }))?.path ?? ''
+        : ''
+      data.path = parentPath ? `${parentPath}/${body.name}` : body.name
+    }
+    if (body.color !== undefined) data.color = body.color
+    if (body.order !== undefined) data.order = body.order
+
+    const updated = await p.projectFolder.update({ where: { id: folderId }, data })
+    return reply.send({ folder: updated })
+  })
+
+  // ── DELETE /:id/folders/:folderId — excluir pasta (só se vazia) ──────────
+  app.delete('/:id/folders/:folderId', { preHandler: [requireCompany] }, async (request, reply) => {
+    const req              = request as RequestWithMember
+    const companyId        = req.companyId!
+    const { id, folderId } = request.params as { id: string; folderId: string }
+
+    const folder = await p.projectFolder.findFirst({
+      where: { id: folderId, projectId: id, companyId, isActive: true },
+    })
+    if (!folder) return reply.status(404).send({ error: 'Pasta não encontrada' })
+
+    const [childCount, fileCount] = await Promise.all([
+      p.projectFolder.count({ where: { parentId: folderId, isActive: true } }),
+      p.projectFile.count({ where: { folderId, isActive: true } }),
+    ])
+
+    if (childCount > 0 || fileCount > 0) {
+      return reply.status(409).send({
+        error: 'Pasta não está vazia. Mova ou exclua os itens antes de remover a pasta.',
+        childCount,
+        fileCount,
+      })
+    }
+
+    await p.projectFolder.update({ where: { id: folderId }, data: { isActive: false } })
+    return reply.send({ success: true })
+  })
+
+  // ── PATCH /:id/files/:fileId/move — mover arquivo para pasta ─────────────
+  app.patch('/:id/files/:fileId/move', { preHandler: [requireCompany] }, async (request, reply) => {
+    const req              = request as RequestWithMember
+    const companyId        = req.companyId!
+    const { id, fileId }   = request.params as { id: string; fileId: string }
+
+    const file = await p.projectFile.findFirst({
+      where: { id: fileId, projectId: id, companyId, isActive: true },
+    })
+    if (!file) return reply.status(404).send({ error: 'Arquivo não encontrado' })
+
+    const body = z.object({ folderId: z.string().nullable() }).parse(request.body)
+
+    if (body.folderId) {
+      const folder = await p.projectFolder.findFirst({
+        where: { id: body.folderId, projectId: id, companyId, isActive: true },
+      })
+      if (!folder) return reply.status(404).send({ error: 'Pasta destino não encontrada' })
+    }
+
+    const updated = await p.projectFile.update({
+      where: { id: fileId },
+      data:  { folderId: body.folderId },
+    })
+    return reply.send({ file: updated })
+  })
+
   // ── POST /:id/files — upload de arquivo de projeto ────────────────────────
   app.post('/:id/files', { preHandler: [requireCompany] }, async (request, reply) => {
     const req       = request as RequestWithMember
@@ -1167,11 +1321,21 @@ export async function projectRoutes(app: FastifyInstance) {
     const name        = (fields?.name?.value ?? data.filename).slice(0, 200)
     const description = fields?.description?.value ?? null
     const version     = fields?.version?.value ?? null
+    const folderId    = fields?.folderId?.value ?? null
+
+    // Validar folderId se fornecido
+    if (folderId) {
+      const folderExists = await p.projectFolder.findFirst({
+        where: { id: folderId, projectId: id, companyId, isActive: true },
+      })
+      if (!folderExists) return reply.status(404).send({ error: 'Pasta não encontrada' })
+    }
 
     const projectFile = await p.projectFile.create({
       data: {
         companyId,
         projectId: id,
+        folderId:    folderId ?? null,
         name,
         originalName: data.filename,
         type:         data.mimetype,
@@ -1187,25 +1351,40 @@ export async function projectRoutes(app: FastifyInstance) {
     return reply.status(201).send({ file: projectFile })
   })
 
-  // ── GET /:id/files — listar arquivos agrupados por categoria ─────────────
+  // ── GET /:id/files — listar arquivos (agrupados por categoria ou por pasta) ─
   app.get('/:id/files', { preHandler: [requireCompany] }, async (request, reply) => {
     const req       = request as RequestWithMember
     const companyId = req.companyId!
     const { id }    = request.params as { id: string }
+    const q         = request.query as { folderId?: string; all?: string }
 
     const project = await p.project.findFirst({ where: { id, companyId, isActive: true } })
     if (!project) return reply.status(404).send({ error: 'Obra não encontrada' })
 
+    const where: any = { projectId: id, companyId, isActive: true }
+    if (q.folderId === 'root') {
+      where.folderId = null
+    } else if (q.folderId) {
+      where.folderId = q.folderId
+    }
+
     const files = await p.projectFile.findMany({
-      where:   { projectId: id, companyId, isActive: true },
+      where,
       orderBy: { createdAt: 'desc' },
     })
 
+    // Se consulta por pasta específica, retornar lista plana
+    if (q.folderId !== undefined) {
+      return reply.send({ files })
+    }
+
+    // Compatibilidade: retornar agrupado por categoria
     const grouped = {
       pdfs:   files.filter((f: any) => f.category === 'pdf'),
       dwgs:   files.filter((f: any) => f.category === 'dwg'),
       ifcs:   files.filter((f: any) => f.category === 'ifc'),
       others: files.filter((f: any) => f.category === 'other'),
+      all:    files,
     }
 
     return reply.send(grouped)

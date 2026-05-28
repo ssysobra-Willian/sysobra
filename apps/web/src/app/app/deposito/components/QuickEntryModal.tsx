@@ -3,7 +3,7 @@
 import React, { useState, useCallback, useEffect } from 'react'
 import {
   X, Search, Package, Plus, Loader2, CheckCircle2, AlertCircle,
-  MapPin, DollarSign, Tag, Calendar, FileText, ChevronRight, ArrowLeft,
+  MapPin, DollarSign, Tag, Calendar, FileText, ChevronRight, ArrowLeft, Zap,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { formatCurrency } from '@/lib/format'
@@ -22,6 +22,8 @@ interface Location { id: string; name: string; type: string; project?: { name: s
 interface ItemResult {
   id: string; name: string; code?: string | null; unit: string
   brand?: string | null; imageUrl?: string | null
+  itemCategory?: string | null  // MATERIAL | TOOL | EPI | UNIFORM
+  toolType?: string | null       // MANUAL | ELECTRIC | BATTERY | PNEUMATIC
   balances?: { locationId: string; quantity: number }[]
 }
 
@@ -58,6 +60,18 @@ export function QuickEntryModal({ isOpen, onClose, onSuccess, locations, default
   const [newItemName,   setNewItemName]   = useState('')
   const [newItemUnit,   setNewItemUnit]   = useState('un')
   const [newItemCat,    setNewItemCat]    = useState('')
+
+  // Alerta para ferramenta elétrica
+  const [electricWarning, setElectricWarning] = useState(false)
+
+  // Campos extras para ferramenta elétrica nova
+  const [serialNumber,    setSerialNumber]    = useState('')
+  const [voltage,         setVoltage]         = useState('')
+  const [power,           setPower]           = useState('')
+  const [warrantyMonths,  setWarrantyMonths]  = useState('')
+  const [purchaseDate,    setPurchaseDate]    = useState('')
+  const [authorizedName,  setAuthorizedName]  = useState('')
+  const [authorizedPhone, setAuthorizedPhone] = useState('')
 
   const [quantity,     setQuantity]     = useState('')
   const [unitCost,     setUnitCost]     = useState('')
@@ -102,10 +116,30 @@ export function QuickEntryModal({ isOpen, onClose, onSuccess, locations, default
   }, [search, doSearch])
 
   const selectItem = (item: ItemResult) => {
+    // Ferramenta elétrica: não pode ser entrada em item existente
+    const isElectric = item.itemCategory === 'TOOL' && item.toolType && item.toolType !== 'MANUAL'
+    if (isElectric) {
+      setElectricWarning(true)
+      setSelectedItem(item)  // guardar para nome de referência
+      return
+    }
     setSelectedItem(item)
     setSearch(item.name)
     setResults([])
     setCreatingNew(false)
+    setStep(2)
+  }
+
+  const createElectricNew = () => {
+    // Criar novo cadastro com base no nome do item selecionado
+    setNewItemName(selectedItem?.name ?? search)
+    setNewItemUnit('un')
+    setNewItemCat('TOOL')
+    setCreatingNew(true)
+    setSelectedItem(null)
+    setElectricWarning(false)
+    setSearch('')
+    setResults([])
     setStep(2)
   }
 
@@ -153,6 +187,38 @@ export function QuickEntryModal({ isOpen, onClose, onSuccess, locations, default
   }, [locationId, selectedItem, creatingNew, newItemName, newItemUnit, newItemCat, quantity, unitCost, supplierName, brand, lot, invoiceNo, expiryDate, notes, onClose, onSuccess])
 
   if (!isOpen) return null
+
+  // Modal de aviso ferramenta elétrica
+  if (electricWarning) {
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+        <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6 space-y-4">
+          <div className="flex items-start gap-3">
+            <div className="w-10 h-10 rounded-xl bg-amber-100 flex items-center justify-center flex-shrink-0">
+              <AlertCircle size={20} className="text-amber-600" />
+            </div>
+            <div>
+              <h3 className="text-sm font-semibold text-gray-800">Ferramenta com número de série</h3>
+              <p className="text-xs text-gray-500 mt-1">
+                <strong>{selectedItem?.name}</strong> é uma ferramenta elétrica/bateria/pneumática e deve ser
+                cadastrada individualmente pois possui número de série único.
+              </p>
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <button onClick={() => { setElectricWarning(false); setSelectedItem(null) }}
+              className="flex-1 py-2 text-sm border border-gray-200 rounded-xl hover:bg-gray-50">
+              Cancelar
+            </button>
+            <button onClick={createElectricNew}
+              className="flex-1 py-2 text-sm bg-[#F5A623] hover:bg-[#e09610] text-white rounded-xl font-medium">
+              Criar novo cadastro
+            </button>
+          </div>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm">
@@ -285,8 +351,52 @@ export function QuickEntryModal({ isOpen, onClose, onSuccess, locations, default
                       </Field>
                     </div>
                     <Field label="Categoria">
-                      <input value={newItemCat} onChange={e => setNewItemCat(e.target.value)} placeholder="Ex: Cimento e Argamassa" className={inp} />
+                      <select value={newItemCat} onChange={e => setNewItemCat(e.target.value)} className={inp}>
+                        <option value="">Selecione...</option>
+                        <option value="MATERIAL">Material</option>
+                        <option value="TOOL">Ferramenta</option>
+                        <option value="EPI">EPI</option>
+                        <option value="UNIFORM">Uniforme</option>
+                      </select>
                     </Field>
+
+                    {/* Campos extras para ferramenta elétrica */}
+                    {newItemCat === 'TOOL' && (
+                      <div className="border-t border-orange-200 pt-2 space-y-2">
+                        <p className="text-[10px] font-bold text-orange-700 uppercase tracking-wide">Dados da ferramenta</p>
+                        <Field label="Número de série *">
+                          <input value={serialNumber} onChange={e => setSerialNumber(e.target.value)} placeholder="Ex: SER-2024-0001" className={inp} />
+                        </Field>
+                        <div className="grid grid-cols-2 gap-2">
+                          <Field label="Tensão">
+                            <select value={voltage} onChange={e => setVoltage(e.target.value)} className={inp}>
+                              <option value="">—</option>
+                              <option value="127V">127V</option>
+                              <option value="220V">220V</option>
+                              <option value="Bivolt">Bivolt</option>
+                              <option value="Bateria">Bateria</option>
+                            </select>
+                          </Field>
+                          <Field label="Potência">
+                            <input value={power} onChange={e => setPower(e.target.value)} placeholder="Ex: 1200W" className={inp} />
+                          </Field>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
+                          <Field label="Data de compra">
+                            <input type="date" value={purchaseDate} onChange={e => setPurchaseDate(e.target.value)} className={inp} />
+                          </Field>
+                          <Field label="Garantia (meses)">
+                            <input type="number" min="0" value={warrantyMonths} onChange={e => setWarrantyMonths(e.target.value)} placeholder="12" className={inp} />
+                          </Field>
+                        </div>
+                        <Field label="Autorizada (nome)">
+                          <input value={authorizedName} onChange={e => setAuthorizedName(e.target.value)} placeholder="Nome da assistência técnica" className={inp} />
+                        </Field>
+                        <Field label="Autorizada (telefone)">
+                          <input value={authorizedPhone} onChange={e => setAuthorizedPhone(e.target.value)} placeholder="(11) 9xxxx-xxxx" className={inp} />
+                        </Field>
+                      </div>
+                    )}
                   </div>
                 )}
 

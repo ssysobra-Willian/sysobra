@@ -560,6 +560,7 @@ model Project {
   stockEpiDeliveries    StockEpiDelivery[]
   stockBaskets          StockBasket[]
   projectFiles          ProjectFile[]
+  projectFolders        ProjectFolder[]
   stockLocations        StockLocation[]
 
   @@map("projects")
@@ -592,26 +593,53 @@ model ToolMaintenanceRecord {
   @@map("tool_maintenance_records")
 }
 
+/// Hierarquia de pastas para organizar arquivos do projeto
+model ProjectFolder {
+  id        String   @id @default(cuid())
+  companyId String   @map("company_id")
+  projectId String   @map("project_id")
+  name      String
+  parentId  String?  @map("parent_id")    // null = pasta raiz
+  path      String   @default("")          // "Arquitetura/R01/Estrutura"
+  color     String?                        // cor de destaque hex
+  order     Int      @default(0)
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  project  Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  parent   ProjectFolder?  @relation("FolderChildren", fields: [parentId], references: [id])
+  children ProjectFolder[] @relation("FolderChildren")
+  files    ProjectFile[]
+
+  @@index([projectId])
+  @@index([parentId])
+  @@map("project_folders")
+}
+
 /// Pasta de Projetos — arquivos técnicos vinculados à obra (PDF, DWG, IFC, etc.)
 model ProjectFile {
   id           String    @id @default(cuid())
   companyId    String    @map("company_id")
   projectId    String    @map("project_id")
-  name         String                        // nome amigável exibido na UI
+  folderId     String?   @map("folder_id")   // pasta onde está (null = raiz)
+  name         String                         // nome amigável exibido na UI
   originalName String    @map("original_name")  // nome original do arquivo
-  type         String                        // mime type (application/pdf, etc.)
-  size         Int                           // tamanho em bytes
-  url          String                        // caminho relativo em disco
-  category     String    @default("other")   // pdf | dwg | ifc | other
+  type         String                         // mime type (application/pdf, etc.)
+  size         Int                            // tamanho em bytes
+  url          String                         // caminho relativo em disco
+  category     String    @default("other")    // pdf | dwg | ifc | other
   description  String?
-  version      String?                       // ex: "Rev. 2", "v3"
+  version      String?                        // ex: "Rev. 2", "v3"
   uploadedBy   String?   @map("uploaded_by")
   isActive     Boolean   @default(true) @map("is_active")
   createdAt    DateTime  @default(now()) @map("created_at")
 
-  project  Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  project Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  folder  ProjectFolder? @relation(fields: [folderId], references: [id])
 
   @@index([projectId, category])
+  @@index([folderId])
   @@map("project_files")
 }
 
@@ -1316,6 +1344,20 @@ model StockBasket {
   senderSignatureUrl   String?   @map("sender_signature_url")
   receiverSignatureUrl String?   @map("receiver_signature_url")
   signedAt             DateTime? @map("signed_at")
+
+  // Logística de transporte
+  driverName        String?   @map("driver_name")       // motorista
+  driverDocument    String?   @map("driver_document")   // CPF do motorista
+  driverPhone       String?   @map("driver_phone")
+  vehiclePlate      String?   @map("vehicle_plate")     // placa do veículo
+  vehicleModel      String?   @map("vehicle_model")
+  carrierName       String?   @map("carrier_name")      // transportadora
+  carrierDocument   String?   @map("carrier_document")  // CNPJ transportadora
+  carrierPhone      String?   @map("carrier_phone")
+  trackingCode      String?   @map("tracking_code")
+  deliveryType      String?   @map("delivery_type")     // PICKUP|DELIVERY|TRANSFER|RETURN
+  estimatedArrival  DateTime? @map("estimated_arrival")
+  confirmedArrival  DateTime? @map("confirmed_arrival")
 
   responsibleId String? @map("responsible_id")
 

@@ -152,6 +152,9 @@ export default function FolhaPagamentoPage() {
     he60: number; he100: number; projectId: string | null; desconto: number; dependentes: number
   }>>({})
 
+  // Toggle para incluir PJ e Terceirizados na folha
+  const [includePj, setIncludePj] = useState(false)
+
   // Carregar obras ativas
   useEffect(() => {
     fetch(`${API}/api/v1/projects?status=ALL&limit=200`, { headers: getHeaders() })
@@ -228,9 +231,15 @@ export default function FolhaPagamentoPage() {
     }
   }, [month, year])
 
+  // Linhas filtradas por toggle PJ
+  const filteredEntries = useMemo(() => {
+    if (includePj) return entries
+    return entries.filter(e => !['PJ','THIRD_PARTY','OUTSOURCED','FREELANCER'].includes(e.type))
+  }, [entries, includePj])
+
   // Linhas com overrides aplicados
   const computedEntries = useMemo(() => {
-    return entries.map(e => {
+    return filteredEntries.map(e => {
       const ov         = overrides[e.employeeId]
       const he60       = ov?.he60         ?? e.horasExtras60  ?? 0
       const he100      = ov?.he100        ?? e.horasExtras100 ?? 0
@@ -239,7 +248,7 @@ export default function FolhaPagamentoPage() {
       const dependentes = ov?.dependentes ?? 0
       return calcEntry(e, he60, he100, pid, desconto, dependentes, year)
     })
-  }, [entries, overrides, year])
+  }, [filteredEntries, overrides, year])
 
   // Totais gerais
   const totals = useMemo(() => computedEntries.reduce((acc, e) => {
@@ -557,11 +566,33 @@ export default function FolhaPagamentoPage() {
           {/* Tabela de colaboradores */}
           <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
             <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
-              <div className="flex items-center gap-2">
-                <Users size={15} className="text-[#F5A623]" />
-                <p className="text-sm font-semibold text-gray-700">
-                  Colaboradores ({computedEntries.length})
-                </p>
+              <div className="flex items-center gap-3 flex-wrap">
+                <div className="flex items-center gap-2">
+                  <Users size={15} className="text-[#F5A623]" />
+                  <p className="text-sm font-semibold text-gray-700">
+                    Colaboradores ({computedEntries.length})
+                  </p>
+                </div>
+                {/* Badges legenda de tipos */}
+                <div className="flex items-center gap-1.5 text-[10px]">
+                  <span className="px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 font-medium">CLT</span>
+                  <span className="px-2 py-0.5 rounded-full bg-green-100 text-green-700 font-medium">Estagiário</span>
+                  <span className="px-2 py-0.5 rounded-full bg-orange-100 text-orange-700 font-medium">Temporário</span>
+                  {includePj && <>
+                    <span className="px-2 py-0.5 rounded-full bg-purple-100 text-purple-700 font-medium">PJ</span>
+                    <span className="px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 font-medium">Terceirizado</span>
+                  </>}
+                </div>
+                {/* Toggle PJ */}
+                <label className="flex items-center gap-2 cursor-pointer select-none">
+                  <div
+                    className={`w-9 h-5 rounded-full transition-colors ${includePj ? 'bg-purple-500' : 'bg-gray-300'} relative`}
+                    onClick={() => setIncludePj(v => !v)}
+                  >
+                    <div className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${includePj ? 'translate-x-4' : 'translate-x-0.5'}`} />
+                  </div>
+                  <span className="text-xs text-gray-500">Incluir PJ e Terceirizados</span>
+                </label>
               </div>
               <div className="flex items-center gap-2">
                 {/* Salvar rascunho */}

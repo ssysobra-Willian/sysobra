@@ -9,7 +9,7 @@ import {
   Circle, Clock, Banknote, ShoppingCart, FileText, BarChart3,
   ExternalLink, RefreshCw, ClipboardList, ChevronDown, ChevronRight,
   Layers, Plus, Users, ArrowRightLeft, History, Upload, FolderOpen,
-  Download, Eye, Trash2, Box,
+  Download, Eye, Trash2, Box, Loader2,
 } from 'lucide-react'
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
@@ -22,7 +22,19 @@ import { Breadcrumb } from '@/components/ui/Breadcrumb'
 import { StageFormModal, type ProjectStage as StagePayload } from '../components/StageFormModal'
 import { toImageUrl }  from '@/lib/imageUrl'
 import { ActivityFeed } from '@/components/ui/ActivityFeed'
-import { PastaDeProjetosTab } from '@/components/project/PastaDeProjetosTab'
+import dynamic from 'next/dynamic'
+
+const PastaDeProjetosTab = dynamic(
+  () => import('@/components/project/PastaDeProjetosTab').then(m => m.PastaDeProjetosTab),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="flex items-center justify-center py-16">
+        <Loader2 className="w-6 h-6 border-2 border-[#F5A623] animate-spin text-[#F5A623]" />
+      </div>
+    ),
+  },
+)
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
 
@@ -1411,23 +1423,7 @@ export default function ObraDetailPage() {
 
               {/* ── Aba Pasta de Projetos ───────────────────────────────────── */}
               {tab === 'Pasta de Projetos' && (
-                <PastaDeProjetosTab
-                  projectId={id}
-                  files={projectFiles}
-                  loading={filesLoading}
-                  onReload={() => {
-                    const token     = localStorage.getItem('token') || ''
-                    const companyId = localStorage.getItem('companyId') || ''
-                    setFilesLoading(true)
-                    fetch(`${API}/api/v1/projects/${id}/files`, {
-                      headers: { Authorization: `Bearer ${token}`, 'x-company-id': companyId },
-                    })
-                      .then(r => r.json())
-                      .then(d => setProjectFiles(d))
-                      .catch(() => {})
-                      .finally(() => setFilesLoading(false))
-                  }}
-                />
+                <PastaDeProjetosTab projectId={id} />
               )}
 
               {/* ── Aba Equipe ─────────────────────────────────────────────── */}

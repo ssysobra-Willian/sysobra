@@ -3,6 +3,8 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { useRouter, useParams }                      from 'next/navigation'
 import Link                                          from 'next/link'
+import dynamic                                       from 'next/dynamic'
+import { FolderOpen, ChevronDown }                   from 'lucide-react'
 import { Button }                                    from '@/components/ui/Button'
 import { Badge }                                     from '@/components/ui/Badge'
 import { Modal }                                     from '@/components/ui/Modal'
@@ -16,6 +18,11 @@ import { PhotoCarousel }                             from '../../components/Phot
 import { ActivityFeed }                              from '@/components/ui/ActivityFeed'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
+
+const PastaDeProjetosTab = dynamic(
+  () => import('@/components/project/PastaDeProjetosTab').then(m => m.PastaDeProjetosTab),
+  { ssr: false, loading: () => <div className="p-6 text-sm text-gray-400">Carregando arquivos...</div> },
+)
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -174,6 +181,9 @@ export default function RdoDetailPage() {
   // Modal: excluir
   const [deleteOpen,    setDeleteOpen]    = useState(false)
   const [deleteLoading, setDeleteLoading] = useState(false)
+
+  // Pasta de projetos (somente leitura)
+  const [filesOpen, setFilesOpen] = useState(false)
 
   // Comentários
   const [comment,        setComment]        = useState('')
@@ -654,6 +664,30 @@ export default function RdoDetailPage() {
               <p className="text-xs text-gray-400 mt-3">Clique em uma foto para ampliar</p>
             </Card>
           )}
+
+          {/* Pasta de Projetos — somente leitura */}
+          <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
+            <button
+              type="button"
+              onClick={() => setFilesOpen(v => !v)}
+              className="w-full flex items-center justify-between px-5 py-4 hover:bg-gray-50 transition-colors"
+            >
+              <div className="flex items-center gap-2">
+                <FolderOpen size={16} className="text-[#F5A623]" />
+                <span className="text-sm font-semibold text-gray-700">Pasta de Projetos</span>
+                <span className="text-xs text-gray-400 font-normal ml-1">(somente leitura)</span>
+              </div>
+              <ChevronDown
+                size={16}
+                className={`text-gray-400 transition-transform duration-200 ${filesOpen ? 'rotate-180' : ''}`}
+              />
+            </button>
+            {filesOpen && (
+              <div className="border-t border-gray-100">
+                <PastaDeProjetosTab projectId={projectId} readOnly />
+              </div>
+            )}
+          </div>
         </div>
 
         {/* ── Coluna lateral: comentários ────────────────────────────────── */}

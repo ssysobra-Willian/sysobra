@@ -37,15 +37,17 @@ export async function GET(
     }
 
     const buffer      = await upstream.arrayBuffer()
-    const contentType = upstream.headers.get('content-type') || 'image/webp'
+    const contentType = upstream.headers.get('content-type') || 'application/octet-stream'
 
-    return new NextResponse(buffer, {
-      status: 200,
-      headers: {
-        'Content-Type':  contentType,
-        'Cache-Control': 'public, max-age=31536000, immutable',
-      },
-    })
+    const headers: Record<string, string> = {
+      'Content-Type':  contentType,
+      'Cache-Control': 'public, max-age=31536000, immutable',
+    }
+
+    // Para PDF: não adicionar Content-Disposition para permitir visualização em iframe
+    // Para outros tipos: deixar o browser decidir (não forçar download aqui)
+
+    return new NextResponse(buffer, { status: 200, headers })
   } catch {
     return new NextResponse(null, { status: 502 })
   }

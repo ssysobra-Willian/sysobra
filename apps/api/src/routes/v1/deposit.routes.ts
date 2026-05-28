@@ -1182,6 +1182,268 @@ export async function depositRoutes(app: FastifyInstance) {
     return reply.send({ success: true, ...data })
   })
 
+  // PATCH /api/v1/deposit/baskets/:id/logistics — salvar dados de transporte
+  app.patch('/baskets/:id/logistics', { preHandler }, async (request, reply) => {
+    const req = request as RequestWithMember
+    const cid = companyId(req)
+    const { id } = request.params as { id: string }
+
+    const basket = await p().stockBasket.findFirst({ where: { id, companyId: cid } })
+    if (!basket) return reply.status(404).send({ error: 'Romaneio não encontrado' })
+
+    const body = z.object({
+      driverName:       z.string().optional().nullable(),
+      driverDocument:   z.string().optional().nullable(),
+      driverPhone:      z.string().optional().nullable(),
+      vehiclePlate:     z.string().optional().nullable(),
+      vehicleModel:     z.string().optional().nullable(),
+      carrierName:      z.string().optional().nullable(),
+      carrierDocument:  z.string().optional().nullable(),
+      carrierPhone:     z.string().optional().nullable(),
+      trackingCode:     z.string().optional().nullable(),
+      deliveryType:     z.enum(['PICKUP','DELIVERY','TRANSFER','RETURN']).optional().nullable(),
+      estimatedArrival: z.string().optional().nullable(),
+      confirmedArrival: z.string().optional().nullable(),
+    }).parse(request.body)
+
+    const data: any = {}
+    Object.entries(body).forEach(([k, v]) => {
+      if (v !== undefined) {
+        if ((k === 'estimatedArrival' || k === 'confirmedArrival') && v) data[k] = new Date(v as string)
+        else data[k] = v
+      }
+    })
+
+    const updated = await p().stockBasket.update({ where: { id }, data })
+    return reply.send({ basket: updated })
+  })
+
+  // GET /api/v1/deposit/baskets/:id/pdf — gera PDF profissional do romaneio
+  app.get('/baskets/:id/pdf', { preHandler }, async (request, reply) => {
+    const req = request as RequestWithMember
+    const cid = companyId(req)
+    const { id } = request.params as { id: string }
+
+    const basket = await p().stockBasket.findFirst({
+      where: { id, companyId: cid },
+      include: {
+        company:     { select: { name: true, cnpj: true, logo: true, address: true, city: true, state: true } },
+        project:     { select: { id: true, name: true, address: true, city: true, state: true } },
+        employee:    { select: { id: true, name: true, role: true, cpf: true } },
+        responsible: { select: { id: true, name: true } },
+        movements: {
+          include: {
+            stockItem: { select: { id: true, code: true, name: true, unit: true } },
+          },
+        },
+      },
+    })
+
+    if (!basket) return reply.status(404).send({ error: 'Romaneio não encontrado' })
+
+    const fmtDate = (d: Date | string | null) => d ? new Date(d).toLocaleDateString('pt-BR') : '—'
+    const fmtDateTime = (d: Date | string | null) => d ? new Date(d).toLocaleString('pt-BR') : '—'
+    const fmtCur = (n: number) => n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+    const masked = (s: string | null | undefined) => s ? s.replace(/(\d{3})\d{3}(\d{3})/, '$1.***.$3') : '—'
+
+    const typeLabel: Record<string, string> = {
+      OUT: 'SAÍDA', EPI: 'EPI/UNIFORME', RETURN: 'DEVOLUÇÃO',
+      PICKUP: 'RETIRADA', DELIVERY: 'ENTREGA', TRANSFER: 'TRANSFERÊNCIA',
+    }
+    const docTitle = typeLabel[basket.type] ?? 'ROMANEIO'
+    const delivTypeLabel = basket.deliveryType ? (typeLabel[basket.deliveryType] ?? basket.deliveryType) : null
+
+    const items = (basket.movements ?? []).map((m: any, i: number) => {
+      const qty       = Number(m.quantity ?? 0)
+      const unitCost  = Number(m.unitCost ?? 0)
+      const totalCost = Number(m.totalCost ?? qty * unitCost)
+      return { ...m, num: i + 1, qty, unitCost, totalCost }
+    })
+
+    const grandTotal = items.reduce((a: number, m: any) => a + m.totalCost, 0)
+
+    const logisticsBlock = (basket.driverName || basket.vehiclePlate || basket.carrierName || basket.trackingCode)
+      ? `<div class="section" style="margin-bottom:12px">
+          <div class="section-title">INFORMAÇÕES DE TRANSPORTE</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
+            ${basket.deliveryType ? `<div><span class="lbl">Tipo:</span> ${delivTypeLabel}</div>` : ''}
+            ${basket.driverName ? `<div><span class="lbl">Motorista:</span> ${basket.driverName}</div>` : ''}
+            ${basket.driverDocument ? `<div><span class="lbl">CPF Motorista:</span> ${masked(basket.driverDocument)}</div>` : ''}
+            ${basket.driverPhone ? `<div><span class="lbl">Telefone:</span> ${basket.driverPhone}</div>` : ''}
+            ${basket.vehiclePlate ? `<div><span class="lbl">Placa:</span> ${basket.vehiclePlate}${basket.vehicleModel ? ` — ${basket.vehicleModel}` : ''}</div>` : ''}
+            ${basket.carrierName ? `<div><span class="lbl">Transportadora:</span> ${basket.carrierName}</div>` : ''}
+            ${basket.carrierDocument ? `<div><span class="lbl">CNPJ Transp.:</span> ${basket.carrierDocument}</div>` : ''}
+            ${basket.trackingCode ? `<div><span class="lbl">Rastreamento:</span> ${basket.trackingCode}</div>` : ''}
+            ${basket.estimatedArrival ? `<div><span class="lbl">Prev. chegada:</span> ${fmtDateTime(basket.estimatedArrival)}</div>` : ''}
+            ${basket.confirmedArrival ? `<div><span class="lbl">Chegada confirma:</span> ${fmtDateTime(basket.confirmedArrival)}</div>` : ''}
+          </div>
+        </div>`
+      : ''
+
+    const signatureBlock = `
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-top:20px">
+      ${[
+        { label: 'EXPEDIDOR', name: basket.responsible?.name ?? '—', role: 'Almoxarife', sig: basket.senderSignatureUrl, date: basket.signedAt },
+        { label: 'MOTORISTA', name: basket.driverName ?? '—', role: basket.driverDocument ? `CPF: ${masked(basket.driverDocument)}` : '', sig: null, date: null },
+        { label: 'RECEBEDOR', name: basket.employee?.name ?? basket.destinatary ?? '—', role: basket.employee?.role ?? '', sig: basket.receiverSignatureUrl, date: basket.signedAt },
+      ].map(s => `
+        <div style="border:1px solid #e5e7eb;border-radius:8px;padding:12px;text-align:center">
+          <div style="font-size:9px;font-weight:700;color:#6b7280;letter-spacing:.08em;margin-bottom:8px">${s.label}</div>
+          ${s.sig ? `<img src="${process.cwd()}/uploads/${s.sig.replace('/uploads/','')}" style="height:50px;margin:0 auto 8px;display:block" onerror="this.style.display='none'" />` : '<div style="height:50px;border-bottom:1px solid #374151;margin-bottom:8px"></div>'}
+          <div style="font-size:10px;font-weight:600">${s.name}</div>
+          ${s.role ? `<div style="font-size:9px;color:#6b7280">${s.role}</div>` : ''}
+          ${s.date ? `<div style="font-size:8px;color:#9ca3af;margin-top:2px">${fmtDateTime(s.date)}</div>` : ''}
+        </div>
+      `).join('')}
+    </div>`
+
+    const html = `<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+body { font-family: Arial, sans-serif; font-size:11px; color:#111827; background:#fff; }
+@page { size: A4; margin: 0; }
+.header { background:#111827; color:#fff; padding:20px 32px; display:flex; align-items:center; justify-content:space-between; }
+.logo { font-size:20px; font-weight:800; letter-spacing:2px; }
+.logo span { color:#F5A623; }
+.doc-info { text-align:right; }
+.doc-title { font-size:13px; font-weight:700; color:#F5A623; text-transform:uppercase; letter-spacing:.06em; }
+.doc-num { font-size:16px; font-weight:800; color:#fff; margin-top:3px; }
+.doc-meta { font-size:9px; color:rgba(255,255,255,.6); margin-top:2px; }
+.body { padding:20px 32px; }
+.section { margin-bottom:16px; }
+.section-title { font-size:8px; font-weight:700; color:#6b7280; letter-spacing:.1em; text-transform:uppercase; border-bottom:1px solid #e5e7eb; padding-bottom:4px; margin-bottom:8px; }
+.grid-2 { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+.origin-box { border:1px solid #e5e7eb; border-radius:8px; padding:12px; }
+.origin-label { font-size:8px; font-weight:700; color:#6b7280; letter-spacing:.1em; text-transform:uppercase; margin-bottom:6px; }
+.origin-name { font-size:13px; font-weight:700; color:#111827; }
+.origin-detail { font-size:10px; color:#6b7280; margin-top:2px; }
+.lbl { font-weight:600; color:#374151; }
+table { width:100%; border-collapse:collapse; margin-top:4px; }
+th { background:#111827; color:#fff; font-size:9px; font-weight:700; padding:7px 8px; text-align:left; letter-spacing:.04em; }
+td { padding:6px 8px; font-size:10px; border-bottom:1px solid #f3f4f6; }
+tr:nth-child(even) td { background:#fafafa; }
+.total-row td { font-weight:700; background:#fff3dc !important; border-top:2px solid #F5A623; }
+.notes-box { background:#f9fafb; border:1px dashed #d1d5db; border-radius:6px; padding:10px 12px; min-height:40px; margin-top:4px; font-size:10px; color:#374151; }
+.footer { border-top:1px solid #e5e7eb; margin:16px 32px 0; padding:12px 0 16px; display:flex; align-items:center; justify-content:space-between; }
+.footer .brand { font-size:9px; color:#9ca3af; }
+.footer .brand span { color:#F5A623; font-weight:700; }
+.footer .hash { font-size:8px; color:#d1d5db; font-family:monospace; }
+</style>
+</head>
+<body>
+<div class="header">
+  <div>
+    <div class="logo">SYS<span>OBRA</span></div>
+    <div style="font-size:11px;color:rgba(255,255,255,.7);margin-top:3px">${basket.company?.name ?? ''}</div>
+    ${basket.company?.cnpj ? `<div style="font-size:9px;color:rgba(255,255,255,.5)">CNPJ: ${basket.company.cnpj}</div>` : ''}
+  </div>
+  <div class="doc-info">
+    <div class="doc-title">ROMANEIO DE ${docTitle}</div>
+    <div class="doc-num">${basket.docNumber}</div>
+    <div class="doc-meta">Emitido em ${fmtDateTime(basket.createdAt)}</div>
+  </div>
+</div>
+
+<div class="body">
+  <!-- Origem e Destino -->
+  <div class="section">
+    <div class="section-title">Origem e Destino</div>
+    <div class="grid-2">
+      <div class="origin-box">
+        <div class="origin-label">Depósito / Origem</div>
+        <div class="origin-name">${basket.company?.name ?? 'Empresa'}</div>
+        ${basket.company?.address ? `<div class="origin-detail">${basket.company.address}${basket.company?.city ? `, ${basket.company.city}/${basket.company.state}` : ''}</div>` : ''}
+        ${basket.responsible?.name ? `<div class="origin-detail">Resp.: ${basket.responsible.name}</div>` : ''}
+      </div>
+      <div class="origin-box">
+        <div class="origin-label">Destino</div>
+        <div class="origin-name">${basket.project?.name ?? basket.destinatary ?? '—'}</div>
+        ${basket.project?.address ? `<div class="origin-detail">${basket.project.address}${basket.project?.city ? `, ${basket.project.city}` : ''}</div>` : ''}
+        ${basket.employee?.name ? `<div class="origin-detail">Recebedor: ${basket.employee.name}</div>` : ''}
+      </div>
+    </div>
+  </div>
+
+  <!-- Transporte (se preenchido) -->
+  ${logisticsBlock}
+
+  <!-- Tabela de itens -->
+  <div class="section">
+    <div class="section-title">Itens do Romaneio</div>
+    <table>
+      <thead>
+        <tr>
+          <th style="width:30px">Nº</th>
+          <th style="width:80px">Código</th>
+          <th>Descrição</th>
+          <th style="width:40px;text-align:center">Unid.</th>
+          <th style="width:60px;text-align:right">Qtd</th>
+          <th style="width:80px;text-align:right">Vl. Unit.</th>
+          <th style="width:80px;text-align:right">Total</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${items.map((m: any) => `
+          <tr>
+            <td>${m.num}</td>
+            <td>${m.stockItem?.code ?? '—'}</td>
+            <td>${m.stockItem?.name ?? m.reason ?? '—'}</td>
+            <td style="text-align:center">${m.stockItem?.unit ?? 'un'}</td>
+            <td style="text-align:right">${m.qty}</td>
+            <td style="text-align:right">${m.unitCost > 0 ? fmtCur(m.unitCost) : '—'}</td>
+            <td style="text-align:right">${m.totalCost > 0 ? fmtCur(m.totalCost) : '—'}</td>
+          </tr>
+        `).join('')}
+        ${grandTotal > 0 ? `
+          <tr class="total-row">
+            <td colspan="6" style="text-align:right">TOTAL</td>
+            <td style="text-align:right">${fmtCur(grandTotal)}</td>
+          </tr>
+        ` : ''}
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Observações -->
+  ${basket.notes ? `
+  <div class="section">
+    <div class="section-title">Observações</div>
+    <div class="notes-box">${basket.notes}</div>
+  </div>` : ''}
+
+  <!-- Assinaturas -->
+  <div class="section">
+    <div class="section-title">Assinaturas</div>
+    ${signatureBlock}
+  </div>
+</div>
+
+<div class="footer">
+  <div class="brand"><span>SYS</span>OBRA · Sistema de Gestão de Obras</div>
+  <div class="hash">DOC: ${basket.docNumber} · ${new Date().toISOString().slice(0,10)}</div>
+</div>
+</body></html>`
+
+    try {
+      const puppeteer = require('puppeteer')
+      const browser   = await puppeteer.launch({ headless: true, args: ['--no-sandbox', '--disable-setuid-sandbox'] })
+      try {
+        const page = await browser.newPage()
+        await page.setContent(html, { waitUntil: 'load' })
+        const pdf = await page.pdf({ format: 'A4', printBackground: true, margin: { top: '0', right: '0', bottom: '0', left: '0' } })
+        reply.header('Content-Type', 'application/pdf')
+        reply.header('Content-Disposition', `inline; filename="romaneio-${basket.docNumber}.pdf"`)
+        return reply.send(Buffer.from(pdf))
+      } finally { await browser.close() }
+    } catch {
+      reply.header('Content-Type', 'text/html; charset=utf-8')
+      return reply.send(html)
+    }
+  })
+
   // ── SUMMARY DETALHADO ────────────────────────────────────────────────────
   // GET /api/v1/deposit/summary/full — métricas completas para o header
   app.get('/summary/full', { preHandler }, async (request, reply) => {
@@ -2180,90 +2442,107 @@ export async function depositRoutes(app: FastifyInstance) {
 <html lang="pt-BR"><head>
 <meta charset="UTF-8">
 <style>
-  body { font-family: Arial, sans-serif; font-size: 12px; color: #1a1a1a; margin: 0; padding: 20px; }
-  .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #F5A623; padding-bottom: 12px; margin-bottom: 20px; }
-  .logo { font-size: 22px; font-weight: 900; color: #F5A623; }
-  .title { text-align: center; font-size: 18px; font-weight: bold; text-transform: uppercase; margin-bottom: 16px; }
-  .section { margin-bottom: 16px; }
-  .section-title { font-size: 11px; font-weight: bold; text-transform: uppercase; color: #6B7280; border-bottom: 1px solid #E5E7EB; padding-bottom: 4px; margin-bottom: 8px; }
-  .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-  .info-item { }
-  .info-label { font-size: 10px; color: #6B7280; margin-bottom: 2px; }
-  .info-value { font-size: 12px; font-weight: 500; }
-  table { width: 100%; border-collapse: collapse; margin-top: 8px; }
-  th, td { border: 1px solid #E5E7EB; padding: 6px 8px; text-align: left; font-size: 11px; }
-  th { background: #F9FAFB; font-weight: 600; }
-  tr:nth-child(even) { background: #F9FAFB; }
-  .footer { margin-top: 40px; border-top: 1px solid #E5E7EB; padding-top: 16px; display: flex; justify-content: space-around; }
-  .sig-box { text-align: center; }
-  .sig-line { width: 180px; border-top: 1px solid #111; margin: 0 auto 6px; margin-top: 40px; }
-  .badge { display: inline-block; padding: 2px 8px; border-radius: 99px; font-size: 10px; font-weight: 600; }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family: Arial, sans-serif; font-size: 11px; color: #111827; background:#fff; padding:20px 28px; }
+  @page { size: A4; margin: 0; }
+  .header { display:flex; justify-content:space-between; align-items:center; background:#111827; color:#fff; padding:16px 20px; border-radius:8px; margin-bottom:16px; }
+  .logo { font-size:18px; font-weight:900; }
+  .logo span { color:#F5A623; }
+  .title { text-align:center; font-size:15px; font-weight:bold; text-transform:uppercase; letter-spacing:.08em; color:#111827; margin-bottom:14px; border-bottom:2px solid #F5A623; padding-bottom:6px; }
+  .section { margin-bottom:14px; }
+  .stitle { font-size:8px; font-weight:700; text-transform:uppercase; color:#6B7280; letter-spacing:.1em; border-bottom:1px solid #e5e7eb; padding-bottom:3px; margin-bottom:8px; }
+  .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:6px; }
+  .grid3 { display:grid; grid-template-columns:1fr 1fr 1fr; gap:6px; }
+  .lbl { font-size:9px; color:#9ca3af; margin-bottom:1px; }
+  .val { font-size:11px; font-weight:500; color:#111827; }
+  table { width:100%; border-collapse:collapse; }
+  th { background:#111827; color:#fff; font-size:9px; font-weight:700; padding:5px 7px; text-align:left; letter-spacing:.03em; }
+  td { padding:5px 7px; font-size:10px; border-bottom:1px solid #f3f4f6; vertical-align:middle; }
+  tr:nth-child(even) td { background:#fafafa; }
+  .termo { background:#fffbeb; border:1px solid #fcd34d; border-radius:6px; padding:10px 12px; font-size:9.5px; line-height:1.6; margin:12px 0; }
+  .sig-grid { display:grid; grid-template-columns:1fr 1fr; gap:24px; margin-top:16px; }
+  .sig-box { text-align:center; border:1px solid #e5e7eb; border-radius:6px; padding:10px; }
+  .sig-label { font-size:8px; font-weight:700; text-transform:uppercase; color:#6b7280; letter-spacing:.08em; margin-bottom:6px; }
+  .sig-img { height:60px; margin:0 auto 6px; display:flex; align-items:center; justify-content:center; }
+  .sig-line { width:160px; border-top:1px solid #374151; margin:0 auto 4px; }
+  .sig-name { font-size:10px; font-weight:600; }
+  .sig-meta { font-size:9px; color:#9ca3af; margin-top:1px; }
+  .selfie-row { display:flex; gap:8px; flex-wrap:wrap; margin-top:8px; }
+  .selfie-item { text-align:center; }
+  .selfie-item img { width:70px; height:70px; object-fit:cover; border-radius:6px; border:1px solid #e5e7eb; }
+  .selfie-item p { font-size:8px; color:#9ca3af; margin-top:2px; }
+  .footer-bar { border-top:1px solid #e5e7eb; margin-top:16px; padding-top:8px; display:flex; justify-content:space-between; align-items:center; }
+  .footer-bar .brand { font-size:9px; color:#9ca3af; }
+  .footer-bar .brand b { color:#F5A623; }
+  .footer-bar .hash { font-size:8px; color:#d1d5db; font-family:monospace; }
 </style>
 </head><body>
+  <!-- Cabeçalho -->
   <div class="header">
-    <div class="logo">⬡ SYSOBRA</div>
+    <div>
+      <div class="logo">SYS<span>OBRA</span></div>
+      <div style="font-size:10px;color:rgba(255,255,255,.6);margin-top:2px">${delivery.company.name}</div>
+      ${delivery.company.cnpj ? `<div style="font-size:9px;color:rgba(255,255,255,.4)">CNPJ: ${delivery.company.cnpj}</div>` : ''}
+    </div>
     <div style="text-align:right">
-      <div style="font-weight:700;font-size:14px">${delivery.company.name}</div>
-      ${delivery.company.cnpj ? `<div style="font-size:11px;color:#6B7280">CNPJ: ${delivery.company.cnpj}</div>` : ''}
+      <div style="font-size:11px;color:#F5A623;font-weight:700">CAUTELA DE EPI</div>
+      <div style="font-size:9px;color:rgba(255,255,255,.5)">Portaria MTE 485/2005 — NR-6</div>
+      <div style="font-size:9px;color:rgba(255,255,255,.5)">Emitido: ${fmtDateTime(new Date())}</div>
     </div>
   </div>
 
-  <div class="title">Cautela de EPI</div>
-
+  <!-- Dados do colaborador -->
   <div class="section">
-    <div class="section-title">Colaborador</div>
-    <div class="info-grid">
-      <div class="info-item">
-        <div class="info-label">Nome</div>
-        <div class="info-value">${delivery.employee.name}</div>
-      </div>
-      <div class="info-item">
-        <div class="info-label">Matrícula</div>
-        <div class="info-value">${(delivery.employee as any).code ?? '—'}</div>
-      </div>
-      <div class="info-item">
-        <div class="info-label">Cargo</div>
-        <div class="info-value">${(delivery.employee as any).position ?? '—'}</div>
-      </div>
-      <div class="info-item">
-        <div class="info-label">Local</div>
-        <div class="info-value">${delivery.location?.name ?? '—'}</div>
-      </div>
+    <div class="stitle">Dados do Colaborador</div>
+    <div class="grid3">
+      <div><div class="lbl">Nome</div><div class="val">${delivery.employee.name}</div></div>
+      <div><div class="lbl">Matrícula</div><div class="val">${(delivery.employee as any).code ?? '—'}</div></div>
+      <div><div class="lbl">CPF</div><div class="val">${(delivery.employee as any).cpf ?? '—'}</div></div>
+      <div><div class="lbl">Função/Cargo</div><div class="val">${(delivery.employee as any).role ?? (delivery.employee as any).position ?? '—'}</div></div>
+      <div><div class="lbl">Departamento</div><div class="val">${(delivery.employee as any).department ?? '—'}</div></div>
+      <div><div class="lbl">Local</div><div class="val">${delivery.location?.name ?? '—'}</div></div>
     </div>
   </div>
 
+  <!-- EPIs entregues -->
   <div class="section">
-    <div class="section-title">EPI / Equipamento</div>
-    <div class="info-grid">
-      <div class="info-item">
-        <div class="info-label">Descrição</div>
-        <div class="info-value">${delivery.stockItem.name}</div>
-      </div>
-      <div class="info-item">
-        <div class="info-label">Código CA</div>
-        <div class="info-value">${delivery.caNumber ?? '—'}</div>
-      </div>
-      <div class="info-item">
-        <div class="info-label">Marca</div>
-        <div class="info-value">${delivery.stockItem.brand ?? '—'}</div>
-      </div>
-      <div class="info-item">
-        <div class="info-label">Categoria</div>
-        <div class="info-value">${delivery.stockItem.category ?? '—'}</div>
-      </div>
-    </div>
-  </div>
-
-  <div class="section">
-    <div class="section-title">Histórico de entregas (${history.length} registro${history.length !== 1 ? 's' : ''})</div>
+    <div class="stitle">EPIs Entregues</div>
     <table>
       <thead>
         <tr>
-          <th>Data/Hora</th>
+          <th>Nº</th>
+          <th>Descrição do EPI</th>
+          <th style="width:60px">CA</th>
+          <th style="width:40px">Qtd</th>
+          <th style="width:50px">Tamanho</th>
+          <th style="width:75px">Validade</th>
+          <th style="width:65px">Vida útil</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>01</td>
+          <td><b>${delivery.stockItem.name}</b>${delivery.stockItem.brand ? ` — ${delivery.stockItem.brand}` : ''}</td>
+          <td>${delivery.caNumber ?? '—'}</td>
+          <td>${Number(delivery.quantity)}</td>
+          <td>${delivery.size ?? '—'}</td>
+          <td>${delivery.expiresAt ? fmtDate(delivery.expiresAt) : '—'}</td>
+          <td>—</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Histórico -->
+  <div class="section">
+    <div class="stitle">Histórico de Entregas — ${delivery.stockItem.name} (${history.length} entrega${history.length !== 1 ? 's' : ''})</div>
+    <table>
+      <thead>
+        <tr>
+          <th>Data</th>
           <th>Qtd.</th>
           <th>Tam.</th>
           <th>Almoxarife</th>
-          <th>Local</th>
           <th>Validade</th>
           <th>Selfie</th>
           <th>Assinatura</th>
@@ -2273,21 +2552,58 @@ export async function depositRoutes(app: FastifyInstance) {
     </table>
   </div>
 
-  <div class="footer">
+  <!-- Termo de responsabilidade -->
+  <div class="termo">
+    <b>TERMO DE RESPONSABILIDADE</b><br><br>
+    Declaro ter recebido os EPIs acima relacionados, comprometendo-me a:
+    <ul style="margin:4px 0 0 16px">
+      <li>Utilizá-los apenas para a finalidade a que se destinam;</li>
+      <li>Responsabilizar-me por sua guarda e conservação;</li>
+      <li>Comunicar ao empregador qualquer alteração que o torne impróprio para uso;</li>
+      <li>Cumprir as determinações do empregador sobre o uso adequado.</li>
+    </ul>
+    <br>
+    <i>Base legal: Portaria MTE 485/2005 — NR-6, item 6.3. O descumprimento poderá acarretar medidas disciplinares.</i>
+  </div>
+
+  <!-- Assinaturas -->
+  <div class="sig-grid">
     <div class="sig-box">
+      <div class="sig-label">Colaborador</div>
+      ${delivery.signatureUrl
+        ? `<div class="sig-img"><img src="${process.env.APP_URL ?? 'http://localhost:3001'}${delivery.signatureUrl}" style="height:55px;max-width:140px" onerror="this.style.display='none'" /></div>`
+        : '<div style="height:55px"></div>'
+      }
       <div class="sig-line"></div>
-      <div>Colaborador</div>
-      <div style="font-size:10px;color:#6B7280">${delivery.employee.name}</div>
+      <div class="sig-name">${delivery.employee.name}</div>
+      <div class="sig-meta">${fmtDateTime(delivery.deliveredAt)}</div>
     </div>
     <div class="sig-box">
+      <div class="sig-label">Almoxarife / Responsável</div>
+      <div style="height:55px"></div>
       <div class="sig-line"></div>
-      <div>Responsável RH</div>
-      <div style="font-size:10px;color:#6B7280">Data: ___/___/______</div>
+      <div class="sig-name">${delivery.responsible?.name ?? '—'}</div>
+      <div class="sig-meta">Almoxarife</div>
     </div>
   </div>
 
-  <div style="margin-top:20px;text-align:center;font-size:9px;color:#9CA3AF">
-    Gerado em ${new Date().toLocaleString('pt-BR')} · SYSOBRA — Sistema de Gestão de Obras
+  <!-- Selfies -->
+  ${history.some((h: any) => h.selfieUrl) ? `
+  <div class="section" style="margin-top:14px">
+    <div class="stitle">Selfies de entrega</div>
+    <div class="selfie-row">
+      ${history.filter((h: any) => h.selfieUrl).map((h: any) => `
+        <div class="selfie-item">
+          <img src="${process.env.APP_URL ?? 'http://localhost:3001'}${h.selfieUrl}" onerror="this.style.display='none'" />
+          <p>${fmtDate(h.deliveredAt)}</p>
+        </div>
+      `).join('')}
+    </div>
+  </div>` : ''}
+
+  <div class="footer-bar">
+    <div class="brand"><b>SYS</b>OBRA · Sistema de Gestão de Obras</div>
+    <div class="hash">DOC: CAUTELA-${delivery.id.slice(-8).toUpperCase()} · ${new Date().toISOString().slice(0,10)}</div>
   </div>
 </body></html>`
 

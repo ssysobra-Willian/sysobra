@@ -1056,9 +1056,20 @@ function TrainingsPanel({ employee, onReload }: { employee: Employee; onReload: 
   )
 }
 
-// ─── Subcomp: Férias (FIX 3 — cálculo bidirecional) ──────────────────────────
+// ─── Subcomp: Férias ──────────────────────────────────────────────────────────
+
+const VACATION_ELIGIBLE = ['CLT', 'INTERN', 'TEMPORARY']
+const EMPLOYEE_TYPE_LABELS: Record<string, string> = {
+  CLT:          'CLT',
+  PJ:           'Pessoa Jurídica',
+  INTERN:       'Estagiário',
+  TEMPORARY:    'Temporário',
+  OUTSOURCED:   'Terceirizado',
+  FREELANCER:   'Freelancer',
+}
 
 function VacationsPanel({ employee, onReload }: { employee: Employee; onReload: () => void }) {
+  const isEligible = VACATION_ELIGIBLE.includes(employee.type)
   const [showAdd, setShowAdd] = useState(false)
   const [startDate, setStartDate] = useState('')
   const [endDate,   setEndDate]   = useState('')
@@ -1140,6 +1151,27 @@ function VacationsPanel({ employee, onReload }: { employee: Employee; onReload: 
   const periodPreview = startDate && endDate && numDays > 0 && !endBeforeStart
     ? `${new Date(startDate + 'T00:00').toLocaleDateString('pt-BR')} até ${new Date(endDate + 'T00:00').toLocaleDateString('pt-BR')}`
     : null
+
+  // Bloquear completamente se não elegível
+  if (!isEligible) {
+    return (
+      <div className="p-5">
+        <div className="flex items-start gap-3 bg-amber-50 border border-amber-200 rounded-xl p-4">
+          <AlertTriangle size={18} className="text-amber-500 flex-shrink-0 mt-0.5" />
+          <div>
+            <p className="text-sm font-semibold text-amber-800">Férias não aplicável</p>
+            <p className="text-xs text-amber-700 mt-1">
+              Colaboradores do tipo <strong>{EMPLOYEE_TYPE_LABELS[employee.type] ?? employee.type}</strong> não
+              têm direito a férias pelo regime CLT.
+            </p>
+            <p className="text-xs text-amber-600 mt-1">
+              Férias CLT são aplicáveis apenas para: CLT, Estagiário e Temporário.
+            </p>
+          </div>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="p-5 space-y-4">

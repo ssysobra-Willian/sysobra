@@ -804,6 +804,9 @@ export async function employeeRoutes(app: FastifyInstance) {
   // FÉRIAS
   // ══════════════════════════════════════════════════════════════════════════
 
+  // Tipos de colaborador elegíveis para férias CLT
+  const VACATION_ELIGIBLE = ['CLT', 'INTERN', 'TEMPORARY']
+
   app.post('/:id/vacations', async (request, reply) => {
     const req       = request as RequestWithMember
     const payload   = request.user as JwtPayload
@@ -813,6 +816,15 @@ export async function employeeRoutes(app: FastifyInstance) {
 
     const emp = await p.employee.findFirst({ where: { id, companyId, isActive: true } })
     if (!emp) return reply.status(404).send({ error: 'Colaborador não encontrado' })
+
+    // Validar elegibilidade
+    if (!VACATION_ELIGIBLE.includes(emp.type)) {
+      return reply.status(400).send({
+        error: `Colaboradores do tipo "${emp.type}" não têm direito a férias pelo regime CLT. Apenas CLT, Estagiário e Temporário são elegíveis.`,
+        type:  emp.type,
+        eligible: false,
+      })
+    }
 
     const body = request.body as {
       startDate:     string
