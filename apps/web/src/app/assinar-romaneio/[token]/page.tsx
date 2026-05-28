@@ -203,7 +203,9 @@ interface WaybillData {
   destinationProject: { name: string } | null
   destinationName:    string | null
   driverName:         string | null
+  driverType:         string | null
   receiverName:       string | null
+  receiverType:       string | null
   senderName:         string | null
   notes:              string | null
   emittedAt:          string | null
@@ -233,6 +235,11 @@ export default function AssinarRomaneioPage() {
   const [receiverDocument, setReceiverDocument] = useState('')
   const [notes,            setNotes]            = useState('')
 
+  // Controle recebedor interno
+  const [isInternalReceiver, setIsInternalReceiver] = useState(false)
+  const [nameWasEdited,      setNameWasEdited]      = useState(false)
+  const [documentRequired,   setDocumentRequired]   = useState(false)
+
   // Assinatura
   const [signature, setSignature] = useState<string | null>(null)
 
@@ -255,7 +262,13 @@ export default function AssinarRomaneioPage() {
             notes:       '',
           })),
         )
-        setReceiverName(d.waybill.receiverName ?? '')
+        // Pré-preencher nome se recebedor interno identificado
+        if (d.waybill.receiverType === 'EMPLOYEE' && d.waybill.receiverName) {
+          setReceiverName(d.waybill.receiverName)
+          setIsInternalReceiver(true)
+        } else {
+          setReceiverName(d.waybill.receiverName ?? '')
+        }
         setLoading(false)
       })
       .catch(e => { setError(e.message); setLoading(false) })
@@ -529,26 +542,68 @@ export default function AssinarRomaneioPage() {
           <div style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: '#6B7280', marginBottom: 12 }}>
             Dados do recebedor
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
-            <div style={{ gridColumn: '1/-1' }}>
-              <label style={{ fontSize: 12, color: '#374151', display: 'block', marginBottom: 4 }}>Nome completo *</label>
-              <input
-                value={receiverName}
-                onChange={e => setReceiverName(e.target.value)}
-                placeholder="Seu nome completo"
-                style={{ width: '100%', padding: '9px 12px', border: '1px solid #D1D5DB', borderRadius: 8, fontSize: 14 }}
-              />
+
+          {/* Badge recebedor interno identificado */}
+          {isInternalReceiver && !nameWasEdited && (
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: 6,
+              fontSize: 12, color: '#16A34A', marginBottom: 10,
+              background: '#F0FDF4', border: '1px solid #BBF7D0',
+              borderRadius: 8, padding: '8px 12px',
+            }}>
+              ✓ Colaborador identificado — confirme sua identidade assinando abaixo
             </div>
-            <div>
-              <label style={{ fontSize: 12, color: '#374151', display: 'block', marginBottom: 4 }}>CPF / RG / Documento</label>
-              <input
-                value={receiverDocument}
-                onChange={e => setReceiverDocument(e.target.value)}
-                placeholder="Documento de identificação"
-                style={{ width: '100%', padding: '9px 12px', border: '1px solid #D1D5DB', borderRadius: 8, fontSize: 14 }}
-              />
-            </div>
+          )}
+
+          <div style={{ marginBottom: 10 }}>
+            <label style={{ fontSize: 12, color: '#374151', display: 'block', marginBottom: 4 }}>Nome completo *</label>
+            <input
+              value={receiverName}
+              onChange={e => {
+                const val = e.target.value
+                setReceiverName(val)
+                if (isInternalReceiver) {
+                  setNameWasEdited(true)
+                  setDocumentRequired(true)
+                }
+              }}
+              placeholder="Seu nome completo *"
+              style={{
+                width: '100%', padding: '9px 12px', borderRadius: 8, fontSize: 14,
+                border: `1px solid ${documentRequired && !receiverDocument ? '#DC2626' : '#D1D5DB'}`,
+              }}
+            />
           </div>
+
+          <div style={{ marginBottom: 10 }}>
+            <label style={{ fontSize: 12, color: '#374151', display: 'block', marginBottom: 4 }}>
+              {documentRequired ? 'Documento obrigatório *' : isInternalReceiver ? 'CPF / RG (opcional para colaborador identificado)' : 'CPF / RG / Documento *'}
+            </label>
+            <input
+              value={receiverDocument}
+              onChange={e => {
+                setReceiverDocument(e.target.value)
+                if (e.target.value) setDocumentRequired(false)
+              }}
+              placeholder={
+                documentRequired
+                  ? 'Informe o documento pois o nome foi alterado *'
+                  : isInternalReceiver
+                    ? 'CPF / RG (opcional)'
+                    : 'CPF / RG / Documento'
+              }
+              style={{
+                width: '100%', padding: '9px 12px', borderRadius: 8, fontSize: 14,
+                border: `1px solid ${documentRequired && !receiverDocument ? '#DC2626' : '#D1D5DB'}`,
+              }}
+            />
+            {documentRequired && !receiverDocument && (
+              <div style={{ fontSize: 11, color: '#DC2626', marginTop: 4 }}>
+                ⚠️ Informe o documento pois o nome foi alterado
+              </div>
+            )}
+          </div>
+
           <div>
             <label style={{ fontSize: 12, color: '#374151', display: 'block', marginBottom: 4 }}>Observações gerais</label>
             <textarea
@@ -584,14 +639,17 @@ export default function AssinarRomaneioPage() {
         )}
 
         {/* ── Botão confirmar ── */}
+        {(() => {
+          const canSubmit = !!signature && !!receiverName.trim() && (!documentRequired || !!receiverDocument)
+          return (
         <button
           onClick={handleSubmit}
-          disabled={!signature || !receiverName.trim() || submitting}
+          disabled={!canSubmit || submitting}
           style={{
             width: '100%', padding: '14px 20px',
             borderRadius: 12, fontSize: 15, fontWeight: 700,
-            border: 'none', cursor: (!signature || !receiverName.trim() || submitting) ? 'not-allowed' : 'pointer',
-            background: (!signature || !receiverName.trim() || submitting) ? '#D1D5DB' : '#16A34A',
+            border: 'none', cursor: (!canSubmit || submitting) ? 'not-allowed' : 'pointer',
+            background: (!canSubmit || submitting) ? '#D1D5DB' : '#16A34A',
             color: '#fff',
             display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
           }}
@@ -601,6 +659,8 @@ export default function AssinarRomaneioPage() {
             : <>✓ Confirmar recebimento</>
           }
         </button>
+          )
+        })()}
 
         <p style={{ textAlign: 'center', fontSize: 11, color: '#9CA3AF', paddingBottom: 24 }}>
           SYSOBRA — Sistema de Gestão de Obras · Este documento tem validade legal

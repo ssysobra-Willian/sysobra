@@ -11,7 +11,7 @@ import {
 } from '../../middlewares/auth.middleware'
 import { createAuditLog } from '../../utils/audit'
 import { generatePdf }    from '../../utils/pdf'
-import { getPdfHeader, getPdfFooter, PDF_BASE_STYLES } from '../../utils/pdfTemplate'
+import { getPdfFooter, PDF_BASE_STYLES, getSysobraLogoBase64, fileToBase64 } from '../../utils/pdfTemplate'
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
@@ -713,7 +713,7 @@ export async function waybillRoutes(app: FastifyInstance) {
 
     const company = await p().company.findUnique({
       where:  { id: companyId },
-      select: { name: true, cnpj: true, logo: true },
+      select: { name: true, cnpj: true, logo: true, address: true },
     })
 
     const [senderSigB64, driverSigB64, receiverSigB64] = await Promise.all([
@@ -934,6 +934,7 @@ export async function waybillPublicRoutes(app: FastifyInstance) {
         driverName:         waybill.driverName,
         driverType:         waybill.driverType,
         receiverName:       waybill.receiverName,
+        receiverType:       waybill.receiverType,
         senderName:         waybill.senderName,
         notes:              waybill.notes,
         emittedAt:          waybill.emittedAt,
@@ -1166,8 +1167,11 @@ function gerarHtmlRomaneio({
   driverSigB64?:   string | null
   receiverSigB64?: string | null
 }): string {
-  const fmtDate = (d: any) => d ? new Date(d).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—'
-  const fmtQty  = (n: any) => Number(n || 0).toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 3 })
+  const fmtDate = (d: any) => d
+    ? new Date(d).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+    : '—'
+  const fmtQty = (n: any) =>
+    Number(n || 0).toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 3 })
 
   const CAT_LABELS: Record<string, string> = {
     MATERIAL:    'Materiais',
@@ -1181,54 +1185,63 @@ function gerarHtmlRomaneio({
     COMPLETED:  'Concluído',
     CANCELLED:  'Cancelado',
   }
-  const STATUS_COLORS: Record<string, string> = {
-    DRAFT:      '#6B7280',
-    EMITTED:    '#D97706',
-    IN_TRANSIT: '#2563EB',
-    COMPLETED:  '#16A34A',
-    CANCELLED:  '#DC2626',
+  const STATUS_BG: Record<string, string> = {
+    DRAFT:      '#F3F4F6',
+    EMITTED:    '#FEF3C7',
+    IN_TRANSIT: '#DBEAFE',
+    COMPLETED:  '#DCFCE7',
+    CANCELLED:  '#FEE2E2',
+  }
+  const STATUS_FG: Record<string, string> = {
+    DRAFT:      '#374151',
+    EMITTED:    '#92400E',
+    IN_TRANSIT: '#1D4ED8',
+    COMPLETED:  '#166534',
+    CANCELLED:  '#991B1B',
   }
 
+  // ── Logos ──────────────────────────────────────────────────────────────────
+  const sysobraB64    = getSysobraLogoBase64()
+  const companyLogoB64 = company?.logo ? fileToBase64(company.logo) : null
+
+  const hasDriver = waybill.exitType === 'DRIVER_DELIVERY' &&
+    (waybill.driverEmployee?.name ?? waybill.driverName)
+
+  // ── Linhas da tabela de itens ───────────────────────────────────────────────
   const itemRows = (waybill.items ?? []).map((wi: any, i: number) => `
     <tr style="background:${i % 2 === 0 ? '#fff' : '#F9FAFB'};">
-      <td style="padding:7px 10px;font-size:12px;border-bottom:1px solid #F3F4F6;">${wi.item?.code ?? '—'}</td>
-      <td style="padding:7px 10px;font-size:12px;border-bottom:1px solid #F3F4F6;">${wi.item?.name ?? wi.itemId}</td>
-      <td style="padding:7px 10px;font-size:12px;text-align:center;border-bottom:1px solid #F3F4F6;">${wi.item?.unit ?? '—'}</td>
-      <td style="padding:7px 10px;font-size:12px;text-align:right;font-weight:600;border-bottom:1px solid #F3F4F6;">${fmtQty(wi.requestedQty)}</td>
-      <td style="padding:7px 10px;font-size:12px;text-align:right;border-bottom:1px solid #F3F4F6;">${wi.receivedQty != null ? fmtQty(wi.receivedQty) : '—'}</td>
-      <td style="padding:7px 10px;font-size:12px;border-bottom:1px solid #F3F4F6;">${wi.serialNumber ?? '—'}</td>
-      <td style="padding:7px 10px;font-size:12px;border-bottom:1px solid #F3F4F6;">${wi.toolCondition ?? '—'}</td>
+      <td>${wi.item?.code ?? '—'}</td>
+      <td>${wi.item?.name ?? wi.itemId}</td>
+      <td class="center">${wi.item?.unit ?? '—'}</td>
+      <td class="right" style="font-weight:600;">${fmtQty(wi.requestedQty)}</td>
+      <td class="right">${wi.receivedQty != null ? fmtQty(wi.receivedQty) : '—'}</td>
+      <td>${wi.serialNumber ?? '—'}</td>
+      <td>${wi.toolCondition ?? '—'}</td>
     </tr>
   `).join('')
 
-  const signatureBlock = (label: string, sigB64: string | null, name: string | null, date: any, pending = false) => `
+  // ── Bloco de assinatura ─────────────────────────────────────────────────────
+  const sigBlock = (label: string, sig: string | null, name: string | null, date: any, pending = false) => `
     <div style="flex:1;min-width:180px;text-align:center;padding:16px 12px;border:1px solid #E5E7EB;border-radius:8px;">
       <div style="font-size:11px;color:#6B7280;margin-bottom:8px;font-weight:600;">${label}</div>
-      ${sigB64
-        ? `<img src="${sigB64}" style="max-height:70px;max-width:200px;object-fit:contain;margin:0 auto 6px;display:block;" />`
+      ${sig
+        ? `<img src="${sig}" style="max-height:70px;max-width:200px;object-fit:contain;margin:0 auto 6px;display:block;" />`
         : `<div style="width:160px;height:70px;border-bottom:1px solid #374151;margin:0 auto;"></div>`
       }
       <div style="font-size:11px;color:#374151;margin-top:6px;">${name ?? '________________________'}</div>
-      ${date  ? `<div style="font-size:10px;color:#9CA3AF;margin-top:2px;">${fmtDate(date)}</div>` : ''}
-      ${pending && !sigB64 ? `<div style="font-size:10px;color:#D97706;margin-top:4px;">⏳ Pendente assinatura</div>` : ''}
+      ${date ? `<div style="font-size:10px;color:#9CA3AF;margin-top:2px;">${fmtDate(date)}</div>` : ''}
+      ${pending && !sig ? `<div style="font-size:10px;color:#D97706;margin-top:4px;">⏳ Pendente assinatura</div>` : ''}
     </div>
   `
 
+  // ── Pendências ──────────────────────────────────────────────────────────────
   const pendencyRows = (waybill.pendencies ?? []).map((pd: any) => `
     <tr>
-      <td style="padding:6px 10px;font-size:11px;border-bottom:1px solid #F3F4F6;color:#DC2626;">⚠ ${pd.description}</td>
-      <td style="padding:6px 10px;font-size:11px;text-align:center;border-bottom:1px solid #F3F4F6;">${pd.status === 'RESOLVED' ? '✓ Resolvida' : 'Em aberto'}</td>
+      <td style="color:#DC2626;">⚠ ${pd.description}</td>
+      <td class="center">${pd.status === 'RESOLVED' ? '✓ Resolvida' : 'Em aberto'}</td>
     </tr>
   `).join('')
 
-  const statusBadgeHtml = `<span style="display:inline-block;padding:2px 8px;border-radius:99px;font-size:10px;font-weight:700;background:${STATUS_COLORS[waybill.status] ?? '#6B7280'};color:#fff;">${STATUS_LABELS[waybill.status] ?? waybill.status}</span>`
-  const docHeader = getPdfHeader({
-    title:       `ROMANEIO — ${CAT_LABELS[waybill.category] ?? waybill.category}`,
-    docNumber:   waybill.docNumber,
-    company:     { name: company?.name ?? '', document: company?.cnpj ?? null, logo: company?.logo ?? null },
-    date:        fmtDate(waybill.emittedAt),
-    statusBadge: statusBadgeHtml,
-  })
   const docFooter = getPdfFooter(company?.name ?? '')
 
   return `<!DOCTYPE html>
@@ -1238,43 +1251,238 @@ function gerarHtmlRomaneio({
   <title>Romaneio ${waybill.docNumber}</title>
   <style>
     ${PDF_BASE_STYLES}
-    /* ── Overrides específicos do romaneio ── */
+
+    /* ── CABEÇALHO 3 COLUNAS ── */
+    .pdf-header {
+      display: grid;
+      grid-template-columns: 1fr auto 1fr;
+      align-items: center;
+      background: #111827;
+      color: #fff;
+      padding: 16px 28px;
+    }
+    .pdf-header-left  { display: flex; align-items: center; gap: 10px; }
+    .sysobra-logo-hdr { height: 32px; object-fit: contain; filter: brightness(0) invert(1); }
+    .sysobra-txt-hdr  { font-size: 18px; font-weight: 900; color: #fff; letter-spacing: 0.05em; }
+    .sysobra-tag-hdr  { font-size: 9px; color: rgba(255,255,255,.6); display: block; margin-top: 2px; }
+    .pdf-header-center { text-align: center; min-width: 80px; }
+    .co-logo-hdr      { height: 50px; max-width: 120px; object-fit: contain; }
+    .pdf-header-right  { text-align: right; }
+    .hdr-co-name { font-size: 14px; font-weight: 700; color: #fff; }
+    .hdr-co-info { font-size: 10px; color: rgba(255,255,255,.7); line-height: 1.6; margin-top: 2px; }
+    .hdr-doc-title { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: #F5A623; margin-top: 8px; }
+    .hdr-doc-num   { font-size: 18px; font-weight: 900; color: #fff; }
+    .hdr-doc-date  { font-size: 10px; color: rgba(255,255,255,.6); }
+    .hdr-doc-status {
+      display: inline-block; padding: 2px 8px; border-radius: 99px;
+      font-size: 10px; font-weight: 700; margin-top: 3px;
+      background: ${STATUS_BG[waybill.status] ?? '#F3F4F6'};
+      color: ${STATUS_FG[waybill.status] ?? '#374151'};
+    }
+    .header-stripe { height: 4px; background: linear-gradient(90deg, #F5A623 0%, #D4860F 100%); }
+
+    /* ── BLOCOS DE INFO ── */
+    .info-block { background: #F9FAFB; border-radius: 8px; padding: 14px 16px; }
+    .grid-3     { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+    .info-row   { margin-bottom: 7px; }
+    .info-label { font-size: 10px; font-weight: 600; color: #9CA3AF; text-transform: uppercase; letter-spacing: 0.04em; display: block; }
+    .info-value { font-size: 12px; color: #111827; font-weight: 500; margin-top: 1px; display: block; }
+
+    /* ── TABELA ── */
     thead tr { background: #374151; }
-    th { font-size: 10px; font-weight: 700; letter-spacing: 0.04em; }
-    .info-item label { display:block; font-size:10px; color:#9CA3AF; font-weight:600; text-transform:uppercase; letter-spacing:0.04em; }
-    .info-item span  { display:block; font-size:12px; color:#111827; font-weight:500; margin-top:2px; }
+    th  { font-size: 10px; font-weight: 700; letter-spacing: 0.04em; }
+    td  { padding: 7px 10px; font-size: 12px; border-bottom: 1px solid #F3F4F6; }
+    tbody tr   { page-break-inside: avoid; }
+    table      { page-break-inside: auto; }
+    thead      { display: table-header-group; }
+    tfoot      { display: table-footer-group; }
+
     .no-break { page-break-inside: avoid; }
   </style>
 </head>
 <body>
-  ${docHeader}
+
+  <!-- ── CABEÇALHO ── -->
+  <div class="pdf-header">
+
+    <!-- ESQUERDA: SYSOBRA -->
+    <div class="pdf-header-left">
+      ${sysobraB64
+        ? `<img src="${sysobraB64}" class="sysobra-logo-hdr" alt="SYSOBRA" />`
+        : `<span class="sysobra-txt-hdr">SYS<span style="color:#F5A623">O</span>BRA</span>`
+      }
+      <div><span class="sysobra-tag-hdr">Sistema de Gestão de Obras</span></div>
+    </div>
+
+    <!-- CENTRO: Logo do cliente -->
+    <div class="pdf-header-center">
+      ${companyLogoB64
+        ? `<img src="${companyLogoB64}" class="co-logo-hdr" alt="${company?.name ?? ''}" />`
+        : ''
+      }
+    </div>
+
+    <!-- DIREITA: Empresa + documento -->
+    <div class="pdf-header-right">
+      <div class="hdr-co-name">${company?.name ?? 'EMPRESA'}</div>
+      <div class="hdr-co-info">
+        ${company?.cnpj ? `CNPJ: ${company.cnpj}` : ''}
+        ${company?.address ? `<br>${company.address}` : ''}
+      </div>
+      <div class="hdr-doc-title">ROMANEIO DE ${CAT_LABELS[waybill.category] ?? 'SAÍDA'}</div>
+      <div class="hdr-doc-num">${waybill.docNumber}</div>
+      <div class="hdr-doc-date">${fmtDate(waybill.emittedAt ?? waybill.createdAt)}</div>
+      <div class="hdr-doc-status">${STATUS_LABELS[waybill.status] ?? waybill.status}</div>
+    </div>
+
+  </div>
+  <div class="header-stripe"></div>
 
   <!-- ── BODY ── -->
   <div class="doc-body">
 
-    <!-- Informações principais -->
+    <!-- Informações gerais -->
     <div class="section">
       <div class="section-title">Informações do Romaneio</div>
-      <div class="info-grid">
-        <div class="info-item"><label>Categoria</label><span>${CAT_LABELS[waybill.category] ?? waybill.category}</span></div>
-        <div class="info-item"><label>Tipo de Saída</label><span>${waybill.exitType === 'DIRECT_PICKUP' ? 'Retirada Direta' : 'Entrega por Motorista'}</span></div>
-        <div class="info-item"><label>Almoxarifado</label><span>${waybill.location?.name ?? '—'}</span></div>
-        <div class="info-item"><label>Destino</label><span>${waybill.destinationProject?.name ?? waybill.destinationName ?? '—'}</span></div>
-        <div class="info-item"><label>Emitido em</label><span>${fmtDate(waybill.emittedAt)}</span></div>
-        <div class="info-item"><label>Expedidor</label><span>${waybill.senderName ?? '—'}</span></div>
+      <div class="info-block">
+        <div class="grid-3">
+          <div>
+            <div class="info-row">
+              <span class="info-label">Categoria</span>
+              <span class="info-value">${CAT_LABELS[waybill.category] ?? waybill.category}</span>
+            </div>
+            <div class="info-row">
+              <span class="info-label">Tipo de Saída</span>
+              <span class="info-value">${waybill.exitType === 'DIRECT_PICKUP' ? 'Retirada Direta' : 'Entrega por Motorista'}</span>
+            </div>
+          </div>
+          <div>
+            <div class="info-row">
+              <span class="info-label">Almoxarifado</span>
+              <span class="info-value">${waybill.location?.name ?? '—'}</span>
+            </div>
+            <div class="info-row">
+              <span class="info-label">Destino</span>
+              <span class="info-value">${waybill.destinationProject?.name ?? waybill.destinationName ?? '—'}</span>
+            </div>
+          </div>
+          <div>
+            <div class="info-row">
+              <span class="info-label">Emitido em</span>
+              <span class="info-value">${fmtDate(waybill.emittedAt)}</span>
+            </div>
+            <div class="info-row">
+              <span class="info-label">Expedidor</span>
+              <span class="info-value">${waybill.senderName ?? '—'}</span>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
 
-    <!-- Motorista / Recebedor -->
+    <!-- Motorista (apenas se DRIVER_DELIVERY) -->
+    ${hasDriver ? `
     <div class="section">
-      <div class="section-title">Motorista / Recebedor</div>
-      <div class="info-grid">
-        ${waybill.driverName ? `<div class="info-item"><label>Motorista</label><span>${waybill.driverName}</span></div>` : ''}
-        ${waybill.vehiclePlate ? `<div class="info-item"><label>Placa</label><span>${waybill.vehiclePlate}${waybill.vehicleModel ? ` — ${waybill.vehicleModel}` : ''}</span></div>` : ''}
-        <div class="info-item"><label>Recebedor</label><span>${waybill.receiverName ?? waybill.receiverEmployee?.name ?? '—'}</span></div>
-        ${waybill.receiverDocument ? `<div class="info-item"><label>Documento</label><span>${waybill.receiverDocument}</span></div>` : ''}
-        ${waybill.receiverRole ? `<div class="info-item"><label>Função</label><span>${waybill.receiverRole}</span></div>` : ''}
-        ${waybill.receivedAt ? `<div class="info-item"><label>Recebido em</label><span>${fmtDate(waybill.receivedAt)}</span></div>` : ''}
+      <div class="section-title">Dados do Motorista</div>
+      <div class="info-block">
+        <div class="grid-3">
+          <div>
+            <div class="info-row">
+              <span class="info-label">Tipo</span>
+              <span class="info-value">${waybill.driverType === 'EMPLOYEE' ? '👤 Colaborador interno' : '🚗 Motorista externo'}</span>
+            </div>
+            <div class="info-row">
+              <span class="info-label">Nome</span>
+              <span class="info-value">${waybill.driverEmployee?.name ?? waybill.driverName ?? '—'}</span>
+            </div>
+            ${waybill.driverDocument ? `
+            <div class="info-row">
+              <span class="info-label">CPF</span>
+              <span class="info-value">${waybill.driverDocument}</span>
+            </div>` : ''}
+            ${waybill.driverPhone ? `
+            <div class="info-row">
+              <span class="info-label">Telefone</span>
+              <span class="info-value">${waybill.driverPhone}</span>
+            </div>` : ''}
+          </div>
+          <div>
+            ${waybill.vehiclePlate ? `
+            <div class="info-row">
+              <span class="info-label">Placa</span>
+              <span class="info-value" style="font-size:15px;font-weight:900;">${waybill.vehiclePlate}</span>
+            </div>` : ''}
+            ${waybill.vehicleModel ? `
+            <div class="info-row">
+              <span class="info-label">Veículo</span>
+              <span class="info-value">${waybill.vehicleModel}</span>
+            </div>` : ''}
+          </div>
+          <div>
+            <div class="info-row">
+              <span class="info-label">Saída</span>
+              <span class="info-value">${fmtDate(waybill.dispatchedAt)}</span>
+            </div>
+            ${driverSigB64 ? `
+            <div style="margin-top:8px;">
+              <span class="info-label" style="margin-bottom:4px;display:block;">Assinatura do motorista:</span>
+              <img src="${driverSigB64}" style="height:40px;border-bottom:1px solid #111827;max-width:130px;object-fit:contain;" />
+            </div>` : ''}
+          </div>
+        </div>
+      </div>
+    </div>` : ''}
+
+    <!-- Recebedor -->
+    <div class="section">
+      <div class="section-title">${waybill.exitType === 'DIRECT_PICKUP' ? 'Dados de quem retirou' : 'Dados do Recebedor na Obra'}</div>
+      <div class="info-block">
+        <div class="grid-3">
+          <div>
+            <div class="info-row">
+              <span class="info-label">Tipo</span>
+              <span class="info-value">${waybill.receiverType === 'EMPLOYEE' ? '👤 Colaborador interno' : '👤 Externo'}</span>
+            </div>
+            <div class="info-row">
+              <span class="info-label">Nome</span>
+              <span class="info-value">${waybill.receiverEmployee?.name ?? waybill.receiverName ?? '—'}</span>
+            </div>
+            ${waybill.receiverDocument ? `
+            <div class="info-row">
+              <span class="info-label">Documento</span>
+              <span class="info-value">${waybill.receiverDocument}</span>
+            </div>` : ''}
+            ${waybill.receiverPhone ? `
+            <div class="info-row">
+              <span class="info-label">Telefone</span>
+              <span class="info-value">${waybill.receiverPhone}</span>
+            </div>` : ''}
+            ${waybill.receiverRole ? `
+            <div class="info-row">
+              <span class="info-label">Função</span>
+              <span class="info-value">${waybill.receiverRole}</span>
+            </div>` : ''}
+          </div>
+          <div>
+            <div class="info-row">
+              <span class="info-label">Recebido em</span>
+              <span class="info-value">${fmtDate(waybill.receivedAt)}</span>
+            </div>
+            ${waybill.receiverNotes ? `
+            <div class="info-row">
+              <span class="info-label">Observações</span>
+              <span class="info-value">${waybill.receiverNotes}</span>
+            </div>` : ''}
+          </div>
+          <div>
+            ${receiverSigB64 ? `
+            <div style="margin-top:4px;">
+              <span class="info-label" style="margin-bottom:4px;display:block;">Assinatura do recebedor:</span>
+              <img src="${receiverSigB64}" style="height:40px;border-bottom:1px solid #111827;max-width:130px;object-fit:contain;" />
+            </div>` : `
+            <div style="color:#D97706;font-size:11px;margin-top:8px;">⏳ Aguardando assinatura</div>`}
+          </div>
+        </div>
       </div>
     </div>
 
@@ -1304,13 +1512,6 @@ function gerarHtmlRomaneio({
       <p style="font-size:12px;color:#374151;padding:10px;background:#F9FAFB;border-radius:6px;border:1px solid #E5E7EB;">${waybill.notes}</p>
     </div>` : ''}
 
-    ${waybill.receiverNotes ? `
-    <!-- Notas do recebedor -->
-    <div class="section">
-      <div class="section-title">Notas do Recebedor</div>
-      <p style="font-size:12px;color:#374151;padding:10px;background:#FEF3DC;border-radius:6px;border:1px solid #F5A623;">${waybill.receiverNotes}</p>
-    </div>` : ''}
-
     ${pendencyRows ? `
     <!-- Pendências -->
     <div class="section">
@@ -1325,12 +1526,12 @@ function gerarHtmlRomaneio({
     <div class="section no-break" style="margin-top:32px;">
       <div class="section-title">Assinaturas</div>
       <div style="display:flex;gap:16px;flex-wrap:wrap;justify-content:space-around;">
-        ${signatureBlock('Expedidor', senderSigB64, waybill.senderName, waybill.senderSignedAt)}
-        ${waybill.driverName ? signatureBlock('Motorista', driverSigB64, waybill.driverName, waybill.driverSignedAt) : ''}
-        ${signatureBlock(
+        ${sigBlock('Expedidor', senderSigB64, waybill.senderName, waybill.senderSignedAt)}
+        ${hasDriver ? sigBlock('Motorista', driverSigB64, waybill.driverEmployee?.name ?? waybill.driverName, waybill.driverSignedAt) : ''}
+        ${sigBlock(
           waybill.exitType === 'DIRECT_PICKUP' ? 'Recebedor' : 'Recebedor na Obra',
           receiverSigB64,
-          waybill.receiverName ?? waybill.receiverEmployee?.name,
+          waybill.receiverEmployee?.name ?? waybill.receiverName,
           waybill.receiverSignedAt,
           waybill.exitType === 'DRIVER_DELIVERY',
         )}
