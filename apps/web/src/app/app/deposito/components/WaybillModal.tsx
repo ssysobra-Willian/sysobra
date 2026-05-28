@@ -91,8 +91,9 @@ export default function WaybillModal({
   const [initialPhotos, setInitialPhotos] = useState<string[]>([])
   const cameraRef = useRef<HTMLInputElement>(null)
 
-  // Assinatura do expedidor
-  const [senderSignature, setSenderSignature] = useState<string | null>(null)
+  // Assinaturas
+  const [senderSignature,  setSenderSignature]  = useState<string | null>(null)
+  const [secondSignature,  setSecondSignature]  = useState<string | null>(null)
 
   // Observações
   const [notes, setNotes] = useState('')
@@ -247,6 +248,12 @@ export default function WaybillModal({
   // ── emitir ─────────────────────────────────────────────────────────────────
   async function handleEmit() {
     if (!senderSignature) { alert('A assinatura do almoxarife é obrigatória'); return }
+    if (!secondSignature) {
+      alert(exitType === 'DIRECT_PICKUP'
+        ? 'A assinatura do recebedor é obrigatória'
+        : 'A assinatura do motorista é obrigatória')
+      return
+    }
     setSaving(true)
     try {
       const r = await apiFetch('/api/v1/waybill', {
@@ -260,11 +267,35 @@ export default function WaybillModal({
       }
       const waybill = await r.json()
 
-      // Assinar como expedidor
+      // Assinar como expedidor (almoxarife)
       await apiFetch(`/api/v1/waybill/${waybill.id}/sign-sender`, {
         method: 'PATCH',
         body:   JSON.stringify({ signature: senderSignature }),
       })
+
+      // Segunda assinatura: motorista (DRIVER_DELIVERY) ou recebedor (DIRECT_PICKUP)
+      if (exitType === 'DRIVER_DELIVERY') {
+        await apiFetch(`/api/v1/waybill/${waybill.id}/sign-driver`, {
+          method: 'PATCH',
+          body:   JSON.stringify({ signature: secondSignature }),
+        })
+      } else {
+        // DIRECT_PICKUP: recebedor assina presencialmente
+        const itemsPayload = (waybill.items ?? []).map((wi: any) => ({
+          id:          wi.id,
+          receivedQty: Number(wi.requestedQty),
+          status:      'OK',
+        }))
+        await apiFetch(`/api/v1/waybill/${waybill.id}/sign-receiver`, {
+          method: 'PATCH',
+          body:   JSON.stringify({
+            signature:        secondSignature,
+            receiverName:     receiverName || employees.find(e => e.id === receiverEmployeeId)?.name || '',
+            receiverDocument: receiverDocument || '',
+            items:            itemsPayload,
+          }),
+        })
+      }
 
       alert(`Romaneio ${waybill.docNumber} emitido com sucesso!`)
       onSuccess()
@@ -280,6 +311,7 @@ export default function WaybillModal({
     setExitType('DIRECT_PICKUP')
     setSelectedItems([])
     setSenderSignature(null)
+    setSecondSignature(null)
     setInitialPhotos([])
     setNotes('')
     setDriverName(''); setDriverDocument(''); setDriverPhone('')
@@ -808,63 +840,85 @@ export default function WaybillModal({
             </div>
           )}
 
-          {/* ── ETAPA 4: ASSINATURA DO ALMOXARIFE ── */}
+          {/* ── ETAPA 4: ASSINATURAS ── */}
           {step === 4 && (
             <div>
               <h3 style={{ fontSize: 14, fontWeight: 700, marginBottom: 16 }}>
-                4. Assinatura do almoxarife
+                4. Assinaturas
               </h3>
+
+              {/* Info do tipo */}
               <div style={{
                 padding: '10px 14px', marginBottom: 16,
                 background: '#FEF3C7', border: '1px solid #F59E0B',
                 borderRadius: 8, fontSize: 13, color: '#92400E',
               }}>
-                <i className="ti ti-alert-triangle" style={{ marginRight: 6 }} />
-                Assinatura <strong>obrigatória</strong> para emitir o romaneio.
+                <i className="ti ti-shield-check" style={{ marginRight: 6 }} />
+                {exitType === 'DIRECT_PICKUP'
+                  ? 'Retirada direta — almoxarife e recebedor devem assinar agora.'
+                  : 'Entrega por motorista — almoxarife e motorista assinam agora. Recebedor assina na entrega.'}
               </div>
 
-              {/* Resumo */}
+              {/* Resumo compacto */}
               <div style={{
-                padding: '12px 16px', marginBottom: 16,
-                background: '#F9FAFB', borderRadius: 8, border: '1px solid #E5E7EB',
+                padding: '10px 14px', marginBottom: 20,
+                background: '#F9FAFB', borderRadius: 8,
+                border: '1px solid #E5E7EB', fontSize: 12,
+                color: '#6B7280', lineHeight: 1.8,
               }}>
-                <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8 }}>Resumo da saída:</div>
-                <div style={{ fontSize: 13, color: '#6B7280', lineHeight: 1.8 }}>
-                  <div><strong>Tipo:</strong> {exitType === 'DIRECT_PICKUP' ? 'Retirada direta' : 'Entrega por motorista'}</div>
-                  {(destinationProjectId || destinationName) && (
-                    <div><strong>Destino:</strong>{' '}
-                      {projects.find(p => p.id === destinationProjectId)?.name || destinationName}
-                    </div>
-                  )}
-                  {exitType === 'DRIVER_DELIVERY' && driverName && (
-                    <div><strong>Motorista:</strong> {driverName}{vehiclePlate && ` — ${vehiclePlate}`}</div>
-                  )}
-                  <div><strong>Recebedor:</strong>{' '}
-                    {receiverName || employees.find(e => e.id === receiverEmployeeId)?.name || 'Não informado'}
-                  </div>
-                  <div><strong>Itens:</strong> {selectedItems.length} tipo(s) —{' '}
-                    {selectedItems.reduce((s, i) => s + i.quantity, 0)} unidade(s)
-                  </div>
-                </div>
+                <div><strong>Tipo:</strong> {exitType === 'DIRECT_PICKUP' ? 'Retirada direta' : 'Entrega por motorista'}</div>
+                <div><strong>Itens:</strong> {selectedItems.length} tipo(s) — {selectedItems.reduce((s, i) => s + i.quantity, 0)} un</div>
+                {(destinationProjectId || destinationName) && (
+                  <div><strong>Destino:</strong> {projects.find(p => p.id === destinationProjectId)?.name || destinationName}</div>
+                )}
               </div>
 
-              <SignaturePad
-                onSign={setSenderSignature}
-                height={160}
-                label="Assinatura do almoxarife responsável pela expedição"
-              />
+              {/* ASSINATURA 1 — Almoxarife */}
+              <div style={{ marginBottom: 20 }}>
+                <label style={{ fontSize: 13, fontWeight: 600, display: 'block', marginBottom: 8 }}>
+                  ✍️ Assinatura do almoxarife *
+                </label>
+                <SignaturePad
+                  onSign={setSenderSignature}
+                  height={140}
+                  label="Almoxarife responsável pela expedição"
+                />
+              </div>
 
-              {senderSignature && (
-                <div style={{
-                  marginTop: 10, padding: '8px 12px',
-                  background: '#F0FDF4', border: '1px solid #BBF7D0',
-                  borderRadius: 6, fontSize: 13, color: '#166534',
-                  display: 'flex', alignItems: 'center', gap: 6,
-                }}>
-                  <i className="ti ti-circle-check" style={{ fontSize: 16 }} />
-                  Assinatura coletada
-                </div>
-              )}
+              {/* ASSINATURA 2 — Recebedor ou Motorista */}
+              <div style={{ marginBottom: 16 }}>
+                <label style={{ fontSize: 13, fontWeight: 600, display: 'block', marginBottom: 8 }}>
+                  ✍️ Assinatura d{exitType === 'DIRECT_PICKUP' ? 'o recebedor' : 'o motorista'} *
+                </label>
+                <SignaturePad
+                  onSign={setSecondSignature}
+                  height={140}
+                  label={exitType === 'DIRECT_PICKUP'
+                    ? (receiverName || employees.find(e => e.id === receiverEmployeeId)?.name || 'Recebedor')
+                    : (driverName   || employees.find(e => e.id === driverEmployeeId)?.name   || 'Motorista')
+                  }
+                />
+              </div>
+
+              {/* Status dos requisitos */}
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                {[
+                  { ok: !!senderSignature, label: 'Almoxarife' },
+                  { ok: !!secondSignature, label: exitType === 'DIRECT_PICKUP' ? 'Recebedor' : 'Motorista' },
+                  { ok: selectedItems.length > 0, label: 'Itens' },
+                ].map(r => (
+                  <div key={r.label} style={{
+                    display: 'flex', alignItems: 'center', gap: 4,
+                    fontSize: 12, padding: '3px 8px', borderRadius: 99,
+                    background: r.ok ? '#DCFCE7' : '#FEE2E2',
+                    color:      r.ok ? '#16A34A' : '#DC2626',
+                  }}>
+                    <i className={`ti ${r.ok ? 'ti-circle-check' : 'ti-circle-x'}`}
+                      style={{ fontSize: 13 }} />
+                    {r.label}
+                  </div>
+                ))}
+              </div>
             </div>
           )}
         </div>
@@ -941,12 +995,12 @@ export default function WaybillModal({
             ) : (
               <button
                 onClick={handleEmit}
-                disabled={!senderSignature || saving}
+                disabled={!senderSignature || !secondSignature || saving}
                 style={{
                   padding: '8px 20px', borderRadius: 8, fontSize: 13,
-                  background: senderSignature && !saving ? '#16A34A' : '#D1D5DB',
+                  background: senderSignature && secondSignature && !saving ? '#16A34A' : '#D1D5DB',
                   border: 'none', fontWeight: 700, color: '#fff',
-                  cursor: senderSignature && !saving ? 'pointer' : 'not-allowed',
+                  cursor: senderSignature && secondSignature && !saving ? 'pointer' : 'not-allowed',
                   display: 'flex', alignItems: 'center', gap: 6,
                 }}
               >

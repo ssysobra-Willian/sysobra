@@ -475,8 +475,11 @@ export async function waybillRoutes(app: FastifyInstance) {
 
     const waybill = await p().waybill.findFirst({ where: { id, companyId, isActive: true } })
     if (!waybill) return reply.status(404).send({ error: 'Não encontrado' })
-    if (waybill.status !== 'IN_TRANSIT') {
-      return reply.status(400).send({ error: 'Apenas romaneios em trânsito podem gerar link de assinatura' })
+    if (!['IN_TRANSIT', 'EMITTED'].includes(waybill.status)) {
+      return reply.status(400).send({
+        error:   'INVALID_STATUS',
+        message: 'Apenas romaneios emitidos ou em trânsito podem gerar link de assinatura',
+      })
     }
 
     const token     = crypto.randomBytes(32).toString('hex')
@@ -538,7 +541,7 @@ export async function waybillRoutes(app: FastifyInstance) {
       include: { items: { where: { isActive: true } } },
     })
     if (!waybill) return reply.status(404).send({ error: 'Não encontrado' })
-    if (!['IN_TRANSIT', 'EMITTED'].includes(waybill.status)) {
+    if (!['IN_TRANSIT', 'EMITTED', 'COMPLETED'].includes(waybill.status)) {
       return reply.status(400).send({ error: 'Este romaneio não aguarda assinatura' })
     }
 
@@ -561,6 +564,33 @@ export async function waybillRoutes(app: FastifyInstance) {
         ? `Romaneio concluído com ${result.pendencies.length} pendência(s).`
         : 'Romaneio concluído com sucesso!',
     })
+  })
+
+  // ── ASSINAR COMO MOTORISTA (autenticado) ─────────────────────────────────
+  // PATCH /api/v1/waybill/:id/sign-driver
+  app.patch('/:id/sign-driver', { preHandler }, async (request, reply) => {
+    const req       = request as RequestWithMember
+    const companyId = cid(req)
+    const { id }    = request.params as any
+    const body      = request.body as any
+
+    const waybill = await p().waybill.findFirst({ where: { id, companyId, isActive: true } })
+    if (!waybill) return reply.status(404).send({ error: 'Não encontrado' })
+
+    let signatureUrl: string | null = null
+    if (body.signature) {
+      signatureUrl = saveSignatureImage(body.signature, companyId, 'driver-signature')
+    }
+
+    await p().waybill.update({
+      where: { id },
+      data:  {
+        driverSignatureUrl: signatureUrl,
+        driverSignedAt:     new Date(),
+      },
+    })
+
+    return reply.send({ success: true, signatureUrl })
   })
 
   // ── CANCELAR ROMANEIO ────────────────────────────────────────────────────
@@ -637,7 +667,13 @@ export async function waybillRoutes(app: FastifyInstance) {
       select: { name: true, cnpj: true },
     })
 
-    const html = gerarHtmlRomaneio({ waybill, company })
+    const [senderSigB64, driverSigB64, receiverSigB64] = await Promise.all([
+      waybill.senderSignatureUrl   ? urlToBase64(waybill.senderSignatureUrl)   : Promise.resolve(null),
+      waybill.driverSignatureUrl   ? urlToBase64(waybill.driverSignatureUrl)   : Promise.resolve(null),
+      waybill.receiverSignatureUrl ? urlToBase64(waybill.receiverSignatureUrl) : Promise.resolve(null),
+    ])
+
+    const html = gerarHtmlRomaneio({ waybill, company, senderSigB64, driverSigB64, receiverSigB64 })
     const pdfBuffer = await generatePdf({ kind: 'raw', html })
 
     reply.header('Content-Type', 'application/pdf')
@@ -877,14 +913,34 @@ async function processarAssinaturaRecebedor(waybill: any, body: any) {
   return { waybillUpdate, pendencies, hasPendency }
 }
 
+// ─── HELPER: converter arquivo de assinatura para base64 (embed no Puppeteer) ──
+async function urlToBase64(filePath: string): Promise<string | null> {
+  try {
+    const uploadsRoot  = process.env.UPLOADS_PATH || path.join(process.cwd(), 'uploads')
+    const relativePath = filePath.replace(/^\/uploads\//, '')
+    const absolutePath = path.join(uploadsRoot, relativePath)
+    if (!fs.existsSync(absolutePath)) return null
+    const buffer = fs.readFileSync(absolutePath)
+    const ext    = path.extname(absolutePath).toLowerCase()
+    const mime   = ext === '.png' ? 'image/png' : 'image/jpeg'
+    return `data:${mime};base64,${buffer.toString('base64')}`
+  } catch { return null }
+}
+
 // ─── HELPER: gerar HTML do romaneio para PDF ──────────────────────────────────
 
 function gerarHtmlRomaneio({
   waybill,
   company,
+  senderSigB64   = null,
+  driverSigB64   = null,
+  receiverSigB64 = null,
 }: {
-  waybill: any
-  company: any
+  waybill:         any
+  company:         any
+  senderSigB64?:   string | null
+  driverSigB64?:   string | null
+  receiverSigB64?: string | null
 }): string {
   const fmtDate = (d: any) => d ? new Date(d).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—'
   const fmtQty  = (n: any) => Number(n || 0).toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 3 })
@@ -921,15 +977,16 @@ function gerarHtmlRomaneio({
     </tr>
   `).join('')
 
-  const signatureBlock = (label: string, url: string | null, name: string | null, date: any) => `
+  const signatureBlock = (label: string, sigB64: string | null, name: string | null, date: any, pending = false) => `
     <div style="flex:1;min-width:180px;text-align:center;padding:16px 12px;border:1px solid #E5E7EB;border-radius:8px;">
       <div style="font-size:11px;color:#6B7280;margin-bottom:8px;font-weight:600;">${label}</div>
-      ${url
-        ? `<img src="${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}${url}" style="width:160px;height:70px;object-fit:contain;margin:0 auto;display:block;" />`
+      ${sigB64
+        ? `<img src="${sigB64}" style="max-height:70px;max-width:200px;object-fit:contain;margin:0 auto 6px;display:block;" />`
         : `<div style="width:160px;height:70px;border-bottom:1px solid #374151;margin:0 auto;"></div>`
       }
       <div style="font-size:11px;color:#374151;margin-top:6px;">${name ?? '________________________'}</div>
-      ${date ? `<div style="font-size:10px;color:#9CA3AF;margin-top:2px;">${fmtDate(date)}</div>` : ''}
+      ${date  ? `<div style="font-size:10px;color:#9CA3AF;margin-top:2px;">${fmtDate(date)}</div>` : ''}
+      ${pending && !sigB64 ? `<div style="font-size:10px;color:#D97706;margin-top:4px;">⏳ Pendente assinatura</div>` : ''}
     </div>
   `
 
@@ -962,6 +1019,7 @@ function gerarHtmlRomaneio({
     .right { text-align:right; }
     .center { text-align:center; }
     .badge { display:inline-block; padding:2px 8px; border-radius:99px; font-size:10px; font-weight:700; }
+    .no-break { page-break-inside: avoid; }
   </style>
 </head>
 <body>
@@ -1055,12 +1113,18 @@ function gerarHtmlRomaneio({
     </div>` : ''}
 
     <!-- Assinaturas -->
-    <div class="section" style="margin-top:32px;">
+    <div class="section no-break" style="margin-top:32px;">
       <div class="section-title">Assinaturas</div>
       <div style="display:flex;gap:16px;flex-wrap:wrap;justify-content:space-around;">
-        ${signatureBlock('Expedidor', waybill.senderSignatureUrl, waybill.senderName, waybill.senderSignedAt)}
-        ${waybill.driverName ? signatureBlock('Motorista', waybill.driverSignatureUrl, waybill.driverName, waybill.driverSignedAt) : ''}
-        ${signatureBlock('Recebedor', waybill.receiverSignatureUrl, waybill.receiverName ?? waybill.receiverEmployee?.name, waybill.receiverSignedAt)}
+        ${signatureBlock('Expedidor', senderSigB64, waybill.senderName, waybill.senderSignedAt)}
+        ${waybill.driverName ? signatureBlock('Motorista', driverSigB64, waybill.driverName, waybill.driverSignedAt) : ''}
+        ${signatureBlock(
+          waybill.exitType === 'DIRECT_PICKUP' ? 'Recebedor' : 'Recebedor na Obra',
+          receiverSigB64,
+          waybill.receiverName ?? waybill.receiverEmployee?.name,
+          waybill.receiverSignedAt,
+          waybill.exitType === 'DRIVER_DELIVERY',
+        )}
       </div>
     </div>
 
