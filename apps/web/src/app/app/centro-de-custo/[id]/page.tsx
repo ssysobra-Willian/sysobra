@@ -1483,7 +1483,7 @@ export default function ObraDetailPage() {
                 <div className="py-4">
                   <ActivityFeed
                     projectId={id}
-                    limit={20}
+                    limit={10}
                     showHeader={false}
                     showPaging={true}
                     title="Histórico da obra"
