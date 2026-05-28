@@ -2047,13 +2047,13 @@ export async function employeeRoutes(app: FastifyInstance) {
       }
     }
 
-    // ── Buscar nomes dos colaboradores ─────────────────────────────────────────
+    // ── Buscar dados completos dos colaboradores ──────────────────────────────
     const empRecs = await p.employee.findMany({
       where:  { id: { in: body.entries.map(e => e.employeeId) }, companyId },
-      select: { id: true, name: true },
+      select: { id: true, name: true, type: true, supplierId: true, projectId: true, role: true, code: true },
     })
-    const nameMap: Record<string, string> = Object.fromEntries(
-      empRecs.map((e: any) => [e.id, e.name])
+    const empMap: Record<string, typeof empRecs[0]> = Object.fromEntries(
+      empRecs.map((e: any) => [e.id, e])
     )
 
     const referenceDate = new Date(body.year, body.month - 1, 1)
@@ -2062,11 +2062,19 @@ export async function employeeRoutes(app: FastifyInstance) {
 
     // ── Uma transação por colaborador ──────────────────────────────────────────
     for (const entry of body.entries) {
-      const empName    = entry.name ?? nameMap[entry.employeeId] ?? entry.employeeId
+      const emp        = empMap[entry.employeeId] as any
+      const empName    = entry.name ?? emp?.name ?? entry.employeeId
       const desconto   = entry.desconto ?? 0
       const liquido    = parseFloat((entry.salarioLiquido - desconto).toFixed(2))
       const txHash     = crypto.randomBytes(16).toString('hex')
       const txNum      = `PAY-${body.year}${String(body.month).padStart(2,'0')}-${entry.employeeId.slice(-6).toUpperCase()}`
+
+      // supplierId: apenas para PJ / Terceirizado
+      const isPjType   = emp && ['PJ', 'THIRD_PARTY'].includes(emp.type)
+      const supplierId = isPjType ? (emp.supplierId ?? null) : null
+
+      // projectId: da entry (pode ter sido alterado na tela), fallback para o do colaborador
+      const projectId  = entry.projectId ?? emp?.projectId ?? null
 
       // Montar observações detalhadas
       const obsLines: string[] = [
@@ -2094,7 +2102,8 @@ export async function employeeRoutes(app: FastifyInstance) {
           netAmount:         liquido,
           dueDate,
           referenceDate,
-          projectId:         entry.projectId ?? undefined,
+          projectId:         projectId  ?? undefined,
+          supplierId:        supplierId ?? undefined,   // ← CAMPO CRÍTICO
           categoryId:        maoCat.id,
           isPayroll:         true,
           payrollMonth:      body.month,
@@ -2109,6 +2118,25 @@ export async function employeeRoutes(app: FastifyInstance) {
       })
       createdTransactions.push(tx)
 
+      // ── Registrar custo de mão de obra no Centro de Custo ──────────────────
+      if (projectId) {
+        try {
+          await p.projectCostEntry.create({
+            data: {
+              companyId,
+              projectId,
+              description: `Folha ${mesLabel}/${body.year} — ${empName}${emp?.role ? ` (${emp.role})` : ''}`,
+              category:    'LABOR',
+              quantity:    1,
+              unitCost:    liquido,
+              totalCost:   liquido,
+              date:        referenceDate,
+              notes:       `Tipo: ${emp?.type ?? 'CLT'} | Transação: ${tx.id}${supplierId ? ` | Fornecedor: ${supplierId}` : ''}`,
+            },
+          })
+        } catch { /* silencioso — não bloqueia o lançamento */ }
+      }
+
       // Audit log individual
       await createAuditLog({
         prisma: p, companyId, userId,
@@ -2117,7 +2145,9 @@ export async function employeeRoutes(app: FastifyInstance) {
         entity:     'PayrollEntry',
         entityId:   entry.employeeId,
         entityName: empName,
-        description: `Salário ${mesLabel}/${body.year} lançado — Líquido: R$ ${liquido.toFixed(2)}`,
+        description: `Salário ${mesLabel}/${body.year} lançado — Líquido: R$ ${liquido.toFixed(2)}`
+          + (projectId  ? ` · Obra vinculada`       : '')
+          + (supplierId ? ` · Fornecedor vinculado`  : ''),
         request,
       })
     }
@@ -2144,6 +2174,107 @@ export async function employeeRoutes(app: FastifyInstance) {
       success:             true,
       transactionsCreated: createdTransactions.length,
       total:               totalLiquido,
+    })
+  })
+
+  /**
+   * POST /api/v1/employees/admin/fix-payroll-transactions
+   * Corrige lançamentos de folha já existentes sem supplierId ou projectId.
+   * Uso interno — protegido por autenticação JWT normal.
+   */
+  app.post('/admin/fix-payroll-transactions', async (request, reply) => {
+    const req       = request as RequestWithMember
+    const companyId = req.companyId!
+
+    // Lançamentos de folha sem supplierId ou projectId
+    const payrollTxs = await p.financialTransaction.findMany({
+      where: {
+        companyId,
+        isPayroll:  true,
+        isActive:   true,
+        OR: [
+          { supplierId: null },
+          { projectId:  null },
+        ],
+      },
+      select: {
+        id: true,
+        description: true,
+        payrollEmployeeId: true,
+        supplierId: true,
+        projectId:  true,
+        netAmount:  true,
+        referenceDate: true,
+      },
+    })
+
+    let fixed = 0
+    let skipped = 0
+    const details: string[] = []
+
+    for (const tx of payrollTxs as any[]) {
+      if (!tx.payrollEmployeeId) { skipped++; continue }
+
+      const emp = await p.employee.findFirst({
+        where: { id: tx.payrollEmployeeId, companyId },
+        select: { id: true, name: true, type: true, supplierId: true, projectId: true, role: true },
+      }) as any
+      if (!emp) { skipped++; continue }
+
+      const updates: any = {}
+
+      // Adicionar supplierId se PJ/Terceirizado e tem fornecedor
+      if (!tx.supplierId && ['PJ', 'THIRD_PARTY'].includes(emp.type) && emp.supplierId) {
+        updates.supplierId = emp.supplierId
+      }
+
+      // Adicionar projectId se colaborador tem obra
+      if (!tx.projectId && emp.projectId) {
+        updates.projectId = emp.projectId
+      }
+
+      if (Object.keys(updates).length === 0) { skipped++; continue }
+
+      await p.financialTransaction.update({ where: { id: tx.id }, data: updates })
+
+      // Criar ProjectCostEntry se projectId foi adicionado e não havia ainda
+      if (updates.projectId && !tx.projectId) {
+        const pid = updates.projectId
+        try {
+          const alreadyExists = await p.projectCostEntry.findFirst({
+            where: {
+              companyId, projectId: pid,
+              notes: { contains: tx.id },
+            },
+          })
+          if (!alreadyExists) {
+            await p.projectCostEntry.create({
+              data: {
+                companyId,
+                projectId:   pid,
+                description: tx.description ?? `Folha — ${emp.name}`,
+                category:    'LABOR',
+                quantity:    1,
+                unitCost:    Number(tx.netAmount),
+                totalCost:   Number(tx.netAmount),
+                date:        tx.referenceDate ?? new Date(),
+                notes:       `Correção retroativa | Transação: ${tx.id}`,
+              },
+            })
+          }
+        } catch { /* silencioso */ }
+      }
+
+      details.push(`${tx.id}: ${JSON.stringify(updates)}`)
+      fixed++
+    }
+
+    return reply.send({
+      success: true,
+      total:   payrollTxs.length,
+      fixed,
+      skipped,
+      details,
     })
   })
 }

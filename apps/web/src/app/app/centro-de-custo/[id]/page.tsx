@@ -130,6 +130,10 @@ interface Project {
   _count: { financialTransactions: number; purchaseMaps: number; documents: number; diaryEntries: number }
   currentTeam?: TeamMember[]
   pastTeam?: PastTeamEntry[]
+  laborCosts?: {
+    total: number
+    entries: { id: string; description: string; totalCost: number; date: string }[]
+  }
 }
 
 interface FinancialSummary {
@@ -156,6 +160,7 @@ interface AllocTx {
   description:     string
   type:            string
   isPaid:          boolean
+  isPayroll?:      boolean
   netAmount:       number
   referenceDate:   string | null
   dueDate:         string | null
@@ -1181,8 +1186,13 @@ export default function ObraDetailPage() {
                                   <td className="px-3 py-2.5 text-xs text-gray-500 whitespace-nowrap">
                                     {tx.referenceDate ? formatDateBR(tx.referenceDate) : '—'}
                                   </td>
-                                  <td className="px-3 py-2.5 text-xs text-gray-900 max-w-[180px]">
+                                  <td className="px-3 py-2.5 text-xs text-gray-900 max-w-[200px]">
                                     <p className="truncate font-medium">{tx.description}</p>
+                                    {tx.isPayroll && (
+                                      <span className="inline-block mt-0.5 text-[10px] bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded-full font-semibold">
+                                        Folha
+                                      </span>
+                                    )}
                                   </td>
                                   <td className="px-3 py-2.5">
                                     {tx.category ? (
@@ -1464,6 +1474,27 @@ export default function ObraDetailPage() {
               {project.delayAlert && (
                 <p className="text-xs text-amber-700">⚠ Obra atrasada em relação ao prazo previsto</p>
               )}
+            </div>
+          )}
+
+          {/* Mão de obra lançada via folha */}
+          {project.laborCosts && project.laborCosts.total > 0 && (
+            <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-2">
+                  <Users size={14} className="text-amber-600" />
+                  <h4 className="text-sm font-semibold text-amber-800">Mão de obra (folha)</h4>
+                </div>
+                <span className="text-sm font-bold text-amber-700">
+                  {formatCurrency(project.laborCosts.total)}
+                </span>
+              </div>
+              {project.laborCosts.entries.slice(0, 4).map(c => (
+                <div key={c.id} className="flex items-center justify-between text-xs text-amber-700 py-0.5 border-t border-amber-100 first:border-0">
+                  <span className="truncate mr-2" title={c.description}>{c.description}</span>
+                  <span className="flex-shrink-0 font-medium">{formatCurrency(c.totalCost)}</span>
+                </div>
+              ))}
             </div>
           )}
 

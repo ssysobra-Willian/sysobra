@@ -469,6 +469,25 @@ export async function projectRoutes(app: FastifyInstance) {
       })
     } catch { /* silencioso: enriquecimento não bloqueia resposta */ }
 
+    // ── Custo de mão de obra (ProjectCostEntry LABOR) ───────────────────────
+    try {
+      const laborEntries = await p.projectCostEntry.findMany({
+        where:   { companyId, projectId: id, category: 'LABOR' },
+        orderBy: { date: 'desc' },
+        take:    50,
+      })
+      const totalLabor = laborEntries.reduce((sum: number, c: any) => sum + Number(c.totalCost), 0)
+      serialised.laborCosts = {
+        total:   Math.round(totalLabor * 100) / 100,
+        entries: laborEntries.slice(0, 10).map((c: any) => ({
+          id:          c.id,
+          description: c.description,
+          totalCost:   Number(c.totalCost),
+          date:        c.date,
+        })),
+      }
+    } catch { /* silencioso */ }
+
     // ── Equipe atual e histórico de colaboradores ───────────────────────────
     try {
       const [currentTeam, pastTeam] = await Promise.all([

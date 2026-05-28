@@ -386,11 +386,15 @@ export default function FolhaPagamentoPage() {
           month, year,
           description: `Folha de pagamento ${MONTH_NAMES[month]}/${year}`,
           entries: computedEntries.map(e => {
-            const ov = overrides[e.employeeId]
+            const ov      = overrides[e.employeeId]
+            const base    = entries.find(b => b.employeeId === e.employeeId)
+            // projectId resolvido: override → base entry → null
+            const pid     = ov?.projectId !== undefined ? ov.projectId : (base?.projectId ?? null)
             return {
               employeeId:          e.employeeId,
               name:                e.name,
-              projectId:           e.projectId,
+              projectId:           pid,
+              supplierId:          e.supplierId   ?? null,  // ← fornecedor PJ
               salarioBruto:        e.salarioBruto,
               salarioLiquido:      e.salarioLiquido,
               desconto:            ov?.desconto     ?? 0,
@@ -789,20 +793,39 @@ export default function FolhaPagamentoPage() {
                             {TYPE_LABELS[e.type] ?? e.type}
                           </span>
                         </td>
-                        {/* FIX 3: Obra pré-preenchida */}
+                        {/* FIX 2: Obra pré-preenchida com indicador "● atual" */}
                         <td className="px-3 py-3">
-                          <select
-                            value={ov?.projectId !== undefined ? (ov.projectId ?? '') : (e.projectId ?? '')}
-                            onChange={ev => setOv(e.employeeId, 'projectId', ev.target.value || null)}
-                            className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-orange-300 bg-white"
-                          >
-                            <option value="">Administrativo</option>
-                            {projects.map(p => (
-                              <option key={p.id} value={p.id}>
-                                {p.code ? `${p.code} — ` : ''}{p.name}
-                              </option>
-                            ))}
-                          </select>
+                          {(() => {
+                            const baseEntry      = entries.find(b => b.employeeId === e.employeeId)
+                            const selectedPid    = ov?.projectId !== undefined ? (ov.projectId ?? '') : (e.projectId ?? '')
+                            const isCurrentProj  = selectedPid !== '' && selectedPid === baseEntry?.projectId
+                            return (
+                              <div>
+                                <select
+                                  value={selectedPid}
+                                  onChange={ev => setOv(e.employeeId, 'projectId', ev.target.value || null)}
+                                  className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-orange-300 bg-white"
+                                >
+                                  <option value="">Administrativo (sem obra)</option>
+                                  {projects.map(p => (
+                                    <option key={p.id} value={p.id}>
+                                      {p.code ? `${p.code} — ` : ''}{p.name}
+                                    </option>
+                                  ))}
+                                </select>
+                                {isCurrentProj && (
+                                  <span className="text-[9px] text-green-600 font-semibold mt-0.5 block">
+                                    ● obra atual
+                                  </span>
+                                )}
+                                {isPj && e.supplierName && (
+                                  <span className="text-[9px] text-purple-500 mt-0.5 block truncate" title={`Fornecedor: ${e.supplierName}`}>
+                                    🏢 {e.supplierName}
+                                  </span>
+                                )}
+                              </div>
+                            )
+                          })()}
                         </td>
                         <td className="px-3 py-3 text-right text-gray-700 whitespace-nowrap">{fmtMoney(e.salarioBase)}</td>
                         {/* HE 60% */}
