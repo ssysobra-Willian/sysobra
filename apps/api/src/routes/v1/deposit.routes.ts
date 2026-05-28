@@ -1611,7 +1611,7 @@ ${_basketFooter}
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1)
     const endOfMonth   = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59)
 
-    const [items, movements, custodies, maintenances] = await Promise.all([
+    const [items, movements, custodies, maintenances, balanceAgg] = await Promise.all([
       p().stockItem.findMany({
         where: { companyId: cid, isActive: true },
         select: { quantity: true, minQuantity: true, averageCost: true, unitCost: true, requiresCustody: true, nextMaintenance: true, isUnderWarranty: true, isEpi: true, isUniform: true, isConsumable: true },
@@ -1622,10 +1622,17 @@ ${_basketFooter}
       }),
       p().toolCustody.count({ where: { companyId: cid, returnedAt: null, dueDate: { lt: now } } }),
       p().toolMaintenanceRecord.count({ where: { companyId: cid, nextDate: { lt: now } } }),
+      // FIX 8: aggregate total value from StockBalance (per-location pre-calculated)
+      p().stockBalance.aggregate({
+        where: { companyId: cid },
+        _sum: { totalValue: true },
+      }),
     ])
 
     const totalItems       = items.length
-    const totalValue       = items.reduce((a: number, i: any) => a + Number(i.quantity) * Number(i.averageCost ?? i.unitCost ?? 0), 0)
+    // FIX 8: use StockBalance sum when available, fallback to item-level calculation
+    const totalValue       = Number(balanceAgg._sum?.totalValue ?? 0) ||
+      items.reduce((a: number, i: any) => a + Number(i.quantity) * Number(i.averageCost ?? i.unitCost ?? 0), 0)
     const lowStockCount    = items.filter((i: any) => Number(i.minQuantity) > 0 && Number(i.quantity) <= Number(i.minQuantity)).length
     const inMaintenanceCount = 0 // simplificado
     const exitsThisMonth   = movements.filter((m: any) => ['OUT','EPI_DELIVERY','LOSS'].includes(m.type)).length
@@ -1755,17 +1762,49 @@ ${_basketFooter}
     const item = await p().stockItem.findFirst({ where: { id, companyId: cid } })
     if (!item) return reply.status(404).send({ error: 'Ferramenta não encontrada' })
 
-    const custodies = await p().toolCustody.findMany({
-      where: { stockItemId: id, companyId: cid },
-      orderBy: { checkedOutAt: 'desc' },
-      include: {
-        employee: { select: { id: true, name: true, role: true, photo: true } },
-        project:  { select: { id: true, name: true } },
-        responsible: { select: { id: true, name: true } },
-      },
-    })
+    // FIX 7: query custodies + waybill exits in parallel
+    const [custodies, waybillItems] = await Promise.all([
+      p().toolCustody.findMany({
+        where: { stockItemId: id, companyId: cid },
+        orderBy: { checkedOutAt: 'desc' },
+        include: {
+          employee:    { select: { id: true, name: true, role: true, photo: true } },
+          project:     { select: { id: true, name: true } },
+          responsible: { select: { id: true, name: true } },
+        },
+      }),
+      p().waybillItem.findMany({
+        where: { itemId: id },
+        orderBy: { createdAt: 'desc' },
+        include: {
+          waybill: {
+            select: {
+              id: true,
+              docNumber: true,
+              destinationName: true,
+              receiverName: true,
+              destinationProject: { select: { id: true, name: true } },
+              receiverEmployee:   { select: { id: true, name: true } },
+              createdAt: true,
+            },
+          },
+        },
+      }),
+    ])
 
-    return reply.send({ custodies })
+    const waybillExits = waybillItems.map((wi: any) => ({
+      id:              wi.id,
+      waybillId:       wi.waybill.id,
+      waybillDoc:      wi.waybill.docNumber,
+      requestedQty:    Number(wi.requestedQty),
+      serialNumber:    wi.serialNumber    ?? null,
+      toolCondition:   wi.toolCondition   ?? null,
+      destinationName: wi.waybill.destinationProject?.name ?? wi.waybill.destinationName ?? null,
+      receiverName:    wi.waybill.receiverEmployee?.name   ?? wi.waybill.receiverName     ?? null,
+      createdAt:       wi.waybill.createdAt,
+    }))
+
+    return reply.send({ custodies, waybillExits })
   })
 
   // ── TOOL MAINTENANCES ─────────────────────────────────────────────────────

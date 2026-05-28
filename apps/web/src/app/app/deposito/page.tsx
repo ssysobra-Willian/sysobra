@@ -805,19 +805,44 @@ function SignaturePadReturn({ onSave, onClear }: { onSave: (s: string) => void; 
 // ─── ReturnToolModal ──────────────────────────────────────────────────────────
 
 function ReturnToolModal({
-  tool, onClose, onSuccess,
+  tool, onClose, onSuccess, employees = [],
 }: {
-  tool:      StockItem
-  onClose:   () => void
-  onSuccess: () => void
+  tool:       StockItem
+  onClose:    () => void
+  onSuccess:  () => void
+  employees?: Employee[]
 }) {
-  const [condition,   setCondition]   = useState<'BOM' | 'DANIFICADO' | 'PERDIDO'>('BOM')
-  const [returnedBy,  setReturnedBy]  = useState('')
-  const [notes,       setNotes]       = useState('')
-  const [photo,       setPhoto]       = useState<string | null>(null)
-  const [signature,   setSignature]   = useState<string | null>(null)
-  const [loading,     setLoading]     = useState(false)
+  const [condition,     setCondition]     = useState<'BOM' | 'DANIFICADO' | 'PERDIDO'>('BOM')
+  const [returnMode,    setReturnMode]    = useState<'EMPLOYEE' | 'EXTERNAL'>('EMPLOYEE')
+  const [selectedEmpId, setSelectedEmpId] = useState('')
+  const [externalName,  setExternalName]  = useState('')
+  const [notes,         setNotes]         = useState('')
+  const [photo,         setPhoto]         = useState<string | null>(null)
+  const [signature,     setSignature]     = useState<string | null>(null)
+  const [loading,       setLoading]       = useState(false)
+  const [activeCustody, setActiveCustody] = useState<{ id: string; employeeName: string; checkedOutAt: string } | null>(null)
   const photoRef = useRef<HTMLInputElement>(null)
+
+  // FIX 5: fetch active custody on mount to pre-fill who has the tool
+  useEffect(() => {
+    apiFetch(`/api/v1/deposit/tools/${tool.id}/custodies`)
+      .then(r => r.ok ? r.json() : null)
+      .then(d => {
+        if (!d) return
+        const active = (d.custodies as any[])?.find(c => !c.returnedAt)
+        if (active) {
+          setActiveCustody({ id: active.id, employeeName: active.employee?.name ?? '', checkedOutAt: active.checkedOutAt })
+          // Pre-select the employee if they exist in the list
+          const match = employees.find(e => e.name === active.employee?.name)
+          if (match) setSelectedEmpId(match.id)
+        }
+      })
+      .catch(() => {})
+  }, [tool.id])
+
+  const returnedBy = returnMode === 'EMPLOYEE'
+    ? (employees.find(e => e.id === selectedEmpId)?.name ?? '')
+    : externalName.trim()
 
   const handlePhoto = (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0]; if (!f) return
@@ -828,26 +853,18 @@ function ReturnToolModal({
   }
 
   const handleConfirm = async () => {
-    if (!returnedBy.trim()) return
+    if (!returnedBy) return
     setLoading(true)
     try {
-      // Buscar custódia ativa
-      const custRes = await apiFetch(`/api/v1/deposit/tools/${tool.id}/custodies`)
-      let custodyId: string | undefined
-      if (custRes.ok) {
-        const d = await custRes.json()
-        custodyId = (d.custodies as any[])?.find(c => !c.returnedAt)?.id
-      }
-
       const res = await apiFetch(`/api/v1/deposit/tools/${tool.id}/return`, {
         method: 'PATCH',
         body:   JSON.stringify({
-          custodyId,
+          custodyId:         activeCustody?.id,
           condition,
-          returnedBy:        returnedBy.trim(),
+          returnedBy,
           returnNotes:       notes.trim() || undefined,
-          photoOnReturnUrl:  photo       ?? undefined,
-          returnSignatureUrl:signature   ?? undefined,
+          photoOnReturnUrl:  photo        ?? undefined,
+          returnSignatureUrl:signature    ?? undefined,
         }),
       })
       if (!res.ok) {
@@ -891,6 +908,18 @@ function ReturnToolModal({
         </div>
 
         <div className="p-5 space-y-5">
+
+          {/* Quem está com a ferramenta (active custody info) */}
+          {activeCustody && (
+            <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl bg-orange-50 border border-orange-200 text-xs text-orange-700">
+              <Users size={13} className="flex-shrink-0" />
+              <span>
+                Com: <strong>{activeCustody.employeeName}</strong>
+                {' · '}desde {new Date(activeCustody.checkedOutAt).toLocaleDateString('pt-BR')}
+              </span>
+            </div>
+          )}
+
           {/* Estado da ferramenta */}
           <div>
             <label className="block text-sm font-semibold text-gray-700 mb-2">Estado ao devolver *</label>
@@ -917,15 +946,45 @@ function ReturnToolModal({
             )}
           </div>
 
-          {/* Devolvido por */}
+          {/* Quem está devolvendo — EMPLOYEE / EXTERNAL toggle */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">Devolvido por *</label>
-            <input
-              value={returnedBy}
-              onChange={e => setReturnedBy(e.target.value)}
-              placeholder="Nome de quem está devolvendo"
-              className="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-[#F5A623]"
-            />
+            <label className="block text-sm font-semibold text-gray-700 mb-2">Devolvido por *</label>
+            {/* Toggle */}
+            <div className="flex rounded-xl border border-gray-200 overflow-hidden mb-2.5">
+              {(['EMPLOYEE', 'EXTERNAL'] as const).map(m => (
+                <button
+                  key={m}
+                  onClick={() => setReturnMode(m)}
+                  className={cn(
+                    'flex-1 py-1.5 text-xs font-medium transition',
+                    returnMode === m
+                      ? 'bg-[#F5A623] text-white'
+                      : 'text-gray-500 hover:bg-gray-50',
+                  )}
+                >
+                  {m === 'EMPLOYEE' ? '👷 Colaborador' : '👤 Externo'}
+                </button>
+              ))}
+            </div>
+            {returnMode === 'EMPLOYEE' ? (
+              <select
+                value={selectedEmpId}
+                onChange={e => setSelectedEmpId(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-[#F5A623] bg-white"
+              >
+                <option value="">— Selecione o colaborador —</option>
+                {employees.map(e => (
+                  <option key={e.id} value={e.id}>{e.name}{e.position ? ` (${e.position})` : ''}</option>
+                ))}
+              </select>
+            ) : (
+              <input
+                value={externalName}
+                onChange={e => setExternalName(e.target.value)}
+                placeholder="Nome de quem está devolvendo"
+                className="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-[#F5A623]"
+              />
+            )}
           </div>
 
           {/* Data e hora */}
@@ -986,10 +1045,10 @@ function ReturnToolModal({
           </button>
           <button
             onClick={handleConfirm}
-            disabled={!returnedBy.trim() || !signature || loading}
+            disabled={!returnedBy || !signature || loading}
             className={cn(
               'flex-[2] py-2.5 rounded-xl text-sm font-bold text-white transition flex items-center justify-center gap-2',
-              returnedBy.trim() && signature && !loading
+              returnedBy && signature && !loading
                 ? 'bg-green-600 hover:bg-green-700'
                 : 'bg-gray-300 cursor-not-allowed',
             )}
@@ -1934,6 +1993,7 @@ export default function DepositoPage() {
       {returnToolItem && (
         <ReturnToolModal
           tool={returnToolItem}
+          employees={employees}
           onClose={() => setReturnToolItem(null)}
           onSuccess={() => { setReturnToolItem(null); loadAll() }}
         />
