@@ -468,7 +468,7 @@ export async function employeeRoutes(app: FastifyInstance) {
           where:   { companyId },
           orderBy: { deliveredAt: 'desc' },
           include: {
-            stockItem:   { select: { id: true, name: true, code: true, unit: true, brand: true, caNumber: true } },
+            stockItem:   { select: { id: true, name: true, code: true, unit: true, brand: true } },
             location:    { select: { id: true, name: true } },
             responsible: { select: { id: true, name: true } },
           },
