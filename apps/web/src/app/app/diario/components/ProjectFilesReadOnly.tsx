@@ -61,7 +61,9 @@ export default function ProjectFilesReadOnly({ projectId }: ProjectFilesReadOnly
   const proxyPdfUrl = (file: any): string => {
     const raw = (file.url ?? '').replace(/^\/+/, '')
     if (raw.startsWith('http')) return raw
-    return `/api/uploads/${raw}`
+    // Strip leading "uploads/" para não duplicar no proxy (/api/uploads/uploads/...)
+    const subPath = raw.startsWith('uploads/') ? raw.slice('uploads/'.length) : raw
+    return `/api/uploads/${subPath}`
   }
 
   const renderFile = (file: any, depth = 0) => {

@@ -35,6 +35,11 @@ export function toImageUrl(url: string | null | undefined): string {
     return `/api/uploads/${url.slice('/uploads/'.length)}`
   }
 
+  // Caminho relativo uploads/... (sem barra inicial, como salvo no banco) → converter para proxy
+  if (url.startsWith('uploads/')) {
+    return `/api/uploads/${url.slice('uploads/'.length)}`
+  }
+
   // Qualquer outro padrão que contenha /uploads/ (ex: path absoluto de sistema)
   const idx = url.indexOf('/uploads/')
   if (idx !== -1) {

@@ -8,6 +8,7 @@ import {
   ArrowRight, Home, Check,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { toImageUrl } from '@/lib/imageUrl'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
 
@@ -204,8 +205,9 @@ function FileRow({
   const [deleting,  setDeleting]  = useState(false)
   const [moveOpen,  setMoveOpen]  = useState(false)
   const cat = CAT_ICONS[file.category] ?? CAT_ICONS.other
-  // Usar proxy Next.js para PDF (evita CORS)
-  const proxyUrl  = `/api/uploads/${file.url}`
+  // Usar proxy Next.js para PDF (evita CORS).
+  // toImageUrl normaliza "uploads/xxx" e "/uploads/xxx" → "/api/uploads/xxx"
+  const proxyUrl  = toImageUrl(file.url)
   const directUrl = `${API}/${file.url}`
 
   const handleDelete = async () => {
