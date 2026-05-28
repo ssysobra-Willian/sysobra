@@ -77,8 +77,9 @@ export interface ClientReportData {
 }
 
 export interface RawHtmlData {
-  kind: 'raw'
-  html: string
+  kind:    'raw'
+  html:    string
+  margin?: { top?: string; right?: string; bottom?: string; left?: string }
 }
 
 export type ReportData = SupplierReportData | ClientReportData | RawHtmlData
@@ -259,7 +260,9 @@ function buildHtml(data: StructuredReportData): string {
 // ─── Gera PDF via Puppeteer ────────────────────────────────────────────────────
 
 export async function generatePdf(data: ReportData): Promise<Buffer> {
-  const html = data.kind === 'raw' ? (data as RawHtmlData).html : buildHtml(data as StructuredReportData)
+  const rawData = data.kind === 'raw' ? (data as RawHtmlData) : null
+  const html    = rawData ? rawData.html : buildHtml(data as StructuredReportData)
+  const margin  = rawData?.margin ?? { top: '20mm', right: '18mm', bottom: '20mm', left: '18mm' }
 
   const browser = await puppeteer.launch({
     headless: true,
@@ -270,9 +273,9 @@ export async function generatePdf(data: ReportData): Promise<Buffer> {
     const page = await browser.newPage()
     await page.setContent(html, { waitUntil: 'domcontentloaded' })
     const pdf = await page.pdf({
-      format:            'A4',
-      printBackground:   true,
-      margin: { top: '20mm', right: '18mm', bottom: '20mm', left: '18mm' },
+      format:          'A4',
+      printBackground: true,
+      margin,
     })
     return Buffer.from(pdf)
   } finally {

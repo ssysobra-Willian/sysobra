@@ -753,7 +753,11 @@ export async function waybillRoutes(app: FastifyInstance) {
     }
 
     const html = gerarHtmlRomaneio({ waybill, company, senderSigB64, driverSigB64, receiverSigB64, qrCodeBase64 })
-    const pdfBuffer = await generatePdf({ kind: 'raw', html })
+    const pdfBuffer = await generatePdf({
+      kind: 'raw',
+      html,
+      margin: { top: '12mm', right: '10mm', bottom: '12mm', left: '10mm' },
+    })
 
     reply.header('Content-Type', 'application/pdf')
     reply.header('Content-Disposition', `attachment; filename="romaneio-${waybill.docNumber}.pdf"`)
@@ -1470,13 +1474,42 @@ function gerarHtmlRomaneio({
     .qr-hash    { font-size: 9px; font-family: monospace; color: #9CA3AF; margin-top: 4px; word-break: break-all; }
 
     /* ── TABELA ── */
-    thead tr { background: #374151; }
-    th  { font-size: 10px; font-weight: 700; letter-spacing: 0.04em; white-space: nowrap; }
-    td  { padding: 7px 10px; font-size: 12px; border-bottom: 1px solid #F3F4F6; word-break: break-word; vertical-align: middle; }
-    tbody tr   { page-break-inside: avoid; }
-    table      { width: 100%; table-layout: fixed; border-collapse: collapse; page-break-inside: auto; }
-    thead      { display: table-header-group; }
-    tfoot      { display: table-footer-group; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 10px;
+      table-layout: auto;
+    }
+    thead tr { background: #111827; color: #fff; }
+    thead th {
+      padding: 7px 6px;
+      text-align: left;
+      font-size: 9px;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+      white-space: nowrap;
+    }
+    thead th.right  { text-align: right; }
+    thead th.center { text-align: center; }
+    tbody tr:nth-child(even) { background: #F9FAFB; }
+    tbody tr:nth-child(odd)  { background: #fff; }
+    tbody tr { page-break-inside: avoid; }
+    tbody td {
+      padding: 6px 6px;
+      border-bottom: 1px solid #E5E7EB;
+      vertical-align: middle;
+      word-break: break-word;
+    }
+    tbody td.right  { text-align: right; }
+    tbody td.center { text-align: center; }
+    thead { display: table-header-group; }
+    tfoot { display: table-row-group; }
+    tfoot td {
+      padding: 8px 6px;
+      background: #FEF3DC;
+      font-weight: 700;
+      border-top: 2px solid #F5A623;
+    }
 
     .no-break { page-break-inside: avoid; }
   </style>
@@ -1622,35 +1655,65 @@ function gerarHtmlRomaneio({
     <div class="section">
       <div class="section-title">Itens do Romaneio</div>
       <table>
+        ${isToolWaybill ? `
+        <colgroup>
+          <col style="width:25px">
+          <col>
+          <col style="width:35px">
+          <col style="width:55px">
+          <col style="width:55px">
+          <col style="width:85px">
+          <col style="width:85px">
+          <col style="width:60px">
+          <col style="width:65px">
+          <col style="width:70px">
+          <col style="width:50px">
+        </colgroup>
+        ` : `
+        <colgroup>
+          <col style="width:28px">
+          <col>
+          <col style="width:40px">
+          <col style="width:70px">
+          <col style="width:70px">
+          <col style="width:75px">
+          <col style="width:80px">
+          <col style="width:55px">
+        </colgroup>
+        `}
         <thead>
           <tr>
-            <th class="center" style="width:25px;">Nº</th>
-            <th style="min-width:180px;">Descrição do item</th>
-            <th class="center" style="width:45px;">Und.</th>
-            <th class="right" style="width:60px;">Qtd enviada</th>
-            <th class="right" style="width:65px;">Qtd recebida</th>
+            <th class="center">Nº</th>
+            <th>Descrição do item</th>
+            <th class="center">Und.</th>
+            <th class="right">Qtd enviada</th>
+            <th class="right">Qtd recebida</th>
             ${isToolWaybill ? `
-            <th style="width:90px;">Nº de série</th>
-            <th style="width:90px;">Marca/Modelo</th>
-            <th class="center" style="width:65px;">Condição</th>
+            <th>Nº de série</th>
+            <th>Marca/Modelo</th>
+            <th class="center">Condição</th>
             ` : ''}
-            <th class="right" style="width:65px;">Valor unit.</th>
-            <th class="right" style="width:70px;">Total</th>
-            <th class="center" style="width:60px;">Status</th>
+            <th class="right">Valor unit.</th>
+            <th class="right">Total</th>
+            <th class="center">Status</th>
           </tr>
         </thead>
         <tbody>${itemRows}</tbody>
-        <tfoot>
-          <tr>
-            <td colspan="${isToolWaybill ? 9 : 6}" class="right"
-                style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.04em;color:#374151;">
-              Total geral
-            </td>
-            <td class="right" style="font-weight:800;font-size:13px;">${fmtCurrency(totalValue)}</td>
-            <td></td>
-          </tr>
-        </tfoot>
       </table>
+
+      <!-- Total fora da tabela — aparece só uma vez no final -->
+      <div style="page-break-inside:avoid;display:flex;justify-content:flex-end;margin-top:0;border-top:2px solid #F5A623;background:#FEF3DC;padding:8px 10px;">
+        <div style="display:flex;align-items:center;gap:20px;font-size:11px;">
+          <span style="color:#6B7280;">
+            ${(waybill.items?.length ?? 0)} tipo(s) &middot;
+            ${(waybill.items ?? []).reduce((s: number, i: any) => s + Number(i.requestedQty), 0)} unidade(s)
+          </span>
+          <span style="font-weight:700;font-size:13px;">
+            TOTAL GERAL:
+            <span style="color:#D4860F;margin-left:6px;">${fmtCurrency(totalValue)}</span>
+          </span>
+        </div>
+      </div>
     </div>
 
     ${waybill.notes ? `
