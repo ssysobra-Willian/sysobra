@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useState, useEffect, useCallback } from 'react'
-import { X, Warehouse, Loader2, CheckCircle2, AlertCircle, Building2, User } from 'lucide-react'
+import { X, Warehouse, Loader2, CheckCircle2, AlertCircle, Building2, User, Star } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
@@ -22,6 +22,7 @@ function maskPhone(v: string) {
 
 interface Project  { id: string; name: string; code?: string | null }
 interface UserItem { id: string; name: string; email: string }
+interface SelfUser { id: string; name: string }
 
 interface Props {
   isOpen:        boolean
@@ -41,8 +42,17 @@ export function CreateLocationModal({ isOpen, onClose, onSuccess, projects = [],
   const [address,     setAddress]     = useState('')
   const [description, setDescription] = useState('')
 
-  // Responsável
-  const [managerMode,     setManagerMode]     = useState<'existing' | 'new'>('existing')
+  // Usuário atual (lido do localStorage)
+  const [selfUser, setSelfUser] = useState<SelfUser>({ id: '', name: '' })
+  useEffect(() => {
+    setSelfUser({
+      id:   localStorage.getItem('userId')   ?? '',
+      name: localStorage.getItem('userName') ?? '',
+    })
+  }, [])
+
+  // Responsável — padrão: "Eu mesmo"
+  const [managerMode,     setManagerMode]     = useState<'self' | 'existing' | 'new'>('self')
   const [userSearch,      setUserSearch]      = useState('')
   const [userResults,     setUserResults]     = useState<UserItem[]>([])
   const [selectedManager, setSelectedManager] = useState<UserItem | null>(null)
@@ -54,11 +64,11 @@ export function CreateLocationModal({ isOpen, onClose, onSuccess, projects = [],
   const [error,   setError]   = useState('')
   const [success, setSuccess] = useState(false)
 
-  // Reset
+  // Reset ao fechar
   useEffect(() => {
     if (!isOpen) {
       setName(''); setType('WAREHOUSE'); setProjectId(''); setAddress(''); setDescription('')
-      setManagerMode('existing'); setUserSearch(''); setUserResults([]); setSelectedManager(null)
+      setManagerMode('self'); setUserSearch(''); setUserResults([]); setSelectedManager(null)
       setNewManagerName(''); setNewManagerEmail(''); setNewManagerPhone('')
       setError(''); setSuccess(false)
     }
@@ -97,6 +107,7 @@ export function CreateLocationModal({ isOpen, onClose, onSuccess, projects = [],
   const handleSubmit = async () => {
     if (!name.trim()) { setError('Nome é obrigatório'); return }
     if (type === 'WAREHOUSE' && !projectId) { setError('Selecione a obra vinculada'); return }
+    if (managerMode === 'self' && !selfUser.id) { setError('Usuário atual não identificado'); return }
     if (managerMode === 'existing' && !selectedManager) { setError('Selecione o responsável'); return }
     if (managerMode === 'new' && (!newManagerName.trim() || !newManagerEmail.trim())) {
       setError('Nome e email do novo responsável são obrigatórios'); return
@@ -112,7 +123,9 @@ export function CreateLocationModal({ isOpen, onClose, onSuccess, projects = [],
         projectId:   type === 'WAREHOUSE' ? (projectId || undefined) : undefined,
       }
 
-      if (managerMode === 'existing' && selectedManager) {
+      if (managerMode === 'self') {
+        body.managerId = selfUser.id
+      } else if (managerMode === 'existing' && selectedManager) {
         body.managerId = selectedManager.id
       } else if (managerMode === 'new') {
         body.managerName = newManagerName.trim()
@@ -253,21 +266,52 @@ export function CreateLocationModal({ isOpen, onClose, onSuccess, projects = [],
               </h4>
             </div>
 
-            {/* Toggle */}
-            <div className="flex gap-2 mb-3">
-              {(['existing', 'new'] as const).map(opt => (
-                <button key={opt} type="button" onClick={() => setManagerMode(opt)}
+            {/* Toggle — 3 opções */}
+            <div className="grid grid-cols-3 gap-1.5 mb-3">
+              {([
+                { value: 'self',     emoji: '⭐', label: 'Eu mesmo'      },
+                { value: 'existing', emoji: '👤', label: 'Outro usuário' },
+                { value: 'new',      emoji: '➕', label: 'Criar novo'    },
+              ] as const).map(opt => (
+                <button
+                  key={opt.value}
+                  type="button"
+                  onClick={() => {
+                    setManagerMode(opt.value)
+                    setSelectedManager(null)
+                    setUserSearch('')
+                    setUserResults([])
+                  }}
                   className={cn(
-                    'flex-1 py-1.5 px-3 rounded-full text-xs font-medium border transition-colors',
-                    managerMode === opt
-                      ? 'border-[#F5A623] bg-amber-50 text-amber-800'
+                    'py-2 px-1.5 rounded-xl text-center border transition-colors',
+                    managerMode === opt.value
+                      ? 'border-[#F5A623] bg-amber-50 text-amber-800 font-semibold'
                       : 'border-gray-200 text-gray-500 hover:border-gray-300',
                   )}
                 >
-                  {opt === 'existing' ? '👤 Usuário existente' : '➕ Criar novo'}
+                  <div className="text-sm leading-none mb-0.5">{opt.emoji}</div>
+                  <div className="text-[11px] font-medium leading-tight">{opt.label}</div>
                 </button>
               ))}
             </div>
+
+            {/* Eu mesmo */}
+            {managerMode === 'self' && (
+              <div className="flex items-center gap-3 p-2.5 bg-green-50 border border-green-200 rounded-xl">
+                <div className="w-9 h-9 rounded-full bg-[#F5A623] flex items-center justify-center font-bold text-sm text-white flex-shrink-0">
+                  {selfUser.name ? selfUser.name.slice(0, 2).toUpperCase() : <Star size={16} />}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-semibold text-green-800 truncate">
+                    {selfUser.name || 'Usuário atual'}
+                  </div>
+                  <div className="text-xs text-green-600 flex items-center gap-1 mt-0.5">
+                    <CheckCircle2 size={11} />
+                    Você será o responsável
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* Selecionar usuário existente */}
             {managerMode === 'existing' && !selectedManager && (

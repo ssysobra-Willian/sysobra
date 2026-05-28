@@ -1,9 +1,9 @@
 'use client'
 
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import {
   Building2, Package, Warehouse, CheckCircle, Loader2,
-  ArrowLeft, Info, User, UserPlus, X,
+  ArrowLeft, Info, User, UserPlus, X, Star,
 } from 'lucide-react'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
@@ -26,20 +26,31 @@ interface DepositoOnboardingProps {
 }
 
 type Step = 'intro' | 'form'
-type ManagerMode = 'existing' | 'new'
+type ManagerMode = 'self' | 'existing' | 'new'
+
+interface SelfUser { id: string; name: string }
 
 export default function DepositoOnboarding({ onComplete }: DepositoOnboardingProps) {
   const [step,         setStep]         = useState<Step>('intro')
   const [loading,      setLoading]      = useState(false)
   const [error,        setError]        = useState('')
 
+  // Dados do usuário atual (lidos do localStorage no mount)
+  const [selfUser, setSelfUser] = useState<SelfUser>({ id: '', name: '' })
+  useEffect(() => {
+    setSelfUser({
+      id:   localStorage.getItem('userId')   ?? '',
+      name: localStorage.getItem('userName') ?? '',
+    })
+  }, [])
+
   // Campos do depósito
   const [name,        setName]        = useState('Depósito Central')
   const [address,     setAddress]     = useState('')
   const [description, setDescription] = useState('')
 
-  // Responsável
-  const [managerMode,     setManagerMode]     = useState<ManagerMode>('existing')
+  // Responsável — padrão: "Eu mesmo"
+  const [managerMode,     setManagerMode]     = useState<ManagerMode>('self')
   const [selectedManager, setSelectedManager] = useState<any>(null)
   const [userSearch,      setUserSearch]      = useState('')
   const [userResults,     setUserResults]     = useState<any[]>([])
@@ -67,6 +78,7 @@ export default function DepositoOnboarding({ onComplete }: DepositoOnboardingPro
 
   const canSubmit =
     !!name.trim() && (
+      (managerMode === 'self'     && !!selfUser.id) ||
       (managerMode === 'existing' && !!selectedManager) ||
       (managerMode === 'new'      && !!newManagerName.trim() && !!newManagerEmail.trim())
     )
@@ -82,7 +94,9 @@ export default function DepositoOnboarding({ onComplete }: DepositoOnboardingPro
         address:     address.trim()     || undefined,
         description: description.trim() || undefined,
       }
-      if (managerMode === 'existing') {
+      if (managerMode === 'self') {
+        body.managerId = selfUser.id
+      } else if (managerMode === 'existing') {
         body.managerId = selectedManager.id
       } else {
         body.managerName  = newManagerName.trim()
@@ -275,31 +289,54 @@ export default function DepositoOnboarding({ onComplete }: DepositoOnboardingPro
           O responsável poderá registrar entradas, saídas e transferências de materiais.
         </p>
 
-        {/* Toggle modo */}
-        <div className="flex gap-2 mb-4">
-          {[
-            { value: 'existing', label: '👤 Usuário existente' },
-            { value: 'new',      label: '➕ Criar novo usuário' },
-          ].map(opt => (
+        {/* Toggle modo — 3 opções */}
+        <div className="grid grid-cols-3 gap-2 mb-4">
+          {([
+            { value: 'self',     emoji: '⭐', label: 'Eu mesmo',       desc: 'Você será o responsável' },
+            { value: 'existing', emoji: '👤', label: 'Outro usuário',  desc: 'Selecionar existente'    },
+            { value: 'new',      emoji: '➕', label: 'Criar novo',     desc: 'Novo acesso ao sistema'  },
+          ] as const).map(opt => (
             <button
               key={opt.value}
               type="button"
               onClick={() => {
-                setManagerMode(opt.value as ManagerMode)
+                setManagerMode(opt.value)
                 setSelectedManager(null)
                 setUserSearch('')
                 setUserResults([])
               }}
-              className={`flex-1 py-2 px-3 rounded-xl text-sm font-medium border-2 transition-colors ${
+              className={`py-2.5 px-2 rounded-xl text-center border-2 transition-colors ${
                 managerMode === opt.value
                   ? 'border-[#F5A623] bg-orange-50 text-orange-800'
                   : 'border-gray-100 bg-white text-gray-500 hover:border-gray-200'
               }`}
             >
-              {opt.label}
+              <div className="text-base leading-none mb-1">{opt.emoji}</div>
+              <div className={`text-xs font-semibold leading-none ${managerMode === opt.value ? 'text-orange-800' : 'text-gray-700'}`}>
+                {opt.label}
+              </div>
+              <div className="text-[10px] text-gray-400 mt-0.5 leading-tight">{opt.desc}</div>
             </button>
           ))}
         </div>
+
+        {/* Eu mesmo */}
+        {managerMode === 'self' && (
+          <div className="flex items-center gap-3 px-4 py-3 bg-green-50 border border-green-200 rounded-xl">
+            <div className="w-11 h-11 rounded-full bg-[#F5A623] flex items-center justify-center font-bold text-base text-white flex-shrink-0">
+              {selfUser.name ? selfUser.name.slice(0, 2).toUpperCase() : <Star size={20} />}
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-green-800 truncate">
+                {selfUser.name || 'Usuário atual'}
+              </p>
+              <p className="text-xs text-green-600 mt-0.5 flex items-center gap-1">
+                <CheckCircle size={12} />
+                Você será o responsável por este depósito
+              </p>
+            </div>
+          </div>
+        )}
 
         {/* Usuário existente */}
         {managerMode === 'existing' && (
