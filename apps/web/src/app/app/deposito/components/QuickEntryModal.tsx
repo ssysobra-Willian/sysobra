@@ -7,6 +7,7 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { formatCurrency } from '@/lib/format'
+import BrandInput from '@/components/ui/BrandInput'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
 function getToken()     { return typeof window !== 'undefined' ? localStorage.getItem('token')     ?? '' : '' }
@@ -73,10 +74,13 @@ export function QuickEntryModal({ isOpen, onClose, onSuccess, locations, default
   const [authorizedName,  setAuthorizedName]  = useState('')
   const [authorizedPhone, setAuthorizedPhone] = useState('')
 
-  const [quantity,     setQuantity]     = useState('')
-  const [unitCost,     setUnitCost]     = useState('')
-  const [supplierName, setSupplierName] = useState('')
-  const [brand,        setBrand]        = useState('')
+  const [quantity,       setQuantity]       = useState('')
+  const [unitCost,       setUnitCost]       = useState('')
+  const [supplierId,     setSupplierId]     = useState('')
+  const [supplierName,   setSupplierName]   = useState('')
+  const [supplierSearch, setSupplierSearch] = useState('')
+  const [supplierResults,setSupplierResults]= useState<{ id: string; name: string; cpfCnpj?: string | null; cnpj?: string | null; type?: string }[]>([])
+  const [brand,          setBrand]          = useState('')
   const [lot,          setLot]          = useState('')
   const [invoiceNo,    setInvoiceNo]    = useState('')
   const [expiryDate,   setExpiryDate]   = useState('')
@@ -91,8 +95,9 @@ export function QuickEntryModal({ isOpen, onClose, onSuccess, locations, default
     if (!isOpen) {
       setStep(1); setSearch(''); setResults([]); setSelectedItem(null)
       setCreatingNew(false); setNewItemName(''); setNewItemUnit('un'); setNewItemCat('')
-      setQuantity(''); setUnitCost(''); setSupplierName(''); setBrand('')
-      setLot(''); setInvoiceNo(''); setExpiryDate(''); setNotes('')
+      setQuantity(''); setUnitCost('')
+      setSupplierId(''); setSupplierName(''); setSupplierSearch(''); setSupplierResults([])
+      setBrand(''); setLot(''); setInvoiceNo(''); setExpiryDate(''); setNotes('')
       setError(''); setSuccess(false)
     }
   }, [isOpen])
@@ -147,6 +152,17 @@ export function QuickEntryModal({ isOpen, onClose, onSuccess, locations, default
   const currentBalance = selectedItem?.balances?.find(b => b.locationId === locationId)?.quantity ?? 0
   const totalCost = (parseFloat(quantity) || 0) * (parseFloat(unitCost) || 0)
 
+  // Busca de fornecedores
+  const searchSuppliers = useCallback(async (q: string) => {
+    setSupplierSearch(q)
+    if (q.length < 2) { setSupplierResults([]); return }
+    try {
+      const res  = await apiFetch(`/api/v1/suppliers?search=${encodeURIComponent(q)}&limit=8`)
+      const data = await res.json()
+      setSupplierResults(data.suppliers ?? data ?? [])
+    } catch { setSupplierResults([]) }
+  }, [])
+
   const handleSubmit = useCallback(async (e: React.FormEvent) => {
     e.preventDefault()
     setError('')
@@ -160,6 +176,7 @@ export function QuickEntryModal({ isOpen, onClose, onSuccess, locations, default
         locationId,
         quantity:     parseFloat(quantity),
         unitCost:     parseFloat(unitCost) || 0,
+        supplierId:   supplierId   || undefined,
         supplierName: supplierName || undefined,
         brand:        brand        || undefined,
         lot:          lot          || undefined,
@@ -425,10 +442,43 @@ export function QuickEntryModal({ isOpen, onClose, onSuccess, locations, default
                 {/* Fornecedor + marca */}
                 <div className="grid grid-cols-2 gap-3">
                   <Field label="Fornecedor">
-                    <input value={supplierName} onChange={e => setSupplierName(e.target.value)} placeholder="Nome do fornecedor" className={inp} />
+                    <div className="relative">
+                      {!supplierId ? (
+                        <>
+                          <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 z-10" />
+                          <input
+                            value={supplierSearch}
+                            onChange={e => searchSuppliers(e.target.value)}
+                            placeholder="Buscar fornecedor..."
+                            className={cn(inp, 'pl-8')}
+                          />
+                          {supplierResults.length > 0 && (
+                            <div className="absolute left-0 right-0 top-full z-50 bg-white border border-gray-200 rounded-xl mt-1 shadow-lg max-h-48 overflow-y-auto">
+                              {supplierResults.map(s => (
+                                <button key={s.id} type="button"
+                                  onClick={() => { setSupplierId(s.id); setSupplierName(s.name); setSupplierSearch(''); setSupplierResults([]) }}
+                                  className="w-full flex items-center gap-2 px-3 py-2 hover:bg-gray-50 text-left border-b border-gray-50 last:border-0">
+                                  <div className="flex-1 min-w-0">
+                                    <div className="text-xs font-medium text-gray-800 truncate">{s.name}</div>
+                                    <div className="text-[10px] text-gray-400">{s.cpfCnpj || s.cnpj || '—'}</div>
+                                  </div>
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </>
+                      ) : (
+                        <div className="flex items-center gap-2 px-3 py-2 bg-green-50 border border-green-200 rounded-xl">
+                          <CheckCircle2 size={12} className="text-green-600 flex-shrink-0" />
+                          <span className="flex-1 text-xs font-medium text-green-800 truncate">{supplierName}</span>
+                          <button type="button" onClick={() => { setSupplierId(''); setSupplierName('') }}
+                            className="text-gray-400 hover:text-red-500"><X size={12} /></button>
+                        </div>
+                      )}
+                    </div>
                   </Field>
                   <Field label="Marca">
-                    <input value={brand} onChange={e => setBrand(e.target.value)} placeholder="Ex: Gerdau" className={inp} />
+                    <BrandInput value={brand} onChange={setBrand} placeholder="Ex: Gerdau" className={inp} />
                   </Field>
                 </div>
 

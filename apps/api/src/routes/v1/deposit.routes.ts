@@ -2624,6 +2624,41 @@ tr:nth-child(even) td { background:#fafafa; }
       return reply.send(html)
     }
   })
+
+  // ── AUTOCOMPLETE DE MARCAS ────────────────────────────────────────────────
+  // GET /api/v1/deposit/brands
+  app.get('/brands', { preHandler }, async (request, reply) => {
+    const req = request as RequestWithMember
+    const cid = companyId(req)
+
+    // Buscar todas as marcas distintas de itens ativos + movimentos + lotes
+    const [itemBrands, movBrands, lotBrands] = await Promise.all([
+      p().stockItem.findMany({
+        where: { companyId: cid, isActive: true, brand: { not: null } },
+        select: { brand: true },
+        distinct: ['brand'],
+        orderBy: { brand: 'asc' },
+      }),
+      p().stockMovement.findMany({
+        where: { companyId: cid, brand: { not: null } },
+        select: { brand: true },
+        distinct: ['brand'],
+        orderBy: { brand: 'asc' },
+      }),
+      p().supplierLot.findMany({
+        where: { companyId: cid },
+        select: { notes: true },  // brand não é campo do SupplierLot, usar notas como fallback
+        take: 0,  // placeholder, veja abaixo
+      }),
+    ])
+
+    const brandSet = new Set<string>()
+    for (const r of itemBrands) if (r.brand) brandSet.add(r.brand.trim())
+    for (const r of movBrands)  if (r.brand) brandSet.add(r.brand.trim())
+
+    const brands = Array.from(brandSet).filter(Boolean).sort((a, b) => a.localeCompare(b, 'pt-BR'))
+    return reply.send({ brands })
+  })
 }
 
 // ─── Helper: construir data de StockItem a partir do body ─────────────────────

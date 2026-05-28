@@ -3,10 +3,11 @@
 import React, { useState, useRef, useCallback } from 'react'
 import {
   X, Package, ShieldCheck, Shirt, Upload, Loader2, CheckCircle2,
-  MapPin, ChevronDown, ChevronUp, Plus, Trash2, Camera,
+  MapPin, ChevronDown, ChevronUp, Plus, Trash2, Camera, Search,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { formatCurrency } from '@/lib/format'
+import BrandInput from '@/components/ui/BrandInput'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
 function getToken()     { return typeof window !== 'undefined' ? (localStorage.getItem('token')     ?? '') : '' }
@@ -18,10 +19,12 @@ type Mode = 'material' | 'epi' | 'uniform'
 
 interface LotInput {
   supplierId?:    string
+  supplierName?:  string
   lotNumber?:     string
   invoiceNumber?: string
   quantity:       number
   unitCost?:      number
+  brand?:         string
   expiryDate?:    string
   notes?:         string
 }
@@ -199,16 +202,85 @@ function PhotoUpload({ value, onChange }: { value: string; onChange: (url: strin
 
 // ─── Lots Section ─────────────────────────────────────────────────────────────
 
+function LotSupplierSearch({ value, supplierId, onSelect, onClear }: {
+  value: string
+  supplierId: string | undefined
+  onSelect: (id: string, name: string) => void
+  onClear: () => void
+}) {
+  const [query,   setQuery]   = useState(value)
+  const [results, setResults] = useState<{ id: string; name: string; cpfCnpj?: string | null }[]>([])
+  const [loading, setLoading] = useState(false)
+
+  const search = useCallback(async (q: string) => {
+    setQuery(q)
+    if (q.length < 2) { setResults([]); return }
+    setLoading(true)
+    try {
+      const res = await fetch(`${API}/api/v1/suppliers?search=${encodeURIComponent(q)}&limit=6`, {
+        headers: { Authorization: `Bearer ${getToken()}`, 'x-company-id': getCompanyId() },
+      })
+      const d = await res.json()
+      setResults(d.suppliers ?? d ?? [])
+    } catch { setResults([]) }
+    finally { setLoading(false) }
+  }, [])
+
+  if (supplierId) {
+    return (
+      <div className="flex items-center gap-2 px-2.5 py-2 bg-green-50 border border-green-200 rounded-xl">
+        <span className="flex-1 text-xs font-medium text-green-800 truncate">{value}</span>
+        <button type="button" onClick={onClear} className="text-gray-400 hover:text-red-500 flex-shrink-0">
+          <X size={11} />
+        </button>
+      </div>
+    )
+  }
+
+  return (
+    <div className="relative">
+      <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
+      <input
+        type="text"
+        value={query}
+        onChange={e => search(e.target.value)}
+        onBlur={() => setTimeout(() => setResults([]), 150)}
+        placeholder="Buscar fornecedor…"
+        className={cn(inputCls, 'pl-7')}
+      />
+      {loading && <Loader2 size={11} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 animate-spin" />}
+      {results.length > 0 && (
+        <div className="absolute left-0 right-0 top-full z-50 mt-1 bg-white border border-gray-200 rounded-xl shadow-lg max-h-40 overflow-y-auto">
+          {results.map(s => (
+            <button key={s.id} type="button"
+              onMouseDown={() => { onSelect(s.id, s.name); setQuery(s.name); setResults([]) }}
+              className="w-full flex items-start gap-2 px-3 py-2 hover:bg-gray-50 text-left border-b border-gray-50 last:border-0">
+              <div className="flex-1 min-w-0">
+                <div className="text-xs font-medium text-gray-800 truncate">{s.name}</div>
+                {s.cpfCnpj && <div className="text-[10px] text-gray-400">{s.cpfCnpj}</div>}
+              </div>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function LotsSection({ lots, onChange }: { lots: LotInput[]; onChange: (l: LotInput[]) => void }) {
   const addLot = () => onChange([...lots, { quantity: 1 }])
   const removeLot = (i: number) => onChange(lots.filter((_, idx) => idx !== i))
   const updateLot = (i: number, patch: Partial<LotInput>) =>
     onChange(lots.map((l, idx) => idx === i ? { ...l, ...patch } : l))
 
+  const totalQty  = lots.reduce((s, l) => s + (l.quantity || 0), 0)
+  const totalVal  = lots.reduce((s, l) => s + (l.quantity || 0) * (l.unitCost ?? 0), 0)
+  const avgCost   = totalQty > 0 ? totalVal / totalQty : 0
+
   return (
     <div className="space-y-3">
       {lots.map((lot, i) => (
-        <div key={i} className="border border-gray-100 rounded-xl p-3 space-y-2">
+        <div key={i} className="border border-gray-100 rounded-xl p-3 space-y-2.5 bg-gray-50/40">
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold text-gray-500">Lote #{i + 1}</span>
             <button type="button" onClick={() => removeLot(i)}
@@ -216,11 +288,24 @@ function LotsSection({ lots, onChange }: { lots: LotInput[]; onChange: (l: LotIn
               <Trash2 size={13} />
             </button>
           </div>
+
+          {/* Fornecedor */}
+          <div>
+            <label className="text-xs text-gray-400 mb-1 block">Fornecedor</label>
+            <LotSupplierSearch
+              value={lot.supplierName ?? ''}
+              supplierId={lot.supplierId}
+              onSelect={(id, name) => updateLot(i, { supplierId: id, supplierName: name })}
+              onClear={() => updateLot(i, { supplierId: undefined, supplierName: undefined })}
+            />
+          </div>
+
+          {/* Qtd + Custo */}
           <div className="grid grid-cols-2 gap-2">
             <div>
-              <label className="text-xs text-gray-400 mb-1 block">Qtd.</label>
-              <input type="number" min="0.001" step="0.001" value={lot.quantity}
-                onChange={e => updateLot(i, { quantity: Number(e.target.value) })}
+              <label className="text-xs text-gray-400 mb-1 block">Qtd. *</label>
+              <input type="number" min="0.001" step="0.001" value={lot.quantity || ''}
+                onChange={e => updateLot(i, { quantity: Number(e.target.value) || 1 })}
                 className={inputCls} />
             </div>
             <div>
@@ -229,34 +314,56 @@ function LotsSection({ lots, onChange }: { lots: LotInput[]; onChange: (l: LotIn
                 onChange={e => updateLot(i, { unitCost: e.target.value ? Number(e.target.value) : undefined })}
                 placeholder="0,00" className={inputCls} />
             </div>
+          </div>
+
+          {/* Subtotal */}
+          {lot.quantity > 0 && lot.unitCost ? (
+            <div className="text-[10px] text-right text-gray-400">
+              Subtotal: <strong className="text-[#F5A623]">{formatCurrency(lot.quantity * lot.unitCost)}</strong>
+            </div>
+          ) : null}
+
+          {/* Marca + Lote/NF */}
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="text-xs text-gray-400 mb-1 block">Marca</label>
+              <BrandInput
+                value={lot.brand ?? ''}
+                onChange={v => updateLot(i, { brand: v })}
+                placeholder="Ex: Gerdau"
+                className={inputCls}
+              />
+            </div>
             <div>
               <label className="text-xs text-gray-400 mb-1 block">Nº Lote / NF</label>
               <input type="text" value={lot.lotNumber ?? ''}
                 onChange={e => updateLot(i, { lotNumber: e.target.value })}
                 placeholder="Lote ou NF" className={inputCls} />
             </div>
-            <div>
-              <label className="text-xs text-gray-400 mb-1 block">Validade</label>
-              <input type="date" value={lot.expiryDate ?? ''}
-                onChange={e => updateLot(i, { expiryDate: e.target.value })}
-                className={inputCls} />
-            </div>
+          </div>
+
+          {/* Validade */}
+          <div>
+            <label className="text-xs text-gray-400 mb-1 block">Validade</label>
+            <input type="date" value={lot.expiryDate ?? ''}
+              onChange={e => updateLot(i, { expiryDate: e.target.value })}
+              className={inputCls} />
           </div>
         </div>
       ))}
+
       <button type="button" onClick={addLot}
         className="w-full py-2.5 border-2 border-dashed border-gray-200 rounded-xl text-xs text-gray-400 hover:border-[#F5A623] hover:text-[#F5A623] transition flex items-center justify-center gap-2">
         <Plus size={13} />Adicionar lote / fornecedor
       </button>
+
       {lots.length > 0 && lots.some(l => l.unitCost) && (
-        <div className="text-xs text-gray-500 text-right">
-          Custo médio ponderado: <strong className="text-gray-700">
-            {formatCurrency(
-              lots.reduce((s, l) => s + l.quantity * (l.unitCost ?? 0), 0) /
-              Math.max(lots.reduce((s, l) => s + l.quantity, 0), 1)
-            )}
-          </strong>
-          {' · '}Qtd total: <strong>{lots.reduce((s, l) => s + l.quantity, 0)}</strong>
+        <div className="flex items-center justify-between text-xs text-gray-500 bg-amber-50 border border-amber-100 rounded-xl px-3 py-2">
+          <span>Custo médio ponderado</span>
+          <span>
+            <strong className="text-[#F5A623]">{formatCurrency(avgCost)}</strong>
+            <span className="text-gray-400 ml-2">· {totalQty} {totalQty !== 1 ? 'un' : 'un'} · {formatCurrency(totalVal)} total</span>
+          </span>
         </div>
       )}
     </div>
@@ -455,8 +562,12 @@ export function ItemFormModal({ mode, isOpen, onClose, onSuccess, item }: Props)
             {mode !== 'uniform' && (
               <div className="grid grid-cols-2 gap-3">
                 <Field label="Marca / Fabricante">
-                  <input type="text" value={brand} onChange={e => setBrand(e.target.value)}
-                    placeholder="Ex: Votorantim" className={inputCls} />
+                  <BrandInput
+                    value={brand}
+                    onChange={setBrand}
+                    placeholder="Ex: Votorantim"
+                    className={inputCls}
+                  />
                 </Field>
                 <Field label="Referência">
                   <input type="text" value={model} onChange={e => setModel(e.target.value)}

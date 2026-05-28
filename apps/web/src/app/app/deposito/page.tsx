@@ -24,6 +24,7 @@ import { ToolFormModal   } from './components/ToolFormModal'
 import { QuickEntryModal } from './components/QuickEntryModal'
 import { EpiDeliveryModal} from './components/EpiDeliveryModal'
 import { BasketModal, type BasketPayload } from '@/components/deposit/BasketModal'
+import { CreateLocationModal } from './components/CreateLocationModal'
 
 // ─── API ─────────────────────────────────────────────────────────────────────
 
@@ -116,7 +117,7 @@ interface StockBasket {
 }
 
 interface Employee { id: string; name: string; position?: string | null }
-interface Project  { id: string; name: string }
+interface Project  { id: string; name: string; code?: string | null }
 
 interface StockLocation {
   id:          string
@@ -866,9 +867,10 @@ export default function DepositoPage() {
   const [editingTool,       setEditingTool]       = useState<StockItem | null>(null)
 
   // New multi-location modals
-  const [quickEntryOpen,    setQuickEntryOpen]    = useState(false)
-  const [epiDeliveryOpen,   setEpiDeliveryOpen]   = useState(false)
-  const [epiDeliveryItemId, setEpiDeliveryItemId] = useState<string | undefined>(undefined)
+  const [quickEntryOpen,      setQuickEntryOpen]      = useState(false)
+  const [epiDeliveryOpen,     setEpiDeliveryOpen]     = useState(false)
+  const [epiDeliveryItemId,   setEpiDeliveryItemId]   = useState<string | undefined>(undefined)
+  const [createLocationOpen,  setCreateLocationOpen]  = useState(false)
 
   // ── Data loading ──────────────────────────────────────────────────────────
   const loadAll = useCallback(async () => {
@@ -970,15 +972,28 @@ export default function DepositoPage() {
                   <select
                     value={selectedLocation}
                     onChange={e => setSelectedLocation(e.target.value)}
-                    className="text-xs text-gray-700 bg-transparent focus:outline-none cursor-pointer font-medium max-w-[140px]"
+                    className="text-xs text-gray-700 bg-transparent focus:outline-none cursor-pointer font-medium max-w-[180px]"
                   >
-                    <option value="all">Todos os almoxarifados</option>
+                    <option value="all">📊 Estoque global — todos</option>
                     {locations.filter(l => l.isActive).map(l => (
-                      <option key={l.id} value={l.id}>{l.name}</option>
+                      <option key={l.id} value={l.id}>
+                        {l.type === 'CENTRAL' ? '🏭 Depósito Central — ' : '🏗️ '}{l.name}
+                        {l.project ? ` (${l.project.name})` : ''}
+                      </option>
                     ))}
                   </select>
                 </div>
               )}
+
+              {/* Botão + Novo almoxarifado */}
+              <button
+                onClick={() => setCreateLocationOpen(true)}
+                className="hidden sm:flex items-center gap-1.5 border border-gray-200 text-gray-600 text-sm px-3 py-2 rounded-xl hover:bg-gray-50 transition"
+                title="Criar novo almoxarifado"
+              >
+                <Warehouse size={14} className="text-[#F5A623]" />
+                <span className="hidden md:inline text-xs font-medium">+ Almoxarifado</span>
+              </button>
 
               {/* Transferências */}
               <button
@@ -1083,6 +1098,37 @@ export default function DepositoPage() {
               color="bg-red-50"
               alert={summary.overdueMaintenance > 0}
             />
+          </div>
+        )}
+
+        {/* ── Location context banner ───────────────────────────────────── */}
+        {locations.length > 0 && selectedLocation !== 'all' && activeLocation && (
+          <div className={cn(
+            'flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm border',
+            'bg-amber-50 border-amber-200',
+          )}>
+            <Warehouse size={15} className="text-[#F5A623] flex-shrink-0" />
+            <span>
+              <strong className="text-gray-800">{activeLocation.name}</strong>
+              {activeLocation.project && (
+                <span className="text-gray-500 ml-2">— {activeLocation.project.name}</span>
+              )}
+              <span className={cn(
+                'ml-2 text-[11px] font-semibold px-2 py-0.5 rounded-full',
+                activeLocation.type === 'CENTRAL'
+                  ? 'bg-gray-200 text-gray-700'
+                  : 'bg-amber-200 text-amber-900',
+              )}>
+                {activeLocation.type === 'CENTRAL' ? 'Depósito Central' : 'Almoxarifado de Obra'}
+              </span>
+            </span>
+            <button
+              onClick={() => setSelectedLocation('all')}
+              className="ml-auto text-xs text-gray-400 hover:text-gray-600"
+              title="Ver todos"
+            >
+              Ver todos
+            </button>
           </div>
         )}
 
@@ -1343,6 +1389,15 @@ export default function DepositoPage() {
         preselectedItemId={epiDeliveryItemId}
         onClose={() => { setEpiDeliveryOpen(false); setEpiDeliveryItemId(undefined) }}
         onSaved={() => { setEpiDeliveryOpen(false); setEpiDeliveryItemId(undefined); loadAll() }}
+      />
+
+      {/* ── Criar almoxarifado ───────────────────────────────────────── */}
+      <CreateLocationModal
+        isOpen={createLocationOpen}
+        onClose={() => setCreateLocationOpen(false)}
+        onSuccess={() => { setCreateLocationOpen(false); loadAll() }}
+        projects={projects}
+        hasCentral={locations.some(l => l.type === 'CENTRAL')}
       />
     </div>
   )
