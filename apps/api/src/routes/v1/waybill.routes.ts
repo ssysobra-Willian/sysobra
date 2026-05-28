@@ -1,6 +1,7 @@
 import path from 'path'
 import fs   from 'fs'
 import * as crypto from 'crypto'
+import * as QRCode from 'qrcode'
 import { FastifyInstance } from 'fastify'
 import { prisma } from '@sysobra/database'
 import {
@@ -65,6 +66,15 @@ function saveSignatureImage(
   const buffer = Buffer.from(base64.replace(/^data:image\/\w+;base64,/, ''), 'base64')
   fs.writeFileSync(path.join(dir, filename), buffer)
   return `/uploads/waybills/${companyId}/${filename}`
+}
+
+// ─── HELPER: hash de verificação pública ────────────────────────────────────
+function generateVerificationHash(waybillId: string, docNumber: string): string {
+  return crypto
+    .createHash('sha256')
+    .update(`${waybillId}:${docNumber}:${Date.now()}`)
+    .digest('hex')
+    .substring(0, 32)
 }
 
 // ─── HELPER: baixar estoque ───────────────────────────────────────────────────
@@ -282,7 +292,10 @@ export async function waybillRoutes(app: FastifyInstance) {
         data:  {
           status:       newStatus,
           dispatchedAt: new Date(),
-          ...(newStatus === 'COMPLETED' && { receivedAt: new Date() }),
+          ...(newStatus === 'COMPLETED' && {
+            receivedAt:       new Date(),
+            verificationHash: generateVerificationHash(waybill.id, docNumber),
+          }),
         },
       })
     }
@@ -497,7 +510,10 @@ export async function waybillRoutes(app: FastifyInstance) {
         status:       newStatus,
         emittedAt:    new Date(),
         dispatchedAt: new Date(),
-        ...(newStatus === 'COMPLETED' && { receivedAt: new Date() }),
+        ...(newStatus === 'COMPLETED' && {
+          receivedAt:       new Date(),
+          verificationHash: generateVerificationHash(id, docNumber),
+        }),
       },
     })
 
@@ -722,7 +738,21 @@ export async function waybillRoutes(app: FastifyInstance) {
       waybill.receiverSignatureUrl ? urlToBase64(waybill.receiverSignatureUrl) : Promise.resolve(null),
     ])
 
-    const html = gerarHtmlRomaneio({ waybill, company, senderSigB64, driverSigB64, receiverSigB64 })
+    // Gerar QR Code apenas para romaneios concluídos com hash
+    let qrCodeBase64: string | null = null
+    if (waybill.status === 'COMPLETED' && waybill.verificationHash) {
+      try {
+        const webUrl  = process.env.NEXT_PUBLIC_WEB_URL || 'http://localhost:3000'
+        const verifyUrl = `${webUrl}/verificar/${waybill.verificationHash}`
+        qrCodeBase64 = await QRCode.toDataURL(verifyUrl, {
+          width:  120,
+          margin: 1,
+          color: { dark: '#111827', light: '#FFFFFF' },
+        })
+      } catch { /* QR opcional — não quebra o PDF */ }
+    }
+
+    const html = gerarHtmlRomaneio({ waybill, company, senderSigB64, driverSigB64, receiverSigB64, qrCodeBase64 })
     const pdfBuffer = await generatePdf({ kind: 'raw', html })
 
     reply.header('Content-Type', 'application/pdf')
@@ -890,6 +920,27 @@ export async function waybillRoutes(app: FastifyInstance) {
 // ─── ROTAS PÚBLICAS (sem autenticação) ───────────────────────────────────────
 // Registrar em server.ts com prefix '/api/v1/waybill' para manter consistência
 
+// Rate limiter em memória para /public/verify
+const _verifyRateLimit = new Map<string, { count: number; resetAt: number }>()
+function checkVerifyRateLimit(ip: string): boolean {
+  const now  = Date.now()
+  const slot = _verifyRateLimit.get(ip)
+  if (slot && now < slot.resetAt) {
+    if (slot.count >= 10) return false
+    slot.count++
+  } else {
+    _verifyRateLimit.set(ip, { count: 1, resetAt: now + 60_000 })
+  }
+  return true
+}
+
+function maskDocument(doc: string | null | undefined): string | null {
+  if (!doc) return null
+  const d = doc.replace(/\D/g, '')
+  if (d.length === 11) return `***.${d.substring(3, 6)}.${d.substring(6, 9)}-**`
+  return `****${d.slice(-4)}`
+}
+
 export async function waybillPublicRoutes(app: FastifyInstance) {
 
   // ── CONSULTAR ROMANEIO PELO TOKEN DE ASSINATURA ──────────────────────────
@@ -1002,6 +1053,82 @@ export async function waybillPublicRoutes(app: FastifyInstance) {
       message: result.hasPendency
         ? `Romaneio concluído com ${result.pendencies.length} pendência(s). O gestor foi notificado.`
         : 'Romaneio concluído com sucesso!',
+    })
+  })
+
+  // ── VERIFICAR AUTENTICIDADE DO ROMANEIO (somente leitura) ────────────────
+  // GET /api/v1/waybill/public/verify/:hash
+  app.get('/public/verify/:hash', async (request, reply) => {
+    const ip   = request.ip ?? 'unknown'
+    if (!checkVerifyRateLimit(ip)) {
+      return reply.status(429).send({ error: 'RATE_LIMIT', message: 'Muitas tentativas. Tente novamente em 1 minuto.' })
+    }
+
+    const { hash } = request.params as any
+    if (!hash || hash.length < 20 || !/^[0-9a-f]+$/i.test(hash)) {
+      return reply.status(400).send({ error: 'INVALID_HASH', message: 'Hash de verificação inválido' })
+    }
+
+    const waybill = await p().waybill.findFirst({
+      where: { verificationHash: hash, isActive: true },
+      include: {
+        items: {
+          where:   { isActive: true },
+          include: { item: { select: { id: true, name: true, unit: true, code: true } } },
+        },
+        location:           { select: { name: true } },
+        destinationProject: { select: { name: true } },
+        company:            { select: { name: true, cnpj: true } },
+      },
+    })
+
+    if (!waybill) {
+      return reply.status(404).send({ error: 'NOT_FOUND', message: 'Romaneio não encontrado ou hash inválido' })
+    }
+
+    const CAT_LABELS: Record<string, string> = {
+      MATERIAL:    'Materiais',
+      TOOL:        'Ferramentário',
+      EPI_UNIFORM: 'EPIs e Uniformes',
+    }
+
+    return reply.send({
+      valid: true,
+      waybill: {
+        docNumber:   waybill.docNumber,
+        category:    CAT_LABELS[waybill.category] ?? waybill.category,
+        status:      waybill.status,
+        emittedAt:   waybill.emittedAt,
+        completedAt: waybill.receivedAt,
+        origin:      waybill.location?.name      ?? null,
+        destination: waybill.destinationProject?.name ?? waybill.destinationName ?? null,
+        company: {
+          name: waybill.company.name,
+          cnpj: waybill.company.cnpj ?? null,
+        },
+        driver: (waybill.driverName || waybill.driverDocument) ? {
+          name:     waybill.driverName     ?? null,
+          document: maskDocument(waybill.driverDocument),
+        } : null,
+        receiver: {
+          name:     waybill.receiverName     ?? null,
+          document: maskDocument(waybill.receiverDocument),
+        },
+        items: (waybill.items ?? []).map((i: any) => ({
+          name:         i.item?.name   ?? i.itemId,
+          unit:         i.item?.unit   ?? null,
+          code:         i.item?.code   ?? null,
+          requestedQty: Number(i.requestedQty),
+          receivedQty:  i.receivedQty != null ? Number(i.receivedQty) : null,
+          status:       i.status,
+          serialNumber: i.serialNumber ?? null,
+        })),
+        signatures: {
+          sender:   { name: waybill.senderName   ?? null, signedAt: waybill.senderSignedAt   ?? null },
+          driver:   waybill.driverSignedAt   ? { name: waybill.driverName   ?? null, signedAt: waybill.driverSignedAt   } : null,
+          receiver: waybill.receiverSignedAt ? { name: waybill.receiverName ?? null, signedAt: waybill.receiverSignedAt } : null,
+        },
+      },
     })
   })
 }
@@ -1131,6 +1258,7 @@ async function processarAssinaturaRecebedor(waybill: any, body: any) {
     receiverNotes:       body.notes ?? null,
     hasPendency,
     receivedAt:          new Date(),
+    verificationHash:    generateVerificationHash(waybill.id, waybill.docNumber),
   }
   if (body.receiverName)     waybillUpdate.receiverName     = body.receiverName
   if (body.receiverDocument) waybillUpdate.receiverDocument = body.receiverDocument
@@ -1160,12 +1288,14 @@ function gerarHtmlRomaneio({
   senderSigB64   = null,
   driverSigB64   = null,
   receiverSigB64 = null,
+  qrCodeBase64   = null,
 }: {
   waybill:         any
   company:         any
   senderSigB64?:   string | null
   driverSigB64?:   string | null
   receiverSigB64?: string | null
+  qrCodeBase64?:   string | null
 }): string {
   const fmtDate = (d: any) => d
     ? new Date(d).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
@@ -1288,6 +1418,38 @@ function gerarHtmlRomaneio({
     .info-label { font-size: 10px; font-weight: 600; color: #9CA3AF; text-transform: uppercase; letter-spacing: 0.04em; display: block; }
     .info-value { font-size: 12px; color: #111827; font-weight: 500; margin-top: 1px; display: block; }
 
+    /* ── CARDS COMPACTOS (motorista/recebedor) ── */
+    .person-cards { display: grid; gap: 12px; margin-bottom: 20px; }
+    .person-cards.two-col { grid-template-columns: 1fr 1fr; }
+    .person-card {
+      border-radius: 8px; padding: 12px 14px;
+      background: #F9FAFB; border: 1px solid #E5E7EB;
+      display: grid; grid-template-columns: 1fr auto; gap: 8px;
+    }
+    .person-card.driver   { border-left: 3px solid #F5A623; }
+    .person-card.receiver { border-left: 3px solid #3B82F6; }
+    .person-card-body  { min-width: 0; }
+    .person-card-sig   { display: flex; flex-direction: column; align-items: center; justify-content: center; min-width: 80px; }
+    .pc-role  { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 4px; }
+    .pc-role.driver   { color: #D97706; }
+    .pc-role.receiver { color: #2563EB; }
+    .pc-name  { font-size: 13px; font-weight: 700; color: #111827; margin-bottom: 4px; }
+    .pc-detail { font-size: 10px; color: #6B7280; line-height: 1.6; }
+    .pc-sig-label { font-size: 9px; color: #9CA3AF; margin-bottom: 3px; }
+    .pc-pending { font-size: 9px; color: #D97706; }
+    .pc-plate { font-size: 15px; font-weight: 900; color: #111827; letter-spacing: 0.05em; }
+
+    /* ── QR CODE ── */
+    .qr-block {
+      display: flex; align-items: center; gap: 16px;
+      background: #F9FAFB; border: 1px solid #E5E7EB;
+      border-radius: 8px; padding: 12px 16px; margin-top: 20px;
+    }
+    .qr-block img { width: 90px; height: 90px; flex-shrink: 0; }
+    .qr-text h4 { font-size: 11px; font-weight: 700; color: #111827; margin-bottom: 3px; }
+    .qr-text p  { font-size: 10px; color: #6B7280; line-height: 1.5; }
+    .qr-hash    { font-size: 9px; font-family: monospace; color: #9CA3AF; margin-top: 4px; word-break: break-all; }
+
     /* ── TABELA ── */
     thead tr { background: #374151; }
     th  { font-size: 10px; font-weight: 700; letter-spacing: 0.04em; }
@@ -1380,109 +1542,57 @@ function gerarHtmlRomaneio({
       </div>
     </div>
 
-    <!-- Motorista (apenas se DRIVER_DELIVERY) -->
-    ${hasDriver ? `
+    <!-- Cards compactos: Motorista + Recebedor -->
     <div class="section">
-      <div class="section-title">Dados do Motorista</div>
-      <div class="info-block">
-        <div class="grid-3">
-          <div>
-            <div class="info-row">
-              <span class="info-label">Tipo</span>
-              <span class="info-value">${waybill.driverType === 'EMPLOYEE' ? '👤 Colaborador interno' : '🚗 Motorista externo'}</span>
-            </div>
-            <div class="info-row">
-              <span class="info-label">Nome</span>
-              <span class="info-value">${waybill.driverEmployee?.name ?? waybill.driverName ?? '—'}</span>
-            </div>
-            ${waybill.driverDocument ? `
-            <div class="info-row">
-              <span class="info-label">CPF</span>
-              <span class="info-value">${waybill.driverDocument}</span>
-            </div>` : ''}
-            ${waybill.driverPhone ? `
-            <div class="info-row">
-              <span class="info-label">Telefone</span>
-              <span class="info-value">${waybill.driverPhone}</span>
-            </div>` : ''}
-          </div>
-          <div>
-            ${waybill.vehiclePlate ? `
-            <div class="info-row">
-              <span class="info-label">Placa</span>
-              <span class="info-value" style="font-size:15px;font-weight:900;">${waybill.vehiclePlate}</span>
-            </div>` : ''}
-            ${waybill.vehicleModel ? `
-            <div class="info-row">
-              <span class="info-label">Veículo</span>
-              <span class="info-value">${waybill.vehicleModel}</span>
-            </div>` : ''}
-          </div>
-          <div>
-            <div class="info-row">
-              <span class="info-label">Saída</span>
-              <span class="info-value">${fmtDate(waybill.dispatchedAt)}</span>
-            </div>
-            ${driverSigB64 ? `
-            <div style="margin-top:8px;">
-              <span class="info-label" style="margin-bottom:4px;display:block;">Assinatura do motorista:</span>
-              <img src="${driverSigB64}" style="height:40px;border-bottom:1px solid #111827;max-width:130px;object-fit:contain;" />
-            </div>` : ''}
-          </div>
-        </div>
-      </div>
-    </div>` : ''}
+      <div class="section-title">${hasDriver ? 'Motorista e Recebedor' : (waybill.exitType === 'DIRECT_PICKUP' ? 'Retirada' : 'Recebedor')}</div>
+      <div class="person-cards ${hasDriver ? 'two-col' : ''}">
 
-    <!-- Recebedor -->
-    <div class="section">
-      <div class="section-title">${waybill.exitType === 'DIRECT_PICKUP' ? 'Dados de quem retirou' : 'Dados do Recebedor na Obra'}</div>
-      <div class="info-block">
-        <div class="grid-3">
-          <div>
-            <div class="info-row">
-              <span class="info-label">Tipo</span>
-              <span class="info-value">${waybill.receiverType === 'EMPLOYEE' ? '👤 Colaborador interno' : '👤 Externo'}</span>
+        ${hasDriver ? `
+        <!-- Card Motorista -->
+        <div class="person-card driver">
+          <div class="person-card-body">
+            <div class="pc-role driver">🚚 Motorista${waybill.driverType === 'EMPLOYEE' ? ' · Colaborador' : ''}</div>
+            <div class="pc-name">${waybill.driverEmployee?.name ?? waybill.driverName ?? '—'}</div>
+            <div class="pc-detail">
+              ${waybill.driverDocument ? `CPF: ${waybill.driverDocument}<br>` : ''}
+              ${waybill.driverPhone    ? `Tel: ${waybill.driverPhone}<br>`    : ''}
+              ${waybill.vehiclePlate   ? `<span class="pc-plate">${waybill.vehiclePlate}</span>${waybill.vehicleModel ? ` · ${waybill.vehicleModel}` : ''}<br>` : ''}
+              Saída: ${fmtDate(waybill.dispatchedAt)}
             </div>
-            <div class="info-row">
-              <span class="info-label">Nome</span>
-              <span class="info-value">${waybill.receiverEmployee?.name ?? waybill.receiverName ?? '—'}</span>
-            </div>
-            ${waybill.receiverDocument ? `
-            <div class="info-row">
-              <span class="info-label">Documento</span>
-              <span class="info-value">${waybill.receiverDocument}</span>
-            </div>` : ''}
-            ${waybill.receiverPhone ? `
-            <div class="info-row">
-              <span class="info-label">Telefone</span>
-              <span class="info-value">${waybill.receiverPhone}</span>
-            </div>` : ''}
-            ${waybill.receiverRole ? `
-            <div class="info-row">
-              <span class="info-label">Função</span>
-              <span class="info-value">${waybill.receiverRole}</span>
-            </div>` : ''}
           </div>
-          <div>
-            <div class="info-row">
-              <span class="info-label">Recebido em</span>
-              <span class="info-value">${fmtDate(waybill.receivedAt)}</span>
-            </div>
-            ${waybill.receiverNotes ? `
-            <div class="info-row">
-              <span class="info-label">Observações</span>
-              <span class="info-value">${waybill.receiverNotes}</span>
-            </div>` : ''}
+          <div class="person-card-sig">
+            <div class="pc-sig-label">Assinatura</div>
+            ${driverSigB64
+              ? `<img src="${driverSigB64}" style="height:40px;max-width:75px;object-fit:contain;border-bottom:1px solid #374151;" />`
+              : `<div style="width:70px;height:40px;border-bottom:1px solid #D1D5DB;"></div><div class="pc-pending">⏳ Pendente</div>`
+            }
+            ${waybill.driverSignedAt ? `<div style="font-size:9px;color:#9CA3AF;margin-top:2px;">${fmtDate(waybill.driverSignedAt)}</div>` : ''}
           </div>
-          <div>
-            ${receiverSigB64 ? `
-            <div style="margin-top:4px;">
-              <span class="info-label" style="margin-bottom:4px;display:block;">Assinatura do recebedor:</span>
-              <img src="${receiverSigB64}" style="height:40px;border-bottom:1px solid #111827;max-width:130px;object-fit:contain;" />
-            </div>` : `
-            <div style="color:#D97706;font-size:11px;margin-top:8px;">⏳ Aguardando assinatura</div>`}
+        </div>` : ''}
+
+        <!-- Card Recebedor -->
+        <div class="person-card receiver">
+          <div class="person-card-body">
+            <div class="pc-role receiver">${waybill.exitType === 'DIRECT_PICKUP' ? '📦 Recebedor · Retirada direta' : '🏗️ Recebedor na Obra'}${waybill.receiverType === 'EMPLOYEE' ? ' · Colaborador' : ''}</div>
+            <div class="pc-name">${waybill.receiverEmployee?.name ?? waybill.receiverName ?? '—'}</div>
+            <div class="pc-detail">
+              ${waybill.receiverDocument ? `Doc: ${waybill.receiverDocument}<br>` : ''}
+              ${waybill.receiverPhone    ? `Tel: ${waybill.receiverPhone}<br>`    : ''}
+              ${waybill.receiverRole     ? `Função: ${waybill.receiverRole}<br>`  : ''}
+              Recebido: ${fmtDate(waybill.receivedAt)}
+              ${waybill.receiverNotes    ? `<br><span style="color:#374151;font-style:italic;">Obs: ${waybill.receiverNotes}</span>` : ''}
+            </div>
+          </div>
+          <div class="person-card-sig">
+            <div class="pc-sig-label">Assinatura</div>
+            ${receiverSigB64
+              ? `<img src="${receiverSigB64}" style="height:40px;max-width:75px;object-fit:contain;border-bottom:1px solid #374151;" />`
+              : `<div style="width:70px;height:40px;border-bottom:1px solid #D1D5DB;"></div><div class="pc-pending">⏳ Pendente</div>`
+            }
+            ${waybill.receiverSignedAt ? `<div style="font-size:9px;color:#9CA3AF;margin-top:2px;">${fmtDate(waybill.receiverSignedAt)}</div>` : ''}
           </div>
         </div>
+
       </div>
     </div>
 
@@ -1537,6 +1647,18 @@ function gerarHtmlRomaneio({
         )}
       </div>
     </div>
+
+    ${qrCodeBase64 ? `
+    <!-- QR Code de verificação -->
+    <div class="qr-block no-break">
+      <img src="${qrCodeBase64}" alt="QR Code de verificação" />
+      <div class="qr-text">
+        <h4>✅ Documento verificável</h4>
+        <p>Escaneie o QR Code para verificar a autenticidade deste romaneio no portal SYSOBRA.</p>
+        <p>O código garante que este documento é original e não foi adulterado.</p>
+        <div class="qr-hash">Hash: ${waybill.verificationHash}</div>
+      </div>
+    </div>` : ''}
 
   </div>
 

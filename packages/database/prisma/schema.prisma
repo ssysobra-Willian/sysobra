@@ -2196,6 +2196,9 @@ model Waybill {
   signatureToken          String?   @unique @map("signature_token")
   signatureTokenExpiresAt DateTime? @map("signature_token_expires_at")
 
+  // Hash de verificação pública (gerado quando status → COMPLETED):
+  verificationHash String? @unique @map("verification_hash")
+
   // Observações do recebedor ao assinar:
   receiverNotes String? @map("receiver_notes")
 
@@ -2228,6 +2231,7 @@ model Waybill {
   @@index([companyId, category])
   @@index([companyId, locationId])
   @@index([signatureToken])
+  @@index([verificationHash])
   @@map("waybills")
 }
 
