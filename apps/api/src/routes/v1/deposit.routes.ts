@@ -396,7 +396,7 @@ export async function depositRoutes(app: FastifyInstance) {
       // If there's an active custody but toolStatus is still AVAILABLE, show IN_USE
       if (hasActiveCustody && toolStatus === 'AVAILABLE') toolStatus = 'IN_USE'
       const { custodies: _c, ...rest } = item
-      return { ...rest, toolStatus }
+      return { ...rest, toolStatus, currentLocation: rest.currentLocation ?? 'Depósito' }
     })
 
     if (lowStock === 'true') {

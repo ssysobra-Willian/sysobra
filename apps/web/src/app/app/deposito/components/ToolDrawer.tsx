@@ -4,7 +4,7 @@ import React, { useState, useEffect } from 'react'
 import {
   X, Wrench, AlertTriangle, Calendar, Clock, CheckCircle2, XCircle,
   User, MapPin, Package, Tag, Hash, ShieldCheck, Loader2, Plus,
-  ZoomIn, ExternalLink, FileText, Trash2,
+  ZoomIn, FileText, Trash2,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { formatCurrency } from '@/lib/format'
@@ -185,15 +185,6 @@ function PhotoLightbox({ url, onClose }: { url: string; onClose: () => void }) {
         />
         {/* Controls */}
         <div className="absolute -top-3 -right-3 flex gap-2">
-          <a
-            href={url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center gap-1 px-2.5 py-1 bg-[#F5A623] text-xs font-semibold text-white rounded-lg shadow hover:bg-[#e09610] transition"
-            onClick={e => e.stopPropagation()}
-          >
-            <ExternalLink size={11} />Abrir
-          </a>
           <button
             onClick={onClose}
             className="px-2.5 py-1 bg-white text-gray-800 text-xs font-bold rounded-lg shadow hover:bg-gray-100 transition"

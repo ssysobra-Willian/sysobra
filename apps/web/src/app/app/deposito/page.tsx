@@ -482,23 +482,31 @@ const TOOL_STATUS_CONFIG: Record<string, { label: string; bg: string; text: stri
   LOST:        { label: '🚨 Extraviada',   bg: 'bg-red-100',    text: 'text-red-700'    },
 }
 
-function ToolsTable({ items, onView, onEdit, onCustody, onMaintenance, onReturn, selectedLocationId }: {
-  items:              StockItem[]
-  onView:             (item: StockItem) => void
-  onEdit?:            (item: StockItem) => void
-  onCustody:          (item: StockItem) => void
-  onMaintenance:      (item: StockItem) => void
-  onReturn?:          (item: StockItem) => void
-  selectedLocationId?:string
+function ToolsTable({ items, onView, onEdit, onCustody, onMaintenance, onSendToMaintenance, onReturn, selectedLocationId }: {
+  items:                 StockItem[]
+  onView:                (item: StockItem) => void
+  onEdit?:               (item: StockItem) => void
+  onCustody:             (item: StockItem) => void
+  onMaintenance:         (item: StockItem) => void
+  onSendToMaintenance?:  (item: StockItem) => void
+  onReturn?:             (item: StockItem) => void
+  selectedLocationId?:   string
 }) {
-  const [query, setQuery] = useState('')
-  const filtered = items.filter(i =>
-    !query ||
-    i.name.toLowerCase().includes(query.toLowerCase()) ||
-    i.serialNumber?.toLowerCase().includes(query.toLowerCase()) ||
-    i.brand?.toLowerCase().includes(query.toLowerCase()) ||
-    i.code?.toLowerCase().includes(query.toLowerCase()),
-  )
+  const [query,        setQuery]        = useState('')
+  // FIX 3: status filter
+  const [statusFilter, setStatusFilter] = useState<'active' | 'discarded' | 'all'>('active')
+
+  const filtered = items.filter(i => {
+    // FIX 3: apply status filter
+    if (statusFilter === 'active'    && i.toolStatus === 'DISCARDED') return false
+    if (statusFilter === 'discarded' && i.toolStatus !== 'DISCARDED') return false
+    // text search
+    return !query ||
+      i.name.toLowerCase().includes(query.toLowerCase()) ||
+      i.serialNumber?.toLowerCase().includes(query.toLowerCase()) ||
+      i.brand?.toLowerCase().includes(query.toLowerCase()) ||
+      i.code?.toLowerCase().includes(query.toLowerCase())
+  })
 
   function locationBadge(item: StockItem) {
     if (item.currentProject) return (
@@ -563,6 +571,25 @@ function ToolsTable({ items, onView, onEdit, onCustody, onMaintenance, onReturn,
 
   return (
     <div>
+      {/* FIX 3: Status filter buttons */}
+      <div className="flex gap-1.5 mb-3 flex-wrap">
+        {([
+          { v: 'active',    label: 'Ativas'      },
+          { v: 'discarded', label: 'Descartadas' },
+          { v: 'all',       label: 'Todas'       },
+        ] as const).map(opt => (
+          <button
+            key={opt.v}
+            onClick={() => setStatusFilter(opt.v)}
+            className={cn(
+              'px-3 py-1.5 rounded-full text-xs font-medium border transition',
+              statusFilter === opt.v
+                ? 'bg-[#F5A623] border-[#F5A623] text-white'
+                : 'border-gray-200 text-gray-500 hover:border-gray-300',
+            )}
+          >{opt.label}</button>
+        ))}
+      </div>
       <div className="flex items-center gap-2 mb-4">
         <div className="relative flex-1 max-w-xs">
           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
@@ -648,8 +675,8 @@ function ToolsTable({ items, onView, onEdit, onCustody, onMaintenance, onReturn,
                   <td className="px-3 py-2.5">{maintenanceBadge(item)}</td>
                   <td className="px-3 py-2.5" onClick={e => e.stopPropagation()}>
                     <div className="flex items-center gap-1">
-                      {/* Devolver — só se estiver fora */}
-                      {away && onReturn && item.toolStatus !== 'MAINTENANCE' && item.toolStatus !== 'LOST' && (
+                      {/* FIX 2: Devolver — somente para ferramentas IN_USE */}
+                      {item.toolStatus === 'IN_USE' && onReturn && (
                         <button
                           onClick={e => { e.stopPropagation(); onReturn(item) }}
                           className="flex items-center gap-1 px-2 py-1 rounded-lg border border-green-300 text-green-700 text-xs font-medium hover:bg-green-50 transition"
@@ -659,10 +686,10 @@ function ToolsTable({ items, onView, onEdit, onCustody, onMaintenance, onReturn,
                           Devolver
                         </button>
                       )}
-                      {/* Enviar manutenção — só se DAMAGED */}
-                      {item.toolStatus === 'DAMAGED' && (
+                      {/* FIX 2: Enviar manutenção — somente para DAMAGED */}
+                      {item.toolStatus === 'DAMAGED' && onSendToMaintenance && (
                         <button
-                          onClick={e => { e.stopPropagation(); onMaintenance(item) }}
+                          onClick={e => { e.stopPropagation(); onSendToMaintenance(item) }}
                           className="flex items-center gap-1 px-2 py-1 rounded-lg border border-purple-300 text-purple-700 text-xs font-medium hover:bg-purple-50 transition"
                           title="Enviar para manutenção"
                         >
@@ -722,7 +749,8 @@ function ToolsTable({ items, onView, onEdit, onCustody, onMaintenance, onReturn,
                   </span>
                 )}
               </div>
-              {away && onReturn && item.toolStatus !== 'MAINTENANCE' && item.toolStatus !== 'LOST' && (
+              {/* FIX 2: Devolver — somente IN_USE */}
+              {item.toolStatus === 'IN_USE' && onReturn && (
                 <button
                   onClick={e => { e.stopPropagation(); onReturn(item) }}
                   className="mt-2 w-full flex items-center justify-center gap-1.5 py-1.5 rounded-lg border border-green-300 text-green-700 text-xs font-medium hover:bg-green-50 transition"
@@ -1336,6 +1364,8 @@ export default function DepositoPage() {
   const [locations,        setLocations]        = useState<StockLocation[]>([])
   const [selectedLocation, setSelectedLocation] = useState<string>('all')
   const [locationsLoading, setLocationsLoading] = useState(false)
+  // FIX 6: auto-select Central on first load
+  const locationsLoadedRef = useRef(false)
 
   // Drawers & Modals
   const [selectedItem,      setSelectedItem]      = useState<StockItem | null>(null)
@@ -1398,6 +1428,15 @@ export default function DepositoPage() {
   }, [])
 
   useEffect(() => { loadAll() }, [loadAll])
+
+  // FIX 6: auto-select Depósito Central on first locations load
+  useEffect(() => {
+    if (locations.length > 0 && !locationsLoadedRef.current) {
+      locationsLoadedRef.current = true
+      const central = locations.find(l => l.type === 'CENTRAL' && l.isActive)
+      if (central) setSelectedLocation(central.id)
+    }
+  }, [locations])
 
   // Contar pendências abertas para exibir badge no header
   useEffect(() => {
@@ -1463,6 +1502,21 @@ export default function DepositoPage() {
     }
     setBasketOpen(false)
     loadAll()
+  }
+
+  // FIX 2: Enviar ferramenta para manutenção direto da tabela (PATCH /send-maintenance)
+  const handleSendToMaintenanceFromTable = async (item: StockItem) => {
+    if (!confirm(`Confirma envio de "${item.name}" para manutenção?`)) return
+    try {
+      const res = await apiFetch(`/api/v1/deposit/tools/${item.id}/send-maintenance`, { method: 'PATCH' })
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}))
+        throw new Error(d.error ?? `Erro ${res.status}`)
+      }
+      loadAll()
+    } catch (err: any) {
+      alert(err.message ?? 'Erro ao enviar para manutenção')
+    }
   }
 
   // ── Render ────────────────────────────────────────────────────────────────
@@ -1908,6 +1962,7 @@ export default function DepositoPage() {
                     onEdit={item => { setEditingTool(item); setToolFormOpen(true) }}
                     onCustody={item => setCustodyItem(item)}
                     onMaintenance={item => { setMaintenanceTool(item); setMaintenanceRecord(null) }}
+                    onSendToMaintenance={handleSendToMaintenanceFromTable}
                     onReturn={item => setReturnToolItem(item)}
                     selectedLocationId={selectedLocation !== 'all' ? selectedLocation : undefined}
                   />
