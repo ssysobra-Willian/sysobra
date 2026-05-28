@@ -333,6 +333,7 @@ model User {
   projectsResponsible   Project[]              @relation("ProjectResponsible")
   clientsCreated        Client[]               @relation("ClientCreatedBy")
   suppliersCreated      Supplier[]             @relation("SupplierCreatedBy")
+  waybillsAsSender      Waybill[]
 
   @@map("users")
 }
@@ -411,6 +412,7 @@ model Company {
   stockLocations        StockLocation[]
   stockTransfers        StockTransfer[]
   stockBalances         StockBalance[]
+  waybills              Waybill[]
 
   @@map("companies")
 }
@@ -562,6 +564,7 @@ model Project {
   projectFiles          ProjectFile[]
   projectFolders        ProjectFolder[]
   stockLocations        StockLocation[]
+  waybills              Waybill[]
 
   @@map("projects")
 }
@@ -1102,7 +1105,9 @@ model Employee {
   stockMovements StockMovement[]          @relation("StockMovementEmployee")
   toolCustodies  ToolCustody[]
   stockEpiDeliveries StockEpiDelivery[]
-  stockBaskets   StockBasket[]            @relation("BasketEmployee")
+  stockBaskets          StockBasket[]  @relation("BasketEmployee")
+  waybillsAsDriver      Waybill[]      @relation("WaybillDriver")
+  waybillsAsReceiver    Waybill[]      @relation("WaybillReceiver")
 
   @@unique([companyId, code])
   @@index([companyId, status])
@@ -1260,6 +1265,7 @@ model StockItem {
   maintenanceRecords ToolMaintenanceRecord[]
   stockBalances    StockBalance[]
   transferItems    StockTransferItem[]
+  waybillItems     WaybillItem[]
 
   @@map("stock_items")
 }
@@ -1498,6 +1504,7 @@ model StockLocation {
   transfersTo   StockTransfer[] @relation("TransferTo")
   permissions   StockLocationPermission[]
   epiDeliveries StockEpiDelivery[]
+  waybills      Waybill[]
 
   @@unique([companyId, name])
   @@index([companyId])
@@ -2121,4 +2128,182 @@ model DdsTheme {
 
   @@index([companyId, category])
   @@map("dds_themes")
+}
+
+// ── ROMANEIO ──────────────────────────────────────────────────────────────────
+
+model Waybill {
+  id         String @id @default(cuid())
+  companyId  String @map("company_id")
+  docNumber  String @map("doc_number") // ROM-2025-0001
+
+  // Categoria — SEMPRE separado:
+  category String // MATERIAL | TOOL | EPI_UNIFORM
+
+  // Status:
+  status String @default("DRAFT") @map("status")
+  // DRAFT        = rascunho (pode ter vários)
+  // EMITTED      = emitido, aguardando saída
+  // IN_TRANSIT   = motorista a caminho (pendente assinatura recebedor)
+  // COMPLETED    = concluído, tudo assinado
+  // CANCELLED    = cancelado
+
+  // Tipo de saída:
+  exitType String @map("exit_type") // DRIVER_DELIVERY | DIRECT_PICKUP
+  // DRIVER_DELIVERY = motorista entrega na obra (pendente assinatura)
+  // DIRECT_PICKUP   = colaborador retira pessoalmente (baixa imediata)
+
+  // Local de origem:
+  locationId String @map("location_id")
+
+  // Destino:
+  destinationProjectId String? @map("destination_project_id")
+  destinationName      String? @map("destination_name") // se destino externo
+
+  // ── MOTORISTA ──
+  driverType       String? @map("driver_type") // EMPLOYEE | EXTERNAL
+  driverEmployeeId String? @map("driver_employee_id") // se colaborador interno
+  driverName       String? @map("driver_name") // nome (interno ou avulso)
+  driverDocument   String? @map("driver_document") // CPF
+  driverPhone      String? @map("driver_phone")
+  vehiclePlate     String? @map("vehicle_plate")
+  vehicleModel     String? @map("vehicle_model")
+
+  // ── RECEBEDOR ──
+  receiverType       String? @map("receiver_type") // EMPLOYEE | EXTERNAL
+  receiverEmployeeId String? @map("receiver_employee_id") // se colaborador interno
+  receiverName       String? @map("receiver_name")
+  receiverDocument   String? @map("receiver_document") // CPF ou outro documento
+  receiverPhone      String? @map("receiver_phone")
+  receiverRole       String? @map("receiver_role") // função/cargo
+
+  // ── ASSINATURAS ──
+  // Expedidor (almoxarife que emitiu):
+  senderUserId       String?   @map("sender_user_id")
+  senderName         String?   @map("sender_name")
+  senderSignatureUrl String?   @map("sender_signature_url")
+  senderSignedAt     DateTime? @map("sender_signed_at")
+
+  // Motorista:
+  driverSignatureUrl String?   @map("driver_signature_url")
+  driverSignedAt     DateTime? @map("driver_signed_at")
+
+  // Recebedor:
+  receiverSignatureUrl String?   @map("receiver_signature_url")
+  receiverSignedAt     DateTime? @map("receiver_signed_at")
+
+  // Link público para assinatura remota:
+  signatureToken          String?   @unique @map("signature_token")
+  signatureTokenExpiresAt DateTime? @map("signature_token_expires_at")
+
+  // Observações do recebedor ao assinar:
+  receiverNotes String? @map("receiver_notes")
+
+  // ── PENDÊNCIA ──
+  hasPendency          Boolean   @default(false) @map("has_pendency")
+  pendencyNotes        String?   @map("pendency_notes")
+  pendencyResolvedAt   DateTime? @map("pendency_resolved_at")
+  pendencyResolvedBy   String?   @map("pendency_resolved_by")
+
+  // ── DATAS ──
+  emittedAt    DateTime? @map("emitted_at")
+  dispatchedAt DateTime? @map("dispatched_at") // quando saiu com o motorista
+  receivedAt   DateTime? @map("received_at")   // quando foi recebido
+
+  notes     String?
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  company            Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  location           StockLocation @relation(fields: [locationId], references: [id])
+  destinationProject Project?      @relation(fields: [destinationProjectId], references: [id])
+  driverEmployee     Employee?     @relation("WaybillDriver", fields: [driverEmployeeId], references: [id])
+  receiverEmployee   Employee?     @relation("WaybillReceiver", fields: [receiverEmployeeId], references: [id])
+  senderUser         User?         @relation(fields: [senderUserId], references: [id])
+  items              WaybillItem[]
+  pendencies         WaybillPendency[]
+
+  @@index([companyId, status])
+  @@index([companyId, category])
+  @@index([companyId, locationId])
+  @@index([signatureToken])
+  @@map("waybills")
+}
+
+model WaybillItem {
+  id        String @id @default(cuid())
+  waybillId String @map("waybill_id")
+  itemId    String @map("item_id")
+
+  // Quantidades:
+  requestedQty Decimal  @map("requested_qty") @db.Decimal(10, 3)
+  receivedQty  Decimal? @map("received_qty")  @db.Decimal(10, 3)
+  pendingQty   Decimal? @map("pending_qty")   @db.Decimal(10, 3)
+
+  unitCost  Decimal @default(0) @map("unit_cost")  @db.Decimal(10, 2)
+  totalCost Decimal @default(0) @map("total_cost") @db.Decimal(15, 2)
+
+  // Para ferramentas — detalhes individuais:
+  serialNumber   String? @map("serial_number")
+  toolBrand      String? @map("tool_brand")
+  toolModel      String? @map("tool_model")
+  toolCondition  String? @map("tool_condition") // BOM | REGULAR | DANIFICADO
+
+  // Observação do recebedor neste item:
+  receiverNotes String? @map("receiver_notes")
+
+  // Se item foi rejeitado/faltando:
+  status String @default("OK") // OK | MISSING | DAMAGED | REJECTED
+
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  waybill    Waybill          @relation(fields: [waybillId], references: [id], onDelete: Cascade)
+  item       StockItem        @relation(fields: [itemId], references: [id])
+  pendencies WaybillPendency[]
+
+  @@index([waybillId])
+  @@index([itemId])
+  @@map("waybill_items")
+}
+
+model WaybillPendency {
+  id        String @id @default(cuid())
+  companyId String @map("company_id")
+  waybillId String @map("waybill_id")
+
+  type        String // MISSING_ITEM | DAMAGED | QUANTITY_DIVERGENCE | OTHER
+  description String
+
+  // Item relacionado (se for item específico):
+  waybillItemId    String?  @map("waybill_item_id")
+  itemName         String?  @map("item_name")
+  quantityExpected Decimal? @map("quantity_expected") @db.Decimal(10, 3)
+  quantityReceived Decimal? @map("quantity_received") @db.Decimal(10, 3)
+
+  // Responsável por resolver:
+  assignedTo String? @map("assigned_to") // userId
+
+  status String @default("OPEN")
+  // OPEN | IN_ANALYSIS | RESOLVED | IGNORED
+
+  resolvedAt      DateTime? @map("resolved_at")
+  resolvedBy      String?   @map("resolved_by")
+  resolutionNotes String?   @map("resolution_notes")
+
+  // Alerta enviado para o gestor:
+  alertSentAt DateTime? @map("alert_sent_at")
+  alertSentTo String?   @map("alert_sent_to")
+
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  waybill     Waybill      @relation(fields: [waybillId], references: [id], onDelete: Cascade)
+  waybillItem WaybillItem? @relation(fields: [waybillItemId], references: [id])
+
+  @@index([companyId, status])
+  @@index([waybillId])
+  @@map("waybill_pendencies")
 }
