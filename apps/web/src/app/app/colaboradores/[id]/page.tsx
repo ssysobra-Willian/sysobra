@@ -612,6 +612,7 @@ export default function ColaboradorPerfilPage() {
           <EpiDeliveriesPanel
             deliveries={employee.epiDeliveries}
             employeeName={employee.name}
+            employeeId={employee.id}
           />
         )}
 
@@ -1329,18 +1330,27 @@ function VacationsPanel({ employee, onReload }: { employee: Employee; onReload: 
 function EpiDeliveriesPanel({
   deliveries,
   employeeName,
+  employeeId,
 }: {
   deliveries:   EpiDelivery[]
   employeeName: string
+  employeeId:   string
 }) {
   const [lightbox,  setLightbox]  = useState<string | null>(null)
-  const [cautela,   setCautela]   = useState<string | null>(null)
 
   const openCautela = (deliveryId: string) => {
     const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
     const tok = localStorage.getItem('token') ?? ''
     const cid = localStorage.getItem('companyId') ?? ''
     const url = `${API}/api/v1/deposit/epi-deliveries/${deliveryId}/cautela?token=${encodeURIComponent(tok)}&companyId=${encodeURIComponent(cid)}`
+    window.open(url, '_blank')
+  }
+
+  const openCautelaCompleta = () => {
+    const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
+    const tok = localStorage.getItem('token') ?? ''
+    const cid = localStorage.getItem('companyId') ?? ''
+    const url = `${API}/api/v1/deposit/employees/${employeeId}/epi-cautela?token=${encodeURIComponent(tok)}&companyId=${encodeURIComponent(cid)}`
     window.open(url, '_blank')
   }
 
@@ -1362,6 +1372,14 @@ function EpiDeliveriesPanel({
         <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
           EPIs entregues — {deliveries.length} registro{deliveries.length !== 1 ? 's' : ''}
         </p>
+        <button
+          onClick={openCautelaCompleta}
+          className="flex items-center gap-1.5 text-xs bg-[#F5A623] hover:bg-[#e09610] text-white px-3 py-1.5 rounded-lg font-medium transition"
+          title="Gerar PDF com todos os EPIs do colaborador"
+        >
+          <FileOutput size={13} />
+          Cautela completa (PDF)
+        </button>
       </div>
 
       <div className="space-y-3">

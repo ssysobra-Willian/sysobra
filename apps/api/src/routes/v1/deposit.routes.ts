@@ -176,6 +176,7 @@ const epiDeliverySchema = z.object({
   notes:         z.string().optional(),
   caNumber:      z.string().optional(),
   signatureUrl:  z.string().optional(),
+  signature:     z.string().optional(),   // base64 — assinatura a ser salva como PNG
   selfie:        z.string().optional(),   // base64 — selfie do colaborador com EPI
 })
 
@@ -808,6 +809,25 @@ export async function depositRoutes(app: FastifyInstance) {
       } catch { /* selfie falhou mas não bloqueia entrega */ }
     }
 
+    // Salvar assinatura como PNG no disco
+    let resolvedSignatureUrl: string | null = body.signatureUrl ?? null
+    if (body.signature) {
+      try {
+        const now = new Date()
+        const ts  = now.toISOString().replace(/[:.]/g, '-').slice(0, 19)
+        const raw = Buffer.from(
+          body.signature.replace(/^data:image\/\w+;base64,/, ''),
+          'base64',
+        )
+        const dir = path.resolve(process.cwd(), 'uploads', 'epis', cid, body.employeeId)
+        fs.mkdirSync(dir, { recursive: true })
+        const fileName = `${ts}-assinatura.png`
+        const filePath = path.join(dir, fileName)
+        fs.writeFileSync(filePath, raw)
+        resolvedSignatureUrl = `/uploads/epis/${cid}/${body.employeeId}/${fileName}`
+      } catch { /* assinatura falhou mas não bloqueia entrega */ }
+    }
+
     const [delivery] = await p().$transaction([
       p().stockEpiDelivery.create({
         data: {
@@ -823,7 +843,7 @@ export async function depositRoutes(app: FastifyInstance) {
           condition:     body.condition     ?? null,
           notes:         body.notes         ?? null,
           caNumber:      body.caNumber      ?? null,
-          signatureUrl:  body.signatureUrl  ?? null,
+          signatureUrl:  resolvedSignatureUrl,
           selfieUrl,
           selfieDate:    body.selfie ? new Date() : null,
         },
@@ -1494,7 +1514,7 @@ tr:nth-child(even) td { background:#fafafa; }
     const [items, movements, custodies, maintenances] = await Promise.all([
       p().stockItem.findMany({
         where: { companyId: cid, isActive: true },
-        select: { quantity: true, minQuantity: true, averageCost: true, unitCost: true, requiresCustody: true, nextMaintenance: true, isUnderWarranty: true },
+        select: { quantity: true, minQuantity: true, averageCost: true, unitCost: true, requiresCustody: true, nextMaintenance: true, isUnderWarranty: true, isEpi: true, isUniform: true, isConsumable: true },
       }),
       p().stockMovement.findMany({
         where: { companyId: cid, createdAt: { gte: startOfMonth, lte: endOfMonth } },
@@ -1513,6 +1533,20 @@ tr:nth-child(even) td { background:#fafafa; }
     const overdueReturns   = custodies
     const overdueMaint     = maintenances
 
+    // Valor por categoria
+    const itemValue = (i: any) => Number(i.quantity) * Number(i.averageCost ?? i.unitCost ?? 0)
+    const categorize = (i: any): 'epis' | 'uniformes' | 'ferramentas' | 'materiais' | 'outros' => {
+      if (i.isEpi)    return 'epis'
+      if (i.isUniform) return 'uniformes'
+      if (i.requiresCustody && !i.isConsumable) return 'ferramentas'
+      if (i.isConsumable) return 'materiais'
+      return 'outros'
+    }
+    const porCategoria = (items as any[]).reduce(
+      (acc, i) => { const cat = categorize(i); acc[cat] = (acc[cat] ?? 0) + itemValue(i); return acc },
+      { materiais: 0, ferramentas: 0, epis: 0, uniformes: 0, outros: 0 } as Record<string, number>,
+    )
+
     return reply.send({
       totalItems,
       totalValue,
@@ -1522,6 +1556,10 @@ tr:nth-child(even) td { background:#fafafa; }
       entriesThisMonth,
       overdueReturns,
       overdueMaintenance: overdueMaint,
+      estoque: {
+        totalGeral: totalValue,
+        porCategoria,
+      },
     })
   })
 
@@ -2677,6 +2715,237 @@ tr:nth-child(even) td { background:#fafafa; }
       return reply.send(pdf)
     } catch {
       // Fallback: retornar HTML
+      reply.header('Content-Type', 'text/html; charset=utf-8')
+      return reply.send(html)
+    }
+  })
+
+  // ── CAUTELA COMPLETA POR COLABORADOR ─────────────────────────────────────
+  // GET /api/v1/deposit/employees/:employeeId/epi-cautela
+  app.get('/employees/:employeeId/epi-cautela', { preHandler }, async (request, reply) => {
+    const req = request as RequestWithMember
+    const cid = companyId(req)
+    const { employeeId } = request.params as { employeeId: string }
+
+    const [employee, company, allDeliveries] = await Promise.all([
+      p().employee.findFirst({ where: { id: employeeId, companyId: cid } }),
+      p().company.findFirst({ where: { id: cid }, select: { name: true, cnpj: true, logo: true } }),
+      p().stockEpiDelivery.findMany({
+        where: { companyId: cid, employeeId },
+        include: {
+          stockItem: { select: { id: true, name: true, unit: true, brand: true, model: true } },
+          responsible: { select: { name: true } },
+          location:   { select: { name: true } },
+        },
+        orderBy: { deliveredAt: 'asc' },
+      }),
+    ])
+
+    if (!employee) return reply.status(404).send({ error: 'Colaborador não encontrado' })
+
+    const apiBase  = process.env.APP_URL ?? 'http://localhost:3001'
+    const fmtDate  = (d: any) => d ? new Date(d).toLocaleDateString('pt-BR') : '—'
+    const fmtDT    = (d: any) => d ? new Date(d).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }) : '—'
+
+    // Agrupar entregas por item para tabela de EPIs ativos
+    const grouped = new Map<string, typeof allDeliveries>()
+    for (const d of allDeliveries) {
+      const key = d.stockItemId
+      if (!grouped.has(key)) grouped.set(key, [])
+      grouped.get(key)!.push(d)
+    }
+
+    let rowNum = 0
+    const epiRows = [...grouped.entries()].map(([, dels]) => {
+      rowNum++
+      const last = dels[dels.length - 1]
+      return `
+        <tr>
+          <td style="text-align:center">${String(rowNum).padStart(2,'0')}</td>
+          <td><b>${last.stockItem.name}</b>${last.stockItem.brand ? ` — ${last.stockItem.brand}` : ''}</td>
+          <td style="text-align:center">${(last as any).caNumber ?? '—'}</td>
+          <td style="text-align:center">${dels.reduce((a: number, d: any) => a + Number(d.quantity), 0)} ${last.stockItem.unit}</td>
+          <td style="text-align:center">${(last as any).size ?? '—'}</td>
+          <td style="text-align:center">${last.expiresAt ? fmtDate(last.expiresAt) : '—'}</td>
+          <td style="text-align:center">—</td>
+        </tr>`
+    }).join('')
+
+    const histRows = allDeliveries.map((h: any) => `
+      <tr>
+        <td>${fmtDT(h.deliveredAt)}</td>
+        <td>${h.stockItem.name}</td>
+        <td style="text-align:center">${h.quantity} ${h.stockItem.unit}</td>
+        <td style="text-align:center">${h.size ?? '—'}</td>
+        <td>${h.responsible?.name ?? '—'}</td>
+        <td>${h.location?.name ?? '—'}</td>
+        <td style="text-align:center">${h.expiresAt ? fmtDate(h.expiresAt) : '—'}</td>
+        <td style="text-align:center">${h.selfieUrl ? `<img src="${apiBase}${h.selfieUrl}" style="width:45px;height:45px;object-fit:cover;border-radius:4px">` : '—'}</td>
+        <td style="text-align:center">${h.signatureUrl ? `<img src="${apiBase}${h.signatureUrl}" style="height:30px;max-width:90px">` : '—'}</td>
+      </tr>`).join('')
+
+    // Última assinatura do colaborador
+    const lastWithSig = [...allDeliveries].reverse().find((d: any) => d.signatureUrl)
+
+    const html = `<!DOCTYPE html>
+<html lang="pt-BR"><head>
+<meta charset="UTF-8">
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family: Arial, sans-serif; font-size: 10px; color: #111827; background:#fff; padding:20px 28px; }
+  @page { size: A4; margin: 0; }
+  .header { display:flex; justify-content:space-between; align-items:center; background:#111827; color:#fff; padding:14px 18px; border-radius:8px; margin-bottom:14px; }
+  .logo { font-size:17px; font-weight:900; }
+  .logo span { color:#F5A623; }
+  .title { text-align:center; font-size:13px; font-weight:bold; text-transform:uppercase; letter-spacing:.08em; color:#111827; margin-bottom:12px; border-bottom:2px solid #F5A623; padding-bottom:5px; }
+  .section { margin-bottom:12px; }
+  .stitle { font-size:8px; font-weight:700; text-transform:uppercase; color:#6B7280; letter-spacing:.1em; border-bottom:1px solid #e5e7eb; padding-bottom:3px; margin-bottom:7px; }
+  .grid3 { display:grid; grid-template-columns:1fr 1fr 1fr; gap:6px; }
+  .lbl { font-size:8px; color:#9ca3af; margin-bottom:1px; }
+  .val { font-size:10px; font-weight:500; color:#111827; }
+  table { width:100%; border-collapse:collapse; font-size:9px; }
+  th { background:#111827; color:#fff; font-size:8px; font-weight:700; padding:5px 6px; text-align:left; letter-spacing:.03em; }
+  td { padding:4px 6px; border-bottom:1px solid #f3f4f6; vertical-align:middle; }
+  tr:nth-child(even) td { background:#fafafa; }
+  .termo { background:#fffbeb; border:1px solid #fcd34d; border-radius:6px; padding:9px 11px; font-size:9px; line-height:1.65; margin:10px 0; }
+  .sig-grid { display:grid; grid-template-columns:1fr 1fr; gap:22px; margin-top:14px; }
+  .sig-box { text-align:center; border:1px solid #e5e7eb; border-radius:6px; padding:10px; }
+  .sig-label { font-size:8px; font-weight:700; text-transform:uppercase; color:#6b7280; letter-spacing:.08em; margin-bottom:5px; }
+  .sig-img { height:55px; margin:0 auto 5px; display:flex; align-items:center; justify-content:center; }
+  .sig-line { width:150px; border-top:1px solid #374151; margin:0 auto 3px; }
+  .sig-name { font-size:10px; font-weight:600; }
+  .sig-meta { font-size:8px; color:#9ca3af; margin-top:1px; }
+  .selfie-row { display:flex; gap:7px; flex-wrap:wrap; margin-top:7px; }
+  .selfie-item { text-align:center; }
+  .selfie-item img { width:65px; height:65px; object-fit:cover; border-radius:5px; border:1px solid #e5e7eb; }
+  .selfie-item p { font-size:7px; color:#9ca3af; margin-top:2px; }
+  .footer-bar { border-top:1px solid #e5e7eb; margin-top:14px; padding-top:7px; display:flex; justify-content:space-between; align-items:center; }
+  .footer-bar .brand { font-size:8px; color:#9ca3af; }
+  .footer-bar .brand b { color:#F5A623; }
+  .footer-bar .hash { font-size:7px; color:#d1d5db; font-family:monospace; }
+</style>
+</head><body>
+  <div class="header">
+    <div>
+      <div class="logo">SYS<span>OBRA</span></div>
+      <div style="font-size:9px;color:rgba(255,255,255,.6);margin-top:2px">${company?.name ?? ''}</div>
+      ${company?.cnpj ? `<div style="font-size:8px;color:rgba(255,255,255,.4)">CNPJ: ${company.cnpj}</div>` : ''}
+    </div>
+    <div style="text-align:right">
+      <div style="font-size:11px;color:#F5A623;font-weight:700">CAUTELA DE EPI — FICHA COMPLETA</div>
+      <div style="font-size:8px;color:rgba(255,255,255,.5)">Portaria MTE 485/2005 — NR-6</div>
+      <div style="font-size:8px;color:rgba(255,255,255,.5)">Emitido: ${fmtDT(new Date())}</div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="stitle">Dados do Colaborador</div>
+    <div class="grid3">
+      <div><div class="lbl">Nome</div><div class="val">${(employee as any).name}</div></div>
+      <div><div class="lbl">Matrícula</div><div class="val">${(employee as any).code ?? '—'}</div></div>
+      <div><div class="lbl">CPF</div><div class="val">${(employee as any).cpf ?? '—'}</div></div>
+      <div><div class="lbl">Função/Cargo</div><div class="val">${(employee as any).role ?? (employee as any).position ?? '—'}</div></div>
+      <div><div class="lbl">Departamento</div><div class="val">${(employee as any).department ?? '—'}</div></div>
+      <div><div class="lbl">Total de EPIs entregues</div><div class="val">${allDeliveries.length} entrega${allDeliveries.length !== 1 ? 's' : ''}</div></div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="stitle">EPIs Entregues</div>
+    <table>
+      <thead><tr>
+        <th style="width:28px">Nº</th>
+        <th>Descrição do EPI</th>
+        <th style="width:55px">CA</th>
+        <th style="width:45px">Qtd total</th>
+        <th style="width:50px">Tamanho</th>
+        <th style="width:68px">Validade</th>
+        <th style="width:55px">Vida útil</th>
+      </tr></thead>
+      <tbody>${epiRows}</tbody>
+    </table>
+  </div>
+
+  <div class="section">
+    <div class="stitle">Histórico completo de entregas — ${allDeliveries.length} registro${allDeliveries.length !== 1 ? 's' : ''}</div>
+    <table>
+      <thead><tr>
+        <th>Data/Hora</th>
+        <th>EPI</th>
+        <th style="width:40px">Qtd</th>
+        <th style="width:45px">Tam.</th>
+        <th>Almoxarife</th>
+        <th>Local</th>
+        <th style="width:65px">Validade</th>
+        <th style="width:50px">Selfie</th>
+        <th style="width:80px">Assinatura</th>
+      </tr></thead>
+      <tbody>${histRows}</tbody>
+    </table>
+  </div>
+
+  <div class="termo">
+    <b>TERMO DE RESPONSABILIDADE</b><br><br>
+    Declaro ter recebido os EPIs acima relacionados, comprometendo-me a:
+    <ul style="margin:4px 0 0 16px">
+      <li>Utilizá-los apenas para a finalidade a que se destinam;</li>
+      <li>Responsabilizar-me por sua guarda e conservação;</li>
+      <li>Comunicar ao empregador qualquer alteração que o torne impróprio para uso;</li>
+      <li>Cumprir as determinações do empregador sobre o uso adequado.</li>
+    </ul>
+    <br>
+    <i>Base legal: Portaria MTE 485/2005 — NR-6, item 6.3. O descumprimento poderá acarretar medidas disciplinares.</i>
+  </div>
+
+  <div class="sig-grid">
+    <div class="sig-box">
+      <div class="sig-label">Colaborador</div>
+      ${lastWithSig
+        ? `<div class="sig-img"><img src="${apiBase}${(lastWithSig as any).signatureUrl}" style="height:50px;max-width:130px" onerror="this.style.display='none'"></div>`
+        : '<div style="height:50px"></div>'
+      }
+      <div class="sig-line"></div>
+      <div class="sig-name">${(employee as any).name}</div>
+      <div class="sig-meta">${lastWithSig ? fmtDate((lastWithSig as any).deliveredAt) : 'Data: ________'}</div>
+    </div>
+    <div class="sig-box">
+      <div class="sig-label">Almoxarife / Responsável</div>
+      <div style="height:50px"></div>
+      <div class="sig-line"></div>
+      <div class="sig-name">___________________________</div>
+      <div class="sig-meta">Data: ________</div>
+    </div>
+  </div>
+
+  ${allDeliveries.some((h: any) => h.selfieUrl) ? `
+  <div class="section" style="margin-top:12px">
+    <div class="stitle">Selfies de entrega</div>
+    <div class="selfie-row">
+      ${allDeliveries.filter((h: any) => h.selfieUrl).map((h: any) => `
+        <div class="selfie-item">
+          <img src="${apiBase}${h.selfieUrl}" onerror="this.style.display='none'" />
+          <p>${h.stockItem.name}<br>${fmtDate(h.deliveredAt)}</p>
+        </div>`).join('')}
+    </div>
+  </div>` : ''}
+
+  <div class="footer-bar">
+    <div class="brand"><b>SYS</b>OBRA · Sistema de Gestão de Obras</div>
+    <div class="hash">DOC: CAUTELA-FULL-${employeeId.slice(-8).toUpperCase()} · ${new Date().toISOString().slice(0,10)}</div>
+  </div>
+</body></html>`
+
+    try {
+      const puppeteer = require('puppeteer')
+      const browser = await puppeteer.launch({ args: ['--no-sandbox', '--disable-setuid-sandbox'] })
+      const page    = await browser.newPage()
+      await page.setContent(html, { waitUntil: 'networkidle0' })
+      const pdf = await page.pdf({ format: 'A4', margin: { top: '10mm', bottom: '10mm', left: '10mm', right: '10mm' } })
+      await browser.close()
+      reply.header('Content-Type', 'application/pdf')
+      reply.header('Content-Disposition', `inline; filename="cautela-completa-epi-${employeeId.slice(-8)}.pdf"`)
+      return reply.send(pdf)
+    } catch {
       reply.header('Content-Type', 'text/html; charset=utf-8')
       return reply.send(html)
     }

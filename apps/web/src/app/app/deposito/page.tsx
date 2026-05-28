@@ -56,6 +56,16 @@ interface SummaryFull {
   entriesThisMonth:    number
   overdueReturns:      number
   overdueMaintenance:  number
+  estoque?: {
+    totalGeral: number
+    porCategoria: {
+      materiais:   number
+      ferramentas: number
+      epis:        number
+      uniformes:   number
+      outros:      number
+    }
+  }
 }
 
 interface StockItem {
@@ -1142,6 +1152,31 @@ export default function DepositoPage() {
               color="bg-red-50"
               alert={summary.overdueMaintenance > 0}
             />
+          </div>
+        )}
+
+        {/* ── Valor do estoque por categoria ───────────────────────────── */}
+        {summary?.estoque && (
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+            {([
+              { key: 'materiais',   label: 'Materiais',    icon: <Package size={15} />,    color: 'bg-blue-50 text-blue-600'    },
+              { key: 'ferramentas', label: 'Ferramentas',  icon: <Wrench size={15} />,     color: 'bg-purple-50 text-purple-600'},
+              { key: 'epis',        label: 'EPIs',         icon: <ShieldCheck size={15} />,color: 'bg-orange-50 text-orange-600'},
+              { key: 'uniformes',   label: 'Uniformes',    icon: <Shirt size={15} />,      color: 'bg-pink-50 text-pink-600'    },
+              { key: 'outros',      label: 'Outros',       icon: <Layers size={15} />,     color: 'bg-gray-50 text-gray-600'    },
+            ] as const).map(({ key, label, icon, color }) => (
+              <div key={key} className="bg-white rounded-xl border border-gray-100 p-3 shadow-sm">
+                <div className="flex items-center gap-2 mb-1.5">
+                  <div className={cn('w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0', color)}>
+                    {icon}
+                  </div>
+                  <span className="text-xs text-gray-500 truncate">{label}</span>
+                </div>
+                <p className="text-sm font-bold text-gray-800">
+                  {formatCurrency(summary.estoque!.porCategoria[key])}
+                </p>
+              </div>
+            ))}
           </div>
         )}
 

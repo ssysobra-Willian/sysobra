@@ -15,6 +15,7 @@ const STATUS_PAGES = [
   '/app/assinatura-pendente',
   '/app/assinatura-vencida',
   '/app/pagamento-recusado',
+  '/app/ifc-viewer',
 ]
 
 function Header({ onToggleSidebar }: { onToggleSidebar: () => void }) {

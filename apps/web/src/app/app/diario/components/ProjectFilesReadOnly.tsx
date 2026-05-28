@@ -1,7 +1,6 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import dynamic from 'next/dynamic'
 import { FolderOpen, ChevronDown, ChevronUp, FileText, Download, Loader2 } from 'lucide-react'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
@@ -10,18 +9,6 @@ function getCompanyId() { return typeof window !== 'undefined' ? localStorage.ge
 function authHeaders() {
   return { Authorization: `Bearer ${getToken()}`, 'x-company-id': getCompanyId() }
 }
-
-const IfcViewerCanvasDynamic = dynamic(
-  () => import('@/components/project/IfcViewerCanvas').then(m => ({ default: m.IfcViewerCanvas })),
-  {
-    ssr: false,
-    loading: () => (
-      <div className="flex-1 flex items-center justify-center bg-gray-900 text-gray-400 text-sm">
-        Carregando visualizador 3D...
-      </div>
-    ),
-  },
-)
 
 interface ProjectFilesReadOnlyProps {
   projectId: string
@@ -48,8 +35,6 @@ export default function ProjectFilesReadOnly({ projectId }: ProjectFilesReadOnly
   const [expanded, setExpanded] = useState(false)
   const [tree,     setTree]     = useState<any>(null)
   const [loading,  setLoading]  = useState(false)
-  const [pdfFile,  setPdfFile]  = useState<any>(null)
-  const [ifcFile,  setIfcFile]  = useState<any>(null)
 
   useEffect(() => {
     if (!expanded || tree !== null) return
@@ -92,13 +77,18 @@ export default function ProjectFilesReadOnly({ projectId }: ProjectFilesReadOnly
         {file.size && <span className="text-[10px] text-gray-400 flex-shrink-0">{formatBytes(file.size)}</span>}
         <div className="flex gap-1 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
           {file.type === 'PDF' && (
-            <button onClick={() => setPdfFile(file)} title="Visualizar PDF"
+            <button onClick={() => window.open(proxyPdfUrl(file), '_blank')} title="Visualizar PDF"
               className="text-[10px] border border-gray-200 rounded px-1.5 py-0.5 hover:border-red-300 hover:text-red-600">
               Ver
             </button>
           )}
           {file.type === 'IFC' && (
-            <button onClick={() => setIfcFile(file)} title="Visualizar 3D"
+            <button
+              onClick={() => {
+                const u = file.url?.startsWith('http') ? file.url : `${API}/${file.url}`
+                window.open(`/app/ifc-viewer?url=${encodeURIComponent(u)}&name=${encodeURIComponent(file.name)}`, '_blank')
+              }}
+              title="Visualizar 3D"
               className="text-[10px] border border-purple-200 text-purple-600 rounded px-1.5 py-0.5 hover:bg-purple-50">
               3D
             </button>
@@ -183,45 +173,6 @@ export default function ProjectFilesReadOnly({ projectId }: ProjectFilesReadOnly
         )}
       </div>
 
-      {/* Visualizador PDF fullscreen */}
-      {pdfFile && (
-        <div className="fixed inset-0 z-[9999] flex flex-col bg-black/90">
-          <div className="flex items-center justify-between px-4 py-2.5 bg-gray-900">
-            <span className="text-white text-sm font-medium truncate flex-1">{pdfFile.name}</span>
-            <div className="flex gap-2 flex-shrink-0">
-              <button onClick={() => downloadFile(pdfFile)}
-                className="text-white text-xs border border-white/30 rounded-lg px-3 py-1.5 hover:bg-white/10">
-                ⬇ Baixar
-              </button>
-              <button onClick={() => setPdfFile(null)}
-                className="text-white text-xl leading-none hover:text-gray-300 px-2">
-                ×
-              </button>
-            </div>
-          </div>
-          <iframe
-            src={proxyPdfUrl(pdfFile)}
-            className="flex-1 border-0"
-            title={pdfFile.name}
-          />
-        </div>
-      )}
-
-      {/* Visualizador IFC fullscreen */}
-      {ifcFile && (
-        <div className="fixed inset-0 z-[9999] flex flex-col bg-gray-900">
-          <div className="flex items-center justify-between px-4 py-2.5 bg-black/60">
-            <span className="text-white text-sm font-medium">{ifcFile.name}</span>
-            <button onClick={() => setIfcFile(null)}
-              className="text-white text-xl leading-none hover:text-gray-300 px-2">
-              ×
-            </button>
-          </div>
-          <div className="flex-1">
-            <IfcViewerCanvasDynamic fileUrl={ifcFile.url} className="w-full h-full" />
-          </div>
-        </div>
-      )}
     </>
   )
 }

@@ -1,7 +1,6 @@
 'use client'
 
 import React, { useRef, useState, useCallback, useEffect } from 'react'
-import dynamic from 'next/dynamic'
 import {
   Upload, FileText, Download, Eye, Trash2, Box, Loader2,
   File, HardDrive, AlertCircle, Folder, FolderOpen, FolderPlus,
@@ -21,11 +20,6 @@ async function apiFetch(path: string, opts: RequestInit = {}) {
   })
 }
 
-// Dynamic import do visualizador IFC (evita SSR / WebGL no servidor)
-const IfcViewerCanvas = dynamic(
-  () => import('./IfcViewerCanvas').then(m => m.IfcViewerCanvas),
-  { ssr: false, loading: () => <div className="flex items-center justify-center h-full"><Loader2 className="animate-spin text-[#F5A623]" size={28} /></div> },
-)
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -335,48 +329,6 @@ function FileRow({
   )
 }
 
-// ─── PDF Viewer Modal ─────────────────────────────────────────────────────────
-
-function PdfViewerModal({ url, name, onClose }: { url: string; name: string; onClose: () => void }) {
-  return (
-    <div className="fixed inset-0 z-50 flex flex-col bg-black/80">
-      <div className="flex items-center justify-between px-4 py-3 bg-gray-900">
-        <p className="text-white text-sm font-medium truncate">{name}</p>
-        <div className="flex items-center gap-3">
-          <a href={url} download className="text-gray-400 hover:text-white text-xs flex items-center gap-1">
-            <Download size={13} /> Baixar
-          </a>
-          <button onClick={onClose} className="text-gray-400 hover:text-white text-xl leading-none">✕</button>
-        </div>
-      </div>
-      <div className="flex-1 overflow-hidden">
-        <iframe src={url} className="w-full h-full border-none" title={name} />
-      </div>
-    </div>
-  )
-}
-
-// ─── IFC Viewer Modal ─────────────────────────────────────────────────────────
-
-function IfcViewerModal({ url, name, onClose }: { url: string; name: string; onClose: () => void }) {
-  return (
-    <div className="fixed inset-0 z-50 flex flex-col bg-black/90">
-      <div className="flex items-center justify-between px-4 py-3 bg-gray-900">
-        <p className="text-white text-sm font-medium">
-          <span className="text-purple-400 mr-2">🧊</span>{name}
-        </p>
-        <button onClick={onClose} className="text-gray-400 hover:text-white text-xl leading-none">✕</button>
-      </div>
-      <div className="flex-1">
-        <IfcViewerCanvas fileUrl={url} className="w-full h-full" />
-      </div>
-      <p className="text-center text-xs text-gray-500 py-2">
-        🖱️ Rotacionar: clique-arraste · Zoom: scroll · Pan: shift + arrastar
-      </p>
-    </div>
-  )
-}
-
 // ─── New/Rename Folder Modal ──────────────────────────────────────────────────
 
 function FolderModal({
@@ -480,8 +432,6 @@ export function PastaDeProjetosTab({ projectId, readOnly }: Props) {
   const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null)
   const [expandedIds,   setExpandedIds]   = useState<Set<string>>(new Set())
 
-  const [pdfViewer,     setPdfViewer]     = useState<{ url: string; name: string } | null>(null)
-  const [ifcViewer,     setIfcViewer]     = useState<{ url: string; name: string } | null>(null)
   const [uploading,     setUploading]     = useState(false)
   const [uploadError,   setUploadError]   = useState('')
 
@@ -663,10 +613,6 @@ export function PastaDeProjetosTab({ projectId, readOnly }: Props) {
 
   return (
     <>
-      {/* Modais */}
-      {pdfViewer && <PdfViewerModal url={pdfViewer.url} name={pdfViewer.name} onClose={() => setPdfViewer(null)} />}
-      {ifcViewer && <IfcViewerModal url={ifcViewer.url} name={ifcViewer.name} onClose={() => setIfcViewer(null)} />}
-
       {folderModal && (
         <FolderModal
           title={folderModal.mode === 'create' ? 'Nova pasta' : 'Renomear pasta'}
@@ -859,8 +805,8 @@ export function PastaDeProjetosTab({ projectId, readOnly }: Props) {
                     readOnly={readOnly}
                     folders={allFolders}
                     onDelete={handleDeleteFile}
-                    onViewPdf={(url, name) => setPdfViewer({ url, name })}
-                    onViewIfc={(url, name) => setIfcViewer({ url, name })}
+                    onViewPdf={(url, _name) => window.open(url, '_blank')}
+                    onViewIfc={(url, name) => window.open(`/app/ifc-viewer?url=${encodeURIComponent(url)}&name=${encodeURIComponent(name)}`, '_blank')}
                     onMove={handleMoveFile}
                   />
                 ))}
