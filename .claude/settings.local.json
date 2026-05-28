@@ -115,7 +115,12 @@
       "PowerShell(Get-Command *)",
       "PowerShell(cd C:\\\\projetos\\\\sysobra\\\\apps\\\\api; Start-Process powershell -ArgumentList '-NoExit', '-Command', 'cd C:\\\\projetos\\\\sysobra\\\\apps\\\\api; npm run dev' -WindowStyle Normal; Start-Sleep -Seconds 5; Write-Host \"Servidor API iniciado.\")",
       "PowerShell(Start-Sleep -Seconds 4; Invoke-WebRequest -Uri \"http://localhost:3001/api/v1/waybill\" -Method GET -ErrorAction SilentlyContinue | Select-Object StatusCode)",
-      "PowerShell($response = try { Invoke-WebRequest -Uri \"http://localhost:3001/api/v1/waybill\" -Method GET -ErrorAction Stop } catch { $_.Exception.Response }; if \\($response\\) { \"Status: $\\($response.StatusCode\\)\" } else { \"Sem resposta — servidor pode estar reiniciando\" })"
+      "PowerShell($response = try { Invoke-WebRequest -Uri \"http://localhost:3001/api/v1/waybill\" -Method GET -ErrorAction Stop } catch { $_.Exception.Response }; if \\($response\\) { \"Status: $\\($response.StatusCode\\)\" } else { \"Sem resposta — servidor pode estar reiniciando\" })",
+      "PowerShell(cd C:\\\\projetos\\\\sysobra\\\\apps\\\\api; $env:DATABASE_URL = \\(Get-Content ..\\\\..\\\\packages\\\\database\\\\.env -ErrorAction SilentlyContinue | Where-Object { $_ -match '^DATABASE_URL' } | ForEach-Object { \\($_ -split '=', 2\\)[1] }\\); Write-Host \"DB: $env:DATABASE_URL\")",
+      "PowerShell(cd C:\\\\projetos\\\\sysobra\\\\apps\\\\api; $env:DATABASE_URL = \"postgresql://sysobra:sysobra123@127.0.0.1:5432/sysobra\"; node --experimental-vm-modules diag.mjs 2>&1 | Select-Object -First 60)",
+      "PowerShell(cd C:\\\\projetos\\\\sysobra\\\\apps\\\\api; $env:DATABASE_URL = \"postgresql://sysobra:sysobra123@127.0.0.1:5432/sysobra\"; node diag2.mjs 2>&1)",
+      "PowerShell(cd C:\\\\projetos\\\\sysobra\\\\apps\\\\api; $env:DATABASE_URL = \"postgresql://sysobra:sysobra123@127.0.0.1:5432/sysobra\"; node diag3.mjs 2>&1)",
+      "PowerShell(cd C:\\\\projetos\\\\sysobra\\\\apps\\\\api; $env:DATABASE_URL = \"postgresql://sysobra:sysobra123@127.0.0.1:5432/sysobra\"; node sync-qty.mjs 2>&1)"
     ]
   }
 }
