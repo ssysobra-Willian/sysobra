@@ -97,6 +97,9 @@ export default function WaybillModal({
   // Observações
   const [notes, setNotes] = useState('')
 
+  // Validação etapa 1
+  const [step1Error, setStep1Error] = useState('')
+
   // ── carregar ao abrir ──────────────────────────────────────────────────────
   useEffect(() => {
     if (!isOpen) return
@@ -125,9 +128,9 @@ export default function WaybillModal({
   async function loadItems() {
     setLoading(true)
     try {
-      const catParam = category === 'EPI_UNIFORM' ? 'EPI,UNIFORM' : category
+      // waybillCategory=MATERIAL|TOOL|EPI_UNIFORM + locationId para filtrar por saldo no local
       const r = await apiFetch(
-        `/api/v1/deposit/items?locationId=${locationId}&category=${catParam}&limit=200`,
+        `/api/v1/deposit/items?locationId=${locationId}&waybillCategory=${category}&limit=200`,
       )
       const d = await r.json()
       setAvailableItems(d.items ?? d ?? [])
@@ -273,6 +276,7 @@ export default function WaybillModal({
   // ── fechar e resetar ───────────────────────────────────────────────────────
   function handleClose() {
     setStep(1)
+    setStep1Error('')
     setExitType('DIRECT_PICKUP')
     setSelectedItems([])
     setSenderSignature(null)
@@ -284,6 +288,23 @@ export default function WaybillModal({
     setDestinationProjectId(''); setDestinationName('')
     onClose()
   }
+
+  // ── validação etapa 1 ─────────────────────────────────────────────────────
+  const canProceedStep1 = (() => {
+    const hasDestination = !!destinationProjectId || destinationName.trim().length > 0
+    if (!hasDestination) return false
+    const hasReceiver = receiverType === 'EMPLOYEE'
+      ? !!receiverEmployeeId
+      : receiverName.trim().length > 0 && receiverDocument.trim().length > 0
+    if (!hasReceiver) return false
+    if (exitType === 'DRIVER_DELIVERY') {
+      const hasDriver = driverType === 'EMPLOYEE'
+        ? !!driverEmployeeId
+        : driverName.trim().length > 0 && driverDocument.trim().length > 0
+      if (!hasDriver) return false
+    }
+    return true
+  })()
 
   if (!isOpen) return null
 
@@ -386,11 +407,11 @@ export default function WaybillModal({
               {/* Destino */}
               <div style={{ marginBottom: 20 }}>
                 <label style={{ fontSize: 13, fontWeight: 500, display: 'block', marginBottom: 6 }}>
-                  Destino
+                  Destino <span style={{ color: '#DC2626' }}>*</span>
                 </label>
                 <select
                   value={destinationProjectId}
-                  onChange={e => setDestinationProjectId(e.target.value)}
+                  onChange={e => { setDestinationProjectId(e.target.value); setStep1Error('') }}
                   style={{ width: '100%', padding: '9px 12px',
                     border: '1px solid #D1D5DB', borderRadius: 8, fontSize: 14, marginBottom: 8 }}
                 >
@@ -401,7 +422,7 @@ export default function WaybillModal({
                 </select>
                 <input
                   value={destinationName}
-                  onChange={e => setDestinationName(e.target.value)}
+                  onChange={e => { setDestinationName(e.target.value); setStep1Error('') }}
                   placeholder="Ou descrever destino externo..."
                   style={{ width: '100%', padding: '9px 12px',
                     border: '1px solid #D1D5DB', borderRadius: 8, fontSize: 14 }}
@@ -416,7 +437,7 @@ export default function WaybillModal({
                 }}>
                   <h4 style={{ fontSize: 13, fontWeight: 700, marginBottom: 12 }}>
                     <i className="ti ti-steering-wheel" style={{ marginRight: 6, color: '#F5A623' }} />
-                    Motorista
+                    Motorista <span style={{ color: '#DC2626' }}>*</span>
                   </h4>
                   <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
                     {[
@@ -436,6 +457,7 @@ export default function WaybillModal({
                       value={driverEmployeeId}
                       onChange={e => {
                         setDriverEmployeeId(e.target.value)
+                        setStep1Error('')
                         const emp = employees.find(x => x.id === e.target.value)
                         if (emp) setDriverName(emp.name)
                       }}
@@ -450,12 +472,12 @@ export default function WaybillModal({
                   ) : (
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
                       <div style={{ gridColumn: '1/-1' }}>
-                        <input value={driverName} onChange={e => setDriverName(e.target.value)}
+                        <input value={driverName} onChange={e => { setDriverName(e.target.value); setStep1Error('') }}
                           placeholder="Nome do motorista *"
                           style={{ width: '100%', padding: '8px 12px',
                             border: '1px solid #D1D5DB', borderRadius: 8, fontSize: 14 }} />
                       </div>
-                      <input value={driverDocument} onChange={e => setDriverDocument(e.target.value)}
+                      <input value={driverDocument} onChange={e => { setDriverDocument(e.target.value); setStep1Error('') }}
                         placeholder="CPF *"
                         style={{ padding: '8px 12px', border: '1px solid #D1D5DB',
                           borderRadius: 8, fontSize: 14, width: '100%' }} />
@@ -484,7 +506,8 @@ export default function WaybillModal({
               }}>
                 <h4 style={{ fontSize: 13, fontWeight: 700, marginBottom: 12 }}>
                   <i className="ti ti-user-check" style={{ marginRight: 6, color: '#F5A623' }} />
-                  {exitType === 'DIRECT_PICKUP' ? 'Quem está retirando' : 'Quem irá receber na obra'}
+                  {exitType === 'DIRECT_PICKUP' ? 'Quem está retirando' : 'Quem irá receber na obra'}{' '}
+                  <span style={{ color: '#DC2626' }}>*</span>
                 </h4>
                 <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
                   {[
@@ -504,6 +527,7 @@ export default function WaybillModal({
                     value={receiverEmployeeId}
                     onChange={e => {
                       setReceiverEmployeeId(e.target.value)
+                      setStep1Error('')
                       const emp = employees.find(x => x.id === e.target.value)
                       if (emp) { setReceiverName(emp.name); setReceiverRole(emp.role) }
                     }}
@@ -518,12 +542,12 @@ export default function WaybillModal({
                 ) : (
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
                     <div style={{ gridColumn: '1/-1' }}>
-                      <input value={receiverName} onChange={e => setReceiverName(e.target.value)}
+                      <input value={receiverName} onChange={e => { setReceiverName(e.target.value); setStep1Error('') }}
                         placeholder="Nome completo *"
                         style={{ width: '100%', padding: '8px 12px',
                           border: '1px solid #D1D5DB', borderRadius: 8, fontSize: 14 }} />
                     </div>
-                    <input value={receiverDocument} onChange={e => setReceiverDocument(e.target.value)}
+                    <input value={receiverDocument} onChange={e => { setReceiverDocument(e.target.value); setStep1Error('') }}
                       placeholder="CPF / RG / Documento *"
                       style={{ padding: '8px 12px', border: '1px solid #D1D5DB',
                         borderRadius: 8, fontSize: 14, width: '100%' }} />
@@ -553,6 +577,18 @@ export default function WaybillModal({
                     fontSize: 14, fontFamily: 'inherit', resize: 'vertical' }}
                 />
               </div>
+
+              {step1Error && (
+                <div style={{
+                  marginTop: 14, padding: '10px 14px',
+                  background: '#FEE2E2', border: '1px solid #FECACA',
+                  borderRadius: 8, fontSize: 13, color: '#DC2626',
+                  display: 'flex', alignItems: 'center', gap: 8,
+                }}>
+                  <i className="ti ti-alert-circle" style={{ fontSize: 16, flexShrink: 0 }} />
+                  {step1Error}
+                </div>
+              )}
             </div>
           )}
 
@@ -862,7 +898,37 @@ export default function WaybillModal({
 
             {step < 4 ? (
               <button
-                onClick={() => setStep(s => (s + 1) as any)}
+                onClick={() => {
+                  if (step === 1) {
+                    const hasDestination = !!destinationProjectId || destinationName.trim().length > 0
+                    if (!hasDestination) {
+                      setStep1Error('Informe o destino — selecione uma obra ou preencha o destino externo')
+                      return
+                    }
+                    const hasReceiver = receiverType === 'EMPLOYEE'
+                      ? !!receiverEmployeeId
+                      : receiverName.trim().length > 0 && receiverDocument.trim().length > 0
+                    if (!hasReceiver) {
+                      setStep1Error(receiverType === 'EMPLOYEE'
+                        ? 'Selecione o colaborador que irá retirar / receber'
+                        : 'Preencha nome e documento do recebedor externo')
+                      return
+                    }
+                    if (exitType === 'DRIVER_DELIVERY') {
+                      const hasDriver = driverType === 'EMPLOYEE'
+                        ? !!driverEmployeeId
+                        : driverName.trim().length > 0 && driverDocument.trim().length > 0
+                      if (!hasDriver) {
+                        setStep1Error(driverType === 'EMPLOYEE'
+                          ? 'Selecione o motorista colaborador'
+                          : 'Preencha nome e CPF do motorista externo')
+                        return
+                      }
+                    }
+                    setStep1Error('')
+                  }
+                  setStep(s => (s + 1) as any)
+                }}
                 disabled={step === 2 && selectedItems.length === 0}
                 style={{
                   padding: '8px 20px', borderRadius: 8, fontSize: 13,

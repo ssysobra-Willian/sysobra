@@ -280,10 +280,13 @@ export async function depositRoutes(app: FastifyInstance) {
 
   // ── ITEMS CRUD ────────────────────────────────────────────────────────────
   // GET /api/v1/deposit/items
+  // Suporta: q, category, type, lowStock, page, limit
+  // Novo:    locationId (filtra por saldo no local e retorna availableQty)
+  //          waybillCategory=MATERIAL|TOOL|EPI_UNIFORM (para romaneios)
   app.get('/items', { preHandler }, async (request, reply) => {
     const req = request as RequestWithMember
     const cid = companyId(req)
-    const { q, category, type, lowStock, page = '1', limit = '50' } = request.query as any
+    const { q, category, type, lowStock, page = '1', limit = '50', locationId, waybillCategory } = request.query as any
 
     const skip = (parseInt(page) - 1) * parseInt(limit)
     const take = parseInt(limit)
@@ -296,6 +299,63 @@ export async function depositRoutes(app: FastifyInstance) {
     if (type === 'tool')       where.requiresCustody = true
     if (type === 'consumable') where.isConsumable = true
 
+    // Filtros por categoria de romaneio (waybillCategory)
+    if (waybillCategory === 'MATERIAL') {
+      where.isEpi           = false
+      where.isUniform       = false
+      where.requiresCustody = false
+    }
+    if (waybillCategory === 'TOOL')        where.requiresCustody = true
+    if (waybillCategory === 'EPI_UNIFORM') where.OR = [{ isEpi: true }, { isUniform: true }]
+
+    // ── Quando locationId é fornecido: filtrar por saldo disponível ──────────
+    if (locationId) {
+      const balances = await p().stockBalance.findMany({
+        where: { locationId, companyId: cid, quantity: { gt: 0 } },
+        select: { itemId: true, quantity: true, reservedQty: true },
+      })
+      const idsWithStock = balances.map((b: any) => b.itemId)
+
+      // Se não houver nenhum item com estoque neste local, retornar lista vazia
+      if (idsWithStock.length === 0) {
+        return reply.send({ items: [], total: 0, page: parseInt(page), limit: take })
+      }
+
+      // Intersectar com filtros já definidos
+      where.id = { in: idsWithStock }
+
+      const [items, total] = await Promise.all([
+        p().stockItem.findMany({
+          where,
+          skip,
+          take,
+          orderBy: { name: 'asc' },
+          select: {
+            id: true, name: true, code: true, unit: true, category: true,
+            brand: true, model: true, serialNumber: true,
+            isEpi: true, isUniform: true, requiresCustody: true, isConsumable: true,
+            averageCost: true, unitCost: true, minQuantity: true, imageUrl: true,
+          },
+        }),
+        p().stockItem.count({ where }),
+      ])
+
+      const withBalance = items.map((item: any) => {
+        const bal = balances.find((b: any) => b.itemId === item.id)
+        const qty       = Number(bal?.quantity   ?? 0)
+        const reserved  = Number(bal?.reservedQty ?? 0)
+        return {
+          ...item,
+          quantity:     qty,
+          availableQty: Math.max(0, qty - reserved),
+          currentStock: qty,
+        }
+      })
+
+      return reply.send({ items: withBalance, total, page: parseInt(page), limit: take })
+    }
+
+    // ── Sem locationId: retorno padrão (inclui relações) ─────────────────────
     const [items, total] = await Promise.all([
       p().stockItem.findMany({
         where,

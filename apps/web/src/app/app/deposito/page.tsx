@@ -833,7 +833,7 @@ function BasketsTab({ onViewReceipt }: { onViewReceipt: (basketId: string) => vo
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
-type TabId = 'materials' | 'tools' | 'epis' | 'uniforms' | 'movements' | 'baskets'
+type TabId = 'materials' | 'tools' | 'epis' | 'uniforms' | 'movements'
 
 const TABS: { id: TabId; label: string; icon: React.ComponentType<any> }[] = [
   { id: 'materials', label: 'Materiais',    icon: Package    },
@@ -841,7 +841,6 @@ const TABS: { id: TabId; label: string; icon: React.ComponentType<any> }[] = [
   { id: 'epis',      label: 'EPIs',         icon: ShieldCheck},
   { id: 'uniforms',  label: 'Uniformes',    icon: Shirt      },
   { id: 'movements', label: 'Movimentações',icon: Layers     },
-  { id: 'baskets',   label: 'Romaneios',    icon: FileText   },
 ]
 
 export default function DepositoPage() {
@@ -936,7 +935,6 @@ export default function DepositoPage() {
       case 'tools':     return { label: 'Nova Ferramenta', onClick: () => { setEditingTool(null);     setToolFormOpen(true)     } }
       case 'epis':      return { label: 'Novo EPI',        onClick: () => { setEditingMaterial(null); setEpiFormOpen(true)      } }
       case 'uniforms':  return { label: 'Novo Uniforme',   onClick: () => { setEditingMaterial(null); setUniformFormOpen(true)  } }
-      case 'baskets':   return { label: 'Novo Romaneio',   onClick: () => setBasketOpen(true) }
       default:          return null
     }
   }
@@ -1010,7 +1008,7 @@ export default function DepositoPage() {
   return (
     <div className="min-h-screen bg-gray-50">
       {/* ── Header ─────────────────────────────────────────────────────── */}
-      <div className="bg-white border-b border-gray-100 sticky top-0 z-30">
+      <div className="bg-white border-b border-gray-100">
         <div className="max-w-screen-xl mx-auto px-4 sm:px-6">
           <div className="flex items-center justify-between py-4">
             <div>
@@ -1344,9 +1342,6 @@ export default function DepositoPage() {
                 )}
                 {tab === 'movements' && (
                   <MovementsTab onViewReceipt={handleViewReceipt} />
-                )}
-                {tab === 'baskets' && (
-                  <BasketsTab onViewReceipt={handleViewReceipt} />
                 )}
               </>
             )}
