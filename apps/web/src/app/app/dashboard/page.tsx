@@ -17,7 +17,7 @@ import {
   Plus, Pencil, CheckCircle, XCircle, Trash2, RefreshCcw,
 } from 'lucide-react'
 
-import { useFilterState, useDashboardData, useBankAccounts, useProjects, useProjectAlerts, useVacationAlerts, type ProjectOption } from './hooks'
+import { useFilterState, useDashboardData, useBankAccounts, useProjects, useProjectAlerts, useVacationAlerts, useDepositoPendencias, type ProjectOption } from './hooks'
 import { ChartModal, ChartDropdown, ZoomBtn, makeChartTooltip, useChartExport, exportCsv } from './chart-actions'
 import type { BillGroup, Transaction, ExpenseCategory, CashflowPoint, BalancePoint } from './data'
 import { formatCurrency, formatCurrencyCompact } from '@/lib/format'
@@ -201,13 +201,14 @@ function ActivitiesCard({ loading }: { loading: boolean }) {
 
 function AlertsCard({
   budgetAlertCount, delayAlertCount, overduePayable, overdueReceivable,
-  vacationAlerts,
+  vacationAlerts, pendenciasDeposito = 0,
 }: {
-  budgetAlertCount:  number
-  delayAlertCount:   number
-  overduePayable:    { count: number; amount: number }
-  overdueReceivable: { count: number; amount: number }
-  vacationAlerts?:   { proximasCount: number; vencendoCount: number; vencidasCount: number; emFeriasCount: number }
+  budgetAlertCount:    number
+  delayAlertCount:     number
+  overduePayable:      { count: number; amount: number }
+  overdueReceivable:   { count: number; amount: number }
+  vacationAlerts?:     { proximasCount: number; vencendoCount: number; vencidasCount: number; emFeriasCount: number }
+  pendenciasDeposito?: number
 }) {
   const items: { icon: React.ElementType; title: string; desc: string; action: string; href?: string; scheme: { bg:string; border:string; icon:string; text:string } }[] = []
 
@@ -240,6 +241,15 @@ function AlertsCard({
     title: `${delayAlertCount} obra${delayAlertCount !== 1 ? 's' : ''} com prazo vencido`,
     desc:  'Data prevista de conclusão ultrapassada',
     action: 'Ver obras →', href: '/app/centro-de-custo',
+    scheme: { bg:'bg-red-50', border:'border-red-200', icon:'text-red-500', text:'text-red-700' },
+  })
+
+  // ── Alerta de pendências do depósito ─────────────────────────────────────
+  if (pendenciasDeposito > 0) items.push({
+    icon: AlertTriangle,
+    title: `${pendenciasDeposito} pendência${pendenciasDeposito !== 1 ? 's' : ''} no depósito`,
+    desc:  'Divergências no recebimento aguardando tratamento',
+    action: 'Ver pendências →', href: '/app/deposito/pendencias',
     scheme: { bg:'bg-red-50', border:'border-red-200', icon:'text-red-500', text:'text-red-700' },
   })
 
@@ -357,8 +367,9 @@ export default function DashboardPage() {
   const { data, loading, error, refetch } = useDashboardData(filters)
   const bankAccounts  = useBankAccounts()
   const projects      = useProjects()
-  const { alerts: projectAlerts }  = useProjectAlerts()
-  const { alerts: vacationAlerts } = useVacationAlerts()
+  const { alerts: projectAlerts }    = useProjectAlerts()
+  const { alerts: vacationAlerts }   = useVacationAlerts()
+  const { count: pendenciasDeposito } = useDepositoPendencias()
 
   // Estado do accordion de filtros (mobile)
   const [filtersOpen, setFiltersOpen] = useState(false)
@@ -696,6 +707,7 @@ export default function DashboardPage() {
             overduePayable={{ count: accountsPayable[0]?.count ?? 0, amount: accountsPayable[0]?.valor ?? 0 }}
             overdueReceivable={{ count: accountsReceivable[0]?.count ?? 0, amount: accountsReceivable[0]?.valor ?? 0 }}
             vacationAlerts={vacationAlerts}
+            pendenciasDeposito={pendenciasDeposito}
           />
         </div>
       </div>

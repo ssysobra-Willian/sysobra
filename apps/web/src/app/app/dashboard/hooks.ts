@@ -313,6 +313,28 @@ export function useProjectAlerts(): { alerts: ProjectAlerts; loading: boolean } 
   return { alerts: data ?? { budgetAlertCount: 0, delayAlertCount: 0, total: 0 }, loading: isFetching }
 }
 
+// ─── useDepositoPendencias ────────────────────────────────────────────────────
+// Conta pendências abertas do depósito para exibir alerta no dashboard.
+
+export function useDepositoPendencias(): { count: number; loading: boolean } {
+  const companyId = typeof window !== 'undefined' ? (localStorage.getItem('companyId') ?? '') : ''
+
+  const { data, isFetching } = useQuery<number>({
+    queryKey: ['deposito-pendencias'],
+    queryFn:  async () => {
+      const res = await fetch(`${API}/api/v1/waybill/pendencies?status=OPEN`, {
+        headers: { ...authHeaders(), 'x-company-id': companyId },
+      })
+      if (!res.ok) return 0
+      const json = await res.json()
+      return json.total ?? 0
+    },
+    staleTime: 2 * 60_000,
+    enabled:   typeof window !== 'undefined' && !!getToken(),
+  })
+  return { count: data ?? 0, loading: isFetching }
+}
+
 // ─── useVacationAlerts ────────────────────────────────────────────────────────
 // Busca alertas de férias: próximas nos próximos 30 dias + vencendo (prazo legal).
 

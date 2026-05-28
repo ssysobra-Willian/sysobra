@@ -744,12 +744,121 @@ export async function waybillRoutes(app: FastifyInstance) {
     return reply.send(pendencies)
   })
 
+  // ── LISTAR TODAS AS PENDÊNCIAS DA EMPRESA ────────────────────────────────
+  // GET /api/v1/waybill/pendencies?status=OPEN
+  app.get('/pendencies', { preHandler }, async (request, reply) => {
+    const req       = request as RequestWithMember
+    const companyId = cid(req)
+    const { status = 'OPEN' } = request.query as any
+
+    const [pendencies, total] = await Promise.all([
+      p().waybillPendency.findMany({
+        where:   { companyId, isActive: true, status },
+        include: {
+          waybill: {
+            select: {
+              id:                 true,
+              docNumber:          true,
+              category:           true,
+              location:           { select: { name: true } },
+              destinationProject: { select: { name: true } },
+            },
+          },
+          waybillItem: {
+            include: {
+              item: { select: { name: true, unit: true, category: true } },
+            },
+          },
+        },
+        orderBy: { createdAt: 'desc' },
+      }),
+      p().waybillPendency.count({
+        where: { companyId, isActive: true, status: 'OPEN' },
+      }),
+    ])
+
+    return reply.send({ pendencies, total })
+  })
+
   // ── RESOLVER PENDÊNCIA ───────────────────────────────────────────────────
   // PATCH /api/v1/waybill/pendencies/:pendencyId/resolve
+  // body: { resolution: 'RETURN_TO_STOCK' | 'LOSS' | 'THEFT', notes?: string }
   app.patch('/pendencies/:pendencyId/resolve', { preHandler }, async (request, reply) => {
-    const userId        = uid(request)
+    const req            = request as RequestWithMember
+    const companyId      = cid(req)
+    const userId         = uid(request)
     const { pendencyId } = request.params as any
-    const body          = request.body as any
+    const body           = request.body as any
+
+    const pendency = await p().waybillPendency.findFirst({
+      where:   { id: pendencyId, companyId, isActive: true },
+      include: {
+        waybill:     { select: { id: true, docNumber: true, locationId: true } },
+        waybillItem: { select: { id: true, itemId: true, requestedQty: true, receivedQty: true } },
+      },
+    })
+
+    if (!pendency) {
+      return reply.status(404).send({ error: 'Pendência não encontrada' })
+    }
+    if (pendency.status !== 'OPEN') {
+      return reply.status(400).send({ error: 'Pendência já resolvida' })
+    }
+
+    const pendingQty = Number(pendency.quantityExpected ?? 0) - Number(pendency.quantityReceived ?? 0)
+
+    // RETURN_TO_STOCK: devolver ao estoque a quantidade pendente
+    if (body.resolution === 'RETURN_TO_STOCK' && pendingQty > 0 && pendency.waybillItem) {
+      const balance = await p().stockBalance.findFirst({
+        where: { itemId: pendency.waybillItem.itemId, locationId: pendency.waybill.locationId },
+      })
+
+      if (balance) {
+        await p().stockBalance.update({
+          where: { id: balance.id },
+          data:  { quantity: { increment: pendingQty } },
+        })
+        // Atualizar também StockItem.quantity (campo global)
+        await p().stockItem.update({
+          where: { id: pendency.waybillItem.itemId },
+          data:  { quantity: { increment: pendingQty } },
+        })
+      }
+
+      await p().stockMovement.create({
+        data: {
+          companyId,
+          stockItemId: pendency.waybillItem.itemId,
+          locationId:  pendency.waybill.locationId,
+          type:        'RETURN',
+          quantity:    pendingQty,
+          unitCost:    0,
+          totalCost:   0,
+          notes:       `Devolução de pendência — Romaneio ${pendency.waybill.docNumber}`,
+        },
+      })
+    }
+
+    // LOSS: registrar como perda (sem ajuste de estoque — já foi baixado)
+    if (body.resolution === 'LOSS' && pendingQty > 0 && pendency.waybillItem) {
+      await p().stockMovement.create({
+        data: {
+          companyId,
+          stockItemId: pendency.waybillItem.itemId,
+          locationId:  pendency.waybill.locationId,
+          type:        'LOSS',
+          quantity:    pendingQty,
+          unitCost:    0,
+          totalCost:   0,
+          notes:       `Prejuízo declarado — Romaneio ${pendency.waybill.docNumber}`,
+        },
+      })
+    }
+
+    const resolutionLabel =
+      body.resolution === 'RETURN_TO_STOCK' ? `✅ Devolvido ao estoque: ${pendingQty} unidade(s)`
+      : body.resolution === 'LOSS'          ? `📋 Declarado como prejuízo: ${pendingQty} unidade(s)`
+      : `🚨 Declarado como extravio: ${pendingQty} unidade(s)`
 
     await p().waybillPendency.update({
       where: { id: pendencyId },
@@ -757,11 +866,23 @@ export async function waybillRoutes(app: FastifyInstance) {
         status:          'RESOLVED',
         resolvedAt:      new Date(),
         resolvedBy:      userId,
-        resolutionNotes: body.notes ?? null,
+        resolutionNotes: [resolutionLabel, body.notes ? `Obs: ${body.notes}` : ''].filter(Boolean).join(' | '),
       },
     })
 
-    return reply.send({ success: true })
+    await createAuditLog({
+      prisma: p(), companyId, userId,
+      action: 'UPDATE', module: 'DEPOSIT',
+      entity: 'WaybillPendency', entityId: pendencyId,
+      description: `Pendência resolvida: ${
+        body.resolution === 'RETURN_TO_STOCK' ? 'Devolvido ao estoque'
+        : body.resolution === 'LOSS'          ? 'Declarado prejuízo'
+        : 'Declarado extravio'
+      } — Romaneio ${pendency.waybill.docNumber}`,
+      request,
+    })
+
+    return reply.send({ success: true, resolution: body.resolution })
   })
 }
 

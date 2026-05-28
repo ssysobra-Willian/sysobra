@@ -872,7 +872,8 @@ export default function DepositoPage() {
   const [projects,       setProjects]       = useState<Project[]>([])
   const [loading,        setLoading]        = useState(true)
   const [setupStatus,    setSetupStatus]    = useState<{ hasCentral: boolean } | null>(null)
-  const [checkingSetup,  setCheckingSetup]  = useState(true)
+  const [checkingSetup,      setCheckingSetup]      = useState(true)
+  const [pendenciasCount,    setPendenciasCount]    = useState(0)
 
   // Locations
   const [locations,        setLocations]        = useState<StockLocation[]>([])
@@ -939,6 +940,14 @@ export default function DepositoPage() {
   }, [])
 
   useEffect(() => { loadAll() }, [loadAll])
+
+  // Contar pendências abertas para exibir badge no header
+  useEffect(() => {
+    apiFetch('/api/v1/waybill/pendencies?status=OPEN')
+      .then(r => r.ok ? r.json() : { total: 0 })
+      .then(d => setPendenciasCount(d.total ?? 0))
+      .catch(() => {})
+  }, [])
 
   // ── Derived item lists ────────────────────────────────────────────────────
   const materials = items.filter(i => !i.isEpi && !i.isUniform && !i.requiresCustody)
@@ -1083,6 +1092,29 @@ export default function DepositoPage() {
               >
                 <FileText size={14} />
                 <span className="hidden md:inline text-xs font-medium">Romaneios</span>
+              </button>
+
+              {/* Pendências */}
+              <button
+                onClick={() => router.push('/app/deposito/pendencias')}
+                className="hidden sm:flex items-center gap-1.5 text-sm px-3 py-2 rounded-xl transition"
+                style={{
+                  border:     pendenciasCount > 0 ? '1px solid #DC2626' : '1px solid #E5E7EB',
+                  background: pendenciasCount > 0 ? '#FEF2F2'           : 'transparent',
+                  color:      pendenciasCount > 0 ? '#DC2626'            : '#6B7280',
+                }}
+                title="Pendências do depósito"
+              >
+                <AlertTriangle size={14} />
+                <span className="hidden md:inline text-xs font-medium">Pendências</span>
+                {pendenciasCount > 0 && (
+                  <span style={{
+                    background: '#DC2626', color: '#fff',
+                    fontSize: 10, fontWeight: 700, padding: '1px 5px', borderRadius: 99,
+                  }}>
+                    {pendenciasCount}
+                  </span>
+                )}
               </button>
 
               {/* Entrada Rápida */}
