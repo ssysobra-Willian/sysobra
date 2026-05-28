@@ -849,6 +849,38 @@ function BasketsTab({ onViewReceipt }: { onViewReceipt: (basketId: string) => vo
   )
 }
 
+// ─── Alert Filters ────────────────────────────────────────────────────────────
+
+type AlertFilterKey = 'low_stock' | 'late_return' | 'maintenance' | 'maintenance_due'
+
+const ALERT_FILTERS: Record<AlertFilterKey, { label: string; filter: (item: StockItem) => boolean }> = {
+  low_stock: {
+    label:  'Estoque baixo',
+    filter: (item) => item.quantity <= item.minQuantity && item.minQuantity > 0,
+  },
+  late_return: {
+    label:  'Devolução atrasada',
+    filter: (item) =>
+      item.requiresCustody &&
+      !!item.currentLocation &&
+      !['depósito', 'central', 'almox'].some(s => item.currentLocation!.toLowerCase().includes(s)),
+  },
+  maintenance: {
+    label:  'Em manutenção',
+    filter: (item) =>
+      item.requiresCustody &&
+      !!item.nextMaintenance &&
+      (daysFromNow(item.nextMaintenance) ?? 1) < 0,
+  },
+  maintenance_due: {
+    label:  'Manutenção próxima',
+    filter: (item) => {
+      const d = daysFromNow(item.nextMaintenance)
+      return item.requiresCustody && d !== null && d >= 0 && d <= 30
+    },
+  },
+}
+
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 type TabId = 'materials' | 'tools' | 'epis' | 'uniforms' | 'movements'
@@ -874,6 +906,7 @@ export default function DepositoPage() {
   const [setupStatus,    setSetupStatus]    = useState<{ hasCentral: boolean } | null>(null)
   const [checkingSetup,      setCheckingSetup]      = useState(true)
   const [pendenciasCount,    setPendenciasCount]    = useState(0)
+  const [activeFilter,       setActiveFilter]       = useState<AlertFilterKey | null>(null)
 
   // Locations
   const [locations,        setLocations]        = useState<StockLocation[]>([])
@@ -949,11 +982,12 @@ export default function DepositoPage() {
       .catch(() => {})
   }, [])
 
-  // ── Derived item lists ────────────────────────────────────────────────────
-  const materials = items.filter(i => !i.isEpi && !i.isUniform && !i.requiresCustody)
-  const tools      = items.filter(i => i.requiresCustody)
-  const epis       = items.filter(i => i.isEpi)
-  const uniforms   = items.filter(i => i.isUniform)
+  // ── Derived item lists (respeitam activeFilter) ───────────────────────────
+  const baseItems  = activeFilter ? items.filter(ALERT_FILTERS[activeFilter].filter) : items
+  const materials  = baseItems.filter(i => !i.isEpi && !i.isUniform && !i.requiresCustody)
+  const tools      = baseItems.filter(i => i.requiresCustody)
+  const epis       = baseItems.filter(i => i.isEpi)
+  const uniforms   = baseItems.filter(i => i.isUniform)
 
   // ── Smart header button ───────────────────────────────────────────────────
   function getAddButton() {
@@ -1036,97 +1070,15 @@ export default function DepositoPage() {
     <div className="min-h-screen bg-gray-50">
       {/* ── Header ─────────────────────────────────────────────────────── */}
       <div className="bg-white border-b border-gray-100">
-        <div className="max-w-screen-xl mx-auto px-4 sm:px-6">
-          <div className="flex items-center justify-between py-4">
+        <div className="max-w-screen-xl mx-auto px-4 sm:px-6 py-4">
+
+          {/* Linha 1: Título + ações principais */}
+          <div className="flex items-center justify-between mb-3">
             <div>
               <h1 className="text-lg font-bold text-gray-900">Depósito</h1>
               <p className="text-xs text-gray-400 mt-0.5">Controle de materiais, ferramentas e EPIs</p>
             </div>
             <div className="flex items-center gap-2">
-
-              {/* Location selector */}
-              {locations.length > 0 && (
-                <div className="hidden sm:flex items-center gap-1.5 border border-gray-200 rounded-xl px-3 py-2 bg-white">
-                  <Warehouse size={13} className="text-gray-400" />
-                  <select
-                    value={selectedLocation}
-                    onChange={e => setSelectedLocation(e.target.value)}
-                    className="text-xs text-gray-700 bg-transparent focus:outline-none cursor-pointer font-medium max-w-[180px]"
-                  >
-                    <option value="all">📊 Estoque global — todos</option>
-                    {locations.filter(l => l.isActive).map(l => (
-                      <option key={l.id} value={l.id}>
-                        {l.type === 'CENTRAL' ? '🏭 Depósito Central — ' : '🏗️ '}{l.name}
-                        {l.project ? ` (${l.project.name})` : ''}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
-
-              {/* Botão + Novo almoxarifado */}
-              <button
-                onClick={() => setCreateLocationOpen(true)}
-                className="hidden sm:flex items-center gap-1.5 border border-gray-200 text-gray-600 text-sm px-3 py-2 rounded-xl hover:bg-gray-50 transition"
-                title="Criar novo almoxarifado"
-              >
-                <Warehouse size={14} className="text-[#F5A623]" />
-                <span className="hidden md:inline text-xs font-medium">+ Almoxarifado</span>
-              </button>
-
-              {/* Transferências */}
-              <button
-                onClick={() => router.push('/app/deposito/transferencias')}
-                className="hidden sm:flex items-center gap-1.5 border border-gray-200 text-gray-600 text-sm px-3 py-2 rounded-xl hover:bg-gray-50 transition"
-                title="Transferências entre almoxarifados"
-              >
-                <ArrowLeftRight size={14} />
-                <span className="hidden md:inline text-xs font-medium">Transferências</span>
-              </button>
-
-              {/* Romaneios */}
-              <button
-                onClick={() => router.push('/app/deposito/romaneios')}
-                className="hidden sm:flex items-center gap-1.5 border border-gray-200 text-gray-600 text-sm px-3 py-2 rounded-xl hover:bg-gray-50 transition"
-                title="Romaneios de saída"
-              >
-                <FileText size={14} />
-                <span className="hidden md:inline text-xs font-medium">Romaneios</span>
-              </button>
-
-              {/* Pendências */}
-              <button
-                onClick={() => router.push('/app/deposito/pendencias')}
-                className="hidden sm:flex items-center gap-1.5 text-sm px-3 py-2 rounded-xl transition"
-                style={{
-                  border:     pendenciasCount > 0 ? '1px solid #DC2626' : '1px solid #E5E7EB',
-                  background: pendenciasCount > 0 ? '#FEF2F2'           : 'transparent',
-                  color:      pendenciasCount > 0 ? '#DC2626'            : '#6B7280',
-                }}
-                title="Pendências do depósito"
-              >
-                <AlertTriangle size={14} />
-                <span className="hidden md:inline text-xs font-medium">Pendências</span>
-                {pendenciasCount > 0 && (
-                  <span style={{
-                    background: '#DC2626', color: '#fff',
-                    fontSize: 10, fontWeight: 700, padding: '1px 5px', borderRadius: 99,
-                  }}>
-                    {pendenciasCount}
-                  </span>
-                )}
-              </button>
-
-              {/* Entrada Rápida */}
-              <button
-                onClick={() => setQuickEntryOpen(true)}
-                className="hidden sm:flex items-center gap-1.5 border border-[#F5A623] text-[#F5A623] text-sm px-3 py-2 rounded-xl hover:bg-orange-50 transition"
-                title="Entrada rápida de estoque"
-              >
-                <Zap size={14} />
-                <span className="hidden md:inline text-xs font-medium">Entrada Rápida</span>
-              </button>
-
               <button
                 onClick={loadAll}
                 className="p-2 rounded-xl border border-gray-200 hover:bg-gray-50 transition"
@@ -1144,6 +1096,97 @@ export default function DepositoPage() {
                 </button>
               )}
             </div>
+          </div>
+
+          {/* Linha 2: Navegação e filtros */}
+          <div className="flex items-center gap-2 flex-wrap">
+
+            {/* Location selector */}
+            {locations.length > 0 && (
+              <div className="flex items-center gap-1.5 border border-gray-200 rounded-xl px-3 py-2 bg-white">
+                <Warehouse size={13} className="text-gray-400" />
+                <select
+                  value={selectedLocation}
+                  onChange={e => setSelectedLocation(e.target.value)}
+                  className="text-xs text-gray-700 bg-transparent focus:outline-none cursor-pointer font-medium max-w-[200px]"
+                >
+                  <option value="all">📊 Estoque global — todos</option>
+                  {locations.filter(l => l.isActive).map(l => (
+                    <option key={l.id} value={l.id}>
+                      {l.type === 'CENTRAL' ? '🏭 Depósito Central — ' : '🏗️ '}{l.name}
+                      {l.project ? ` (${l.project.name})` : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            {/* + Almoxarifado */}
+            <button
+              onClick={() => setCreateLocationOpen(true)}
+              className="flex items-center gap-1.5 border border-gray-200 text-gray-600 text-xs px-3 py-2 rounded-xl hover:bg-gray-50 transition font-medium"
+              title="Criar novo almoxarifado"
+            >
+              <Warehouse size={13} className="text-[#F5A623]" />
+              + Almoxarifado
+            </button>
+
+            {/* Separador */}
+            <div className="w-px h-5 bg-gray-200 hidden sm:block" />
+
+            {/* Transferências */}
+            <button
+              onClick={() => router.push('/app/deposito/transferencias')}
+              className="flex items-center gap-1.5 border border-gray-200 text-gray-600 text-xs px-3 py-2 rounded-xl hover:bg-gray-50 transition font-medium"
+              title="Transferências entre almoxarifados"
+            >
+              <ArrowLeftRight size={13} />
+              Transferências
+            </button>
+
+            {/* Romaneios */}
+            <button
+              onClick={() => router.push('/app/deposito/romaneios')}
+              className="flex items-center gap-1.5 border border-gray-200 text-gray-600 text-xs px-3 py-2 rounded-xl hover:bg-gray-50 transition font-medium"
+              title="Romaneios de saída"
+            >
+              <FileText size={13} />
+              Romaneios
+            </button>
+
+            {/* Pendências */}
+            <button
+              onClick={() => router.push('/app/deposito/pendencias')}
+              className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-xl transition font-medium"
+              style={{
+                border:     pendenciasCount > 0 ? '1px solid #DC2626' : '1px solid #E5E7EB',
+                background: pendenciasCount > 0 ? '#FEF2F2'           : 'transparent',
+                color:      pendenciasCount > 0 ? '#DC2626'            : '#6B7280',
+              }}
+              title="Pendências do depósito"
+            >
+              <AlertTriangle size={13} />
+              Pendências
+              {pendenciasCount > 0 && (
+                <span style={{ background: '#DC2626', color: '#fff', fontSize: 10, fontWeight: 700, padding: '1px 5px', borderRadius: 99 }}>
+                  {pendenciasCount}
+                </span>
+              )}
+            </button>
+
+            {/* Separador */}
+            <div className="w-px h-5 bg-gray-200 hidden sm:block" />
+
+            {/* Entrada Rápida */}
+            <button
+              onClick={() => setQuickEntryOpen(true)}
+              className="flex items-center gap-1.5 border border-[#F5A623] text-[#F5A623] text-xs px-3 py-2 rounded-xl hover:bg-orange-50 transition font-medium"
+              title="Entrada rápida de estoque"
+            >
+              <Zap size={13} />
+              Entrada Rápida
+            </button>
+
           </div>
         </div>
       </div>
@@ -1183,33 +1226,94 @@ export default function DepositoPage() {
               icon={<ArrowDownToLine size={18} className="text-green-600" />}
               color="bg-green-50"
             />
-            <MetricCard
-              label="Estoque baixo"
-              value={summary.lowStockCount}
-              icon={<AlertTriangle size={18} className="text-red-500" />}
-              color="bg-red-50"
-              alert={summary.lowStockCount > 0}
-            />
-            <MetricCard
-              label="Devoluções atrasadas"
-              value={summary.overdueReturns}
-              icon={<Clock size={18} className="text-orange-500" />}
-              color="bg-orange-50"
-              alert={summary.overdueReturns > 0}
-            />
-            <MetricCard
-              label="Em manutenção"
-              value={summary.inMaintenanceCount}
-              icon={<Wrench size={18} className="text-purple-600" />}
-              color="bg-purple-50"
-            />
-            <MetricCard
-              label="Manutenções atrasadas"
-              value={summary.overdueMaintenance}
-              icon={<AlertTriangle size={18} className="text-red-600" />}
-              color="bg-red-50"
-              alert={summary.overdueMaintenance > 0}
-            />
+            {/* ── Alert cards (clicáveis) ───────────────────────────────── */}
+            {([
+              {
+                key:   'low_stock'       as AlertFilterKey,
+                label: 'Estoque baixo',
+                value: summary.lowStockCount,
+                icon:  <AlertTriangle size={18} />,
+                ring:  'ring-red-400',
+                bg:    'bg-red-50',
+                iconColor: 'text-red-500',
+                activeBg:  'bg-red-500',
+                hasAlert:  summary.lowStockCount > 0,
+              },
+              {
+                key:   'late_return'     as AlertFilterKey,
+                label: 'Devoluções atrasadas',
+                value: summary.overdueReturns,
+                icon:  <Clock size={18} />,
+                ring:  'ring-orange-400',
+                bg:    'bg-orange-50',
+                iconColor: 'text-orange-500',
+                activeBg:  'bg-orange-500',
+                hasAlert:  summary.overdueReturns > 0,
+              },
+              {
+                key:   'maintenance'     as AlertFilterKey,
+                label: 'Em manutenção',
+                value: summary.inMaintenanceCount,
+                icon:  <Wrench size={18} />,
+                ring:  'ring-purple-400',
+                bg:    'bg-purple-50',
+                iconColor: 'text-purple-600',
+                activeBg:  'bg-purple-600',
+                hasAlert:  false,
+              },
+              {
+                key:   'maintenance_due' as AlertFilterKey,
+                label: 'Manutenções próximas',
+                value: summary.overdueMaintenance,
+                icon:  <AlertTriangle size={18} />,
+                ring:  'ring-red-400',
+                bg:    'bg-red-50',
+                iconColor: 'text-red-600',
+                activeBg:  'bg-red-600',
+                hasAlert:  summary.overdueMaintenance > 0,
+              },
+            ]).map(card => {
+              const isActive = activeFilter === card.key
+              return (
+                <button
+                  key={card.key}
+                  onClick={() => setActiveFilter(activeFilter === card.key ? null : card.key)}
+                  className={cn(
+                    'bg-white rounded-xl border p-3 text-left shadow-sm transition-all',
+                    'hover:border-gray-300 focus:outline-none',
+                    isActive
+                      ? `border-transparent ring-2 ${card.ring}`
+                      : card.hasAlert
+                        ? 'border-red-200 hover:border-red-300'
+                        : 'border-gray-100',
+                  )}
+                >
+                  <div className="flex items-start gap-2.5">
+                    <div className={cn(
+                      'w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 transition-colors',
+                      isActive ? `${card.activeBg} text-white` : `${card.bg} ${card.iconColor}`,
+                    )}>
+                      {card.icon}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs text-gray-500 truncate">{card.label}</p>
+                      <p className={cn(
+                        'text-lg font-bold leading-tight',
+                        isActive ? 'text-gray-900' : card.hasAlert ? 'text-red-600' : 'text-gray-800',
+                      )}>{card.value}</p>
+                    </div>
+                    {card.hasAlert && !isActive && (
+                      <span className="w-2 h-2 rounded-full bg-red-500 flex-shrink-0 mt-1" />
+                    )}
+                    {isActive && (
+                      <span className="text-[10px] font-semibold bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded-full flex-shrink-0">
+                        ativo
+                      </span>
+                    )}
+                  </div>
+                </button>
+              )
+            })}
           </div>
         )}
 
@@ -1296,6 +1400,26 @@ export default function DepositoPage() {
                 </div>
               </button>
             ))}
+          </div>
+        )}
+
+        {/* ── Filter active banner ──────────────────────────────────────── */}
+        {activeFilter && (
+          <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-orange-50 border border-orange-200 text-sm">
+            <span className="font-semibold text-orange-700">
+              Filtrando: {ALERT_FILTERS[activeFilter].label}
+            </span>
+            <span className="text-orange-600">—</span>
+            <span className="text-orange-600">
+              {baseItems.length} {baseItems.length === 1 ? 'item' : 'itens'}
+            </span>
+            <button
+              onClick={() => setActiveFilter(null)}
+              className="ml-auto flex items-center gap-1 text-xs text-orange-500 hover:text-orange-700 font-medium transition"
+            >
+              <X size={13} />
+              Limpar filtro
+            </button>
           </div>
         )}
 

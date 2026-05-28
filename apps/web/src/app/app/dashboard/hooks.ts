@@ -335,6 +335,42 @@ export function useDepositoPendencias(): { count: number; loading: boolean } {
   return { count: data ?? 0, loading: isFetching }
 }
 
+// ─── useDepositoAlerts ────────────────────────────────────────────────────────
+// Busca alertas do depósito: estoque baixo, ferramentas fora, manutenções.
+
+export interface DepositoAlerts {
+  lowStockCount:      number   // itens com qty ≤ minQuantity
+  overdueReturns:     number   // ferramentas/equipamentos fora do depósito
+  inMaintenanceCount: number   // itens em manutenção
+  overdueMaintenance: number   // itens com manutenção atrasada/próxima
+}
+
+export function useDepositoAlerts(): { alerts: DepositoAlerts; loading: boolean } {
+  const { data, isFetching } = useQuery<DepositoAlerts>({
+    queryKey: ['deposito-alerts'],
+    queryFn:  async () => {
+      const companyId = typeof window !== 'undefined' ? (localStorage.getItem('companyId') ?? '') : ''
+      const res = await fetch(`${API}/api/v1/deposit/summary/full`, {
+        headers: { ...authHeaders(), 'x-company-id': companyId },
+      })
+      if (!res.ok) return { lowStockCount: 0, overdueReturns: 0, inMaintenanceCount: 0, overdueMaintenance: 0 }
+      const json = await res.json()
+      return {
+        lowStockCount:      json.lowStockCount      ?? 0,
+        overdueReturns:     json.overdueReturns      ?? 0,
+        inMaintenanceCount: json.inMaintenanceCount  ?? 0,
+        overdueMaintenance: json.overdueMaintenance  ?? 0,
+      }
+    },
+    staleTime: 2 * 60_000,
+    enabled:   typeof window !== 'undefined' && !!getToken(),
+  })
+  return {
+    alerts:  data ?? { lowStockCount: 0, overdueReturns: 0, inMaintenanceCount: 0, overdueMaintenance: 0 },
+    loading: isFetching,
+  }
+}
+
 // ─── useVacationAlerts ────────────────────────────────────────────────────────
 // Busca alertas de férias: próximas nos próximos 30 dias + vencendo (prazo legal).
 
