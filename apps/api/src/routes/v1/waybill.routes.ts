@@ -556,6 +556,9 @@ export async function waybillRoutes(app: FastifyInstance) {
       await p().waybillPendency.createMany({ data: result.pendencies })
     }
 
+    // Criar registros na ficha do colaborador (EPI/Ferramentas)
+    await criarRegistrosColaborador(waybill, result.waybillUpdate.receiverSignatureUrl ?? null)
+
     return reply.send({
       success:          true,
       hasPendency:      result.hasPendency,
@@ -821,6 +824,9 @@ export async function waybillPublicRoutes(app: FastifyInstance) {
       await p().waybillPendency.createMany({ data: result.pendencies })
     }
 
+    // Criar registros na ficha do colaborador (EPI/Ferramentas)
+    await criarRegistrosColaborador(waybill, result.waybillUpdate.receiverSignatureUrl ?? null)
+
     return reply.send({
       success:         true,
       hasPendency:     result.hasPendency,
@@ -830,6 +836,57 @@ export async function waybillPublicRoutes(app: FastifyInstance) {
         : 'Romaneio concluído com sucesso!',
     })
   })
+}
+
+// ─── HELPER: criar registros de entrega para o colaborador ───────────────────
+// Chamado quando um romaneio EPI_UNIFORM ou TOOL é concluído com receiverEmployeeId.
+// Cria StockEpiDelivery (EPI) ou ToolCustody (ferramentas) para a ficha do colaborador.
+
+async function criarRegistrosColaborador(
+  waybill:      any,
+  signatureUrl: string | null,
+): Promise<void> {
+  const employeeId = waybill.receiverEmployeeId
+  if (!employeeId) return
+
+  if (waybill.category === 'EPI_UNIFORM') {
+    for (const item of waybill.items) {
+      try {
+        await p().stockEpiDelivery.create({
+          data: {
+            companyId:   waybill.companyId,
+            stockItemId: item.itemId,
+            employeeId,
+            locationId:  waybill.locationId ?? null,
+            quantity:    Number(item.requestedQty),
+            deliveredAt: new Date(),
+            signatureUrl,
+            notes: `Entregue via romaneio ${waybill.docNumber}`,
+          },
+        })
+      } catch (err) {
+        // log mas não aborta — entrega já foi registrada no romaneio
+        console.error('[criarRegistrosColaborador] EpiDelivery error:', err)
+      }
+    }
+  } else if (waybill.category === 'TOOL') {
+    for (const item of waybill.items) {
+      try {
+        await p().toolCustody.create({
+          data: {
+            companyId:    waybill.companyId,
+            stockItemId:  item.itemId,
+            employeeId,
+            quantity:     Number(item.requestedQty),
+            checkedOutAt: new Date(),
+            notes: `Retirado via romaneio ${waybill.docNumber}`,
+          },
+        })
+      } catch (err) {
+        console.error('[criarRegistrosColaborador] ToolCustody error:', err)
+      }
+    }
+  }
 }
 
 // ─── HELPER: processar assinatura do recebedor ────────────────────────────────

@@ -663,7 +663,7 @@ function SignatureLinkModal({
 
   useEffect(() => {
     setLoading(true)
-    apiFetch(`/api/v1/waybill/${waybillId}/signature-link`, { method: 'POST' })
+    apiFetch(`/api/v1/waybill/${waybillId}/signature-link`, { method: 'POST', body: JSON.stringify({}) })
       .then(r => {
         if (!r.ok) return r.json().then(d => { throw new Error(d.error ?? 'Erro') })
         return r.json()
