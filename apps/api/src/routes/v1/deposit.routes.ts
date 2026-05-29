@@ -3855,7 +3855,7 @@ ${getPdfFooter(company?.name ?? '')}
         toolsMap.set(wi.item.id, {
           ...wi.item,
           allocatedAt:   wi.waybill.emittedAt,
-          returnedAt:    wi.waybill.receivedAt,
+          returnedAt:    wi.item.toolStatus === 'AVAILABLE' ? wi.waybill.receivedAt : null,
           responsavel:   wi.waybill.receiverEmployee?.name ?? wi.waybill.receiverName ?? '—',
           docNumber:     wi.waybill.docNumber,
           waybillId:     wi.waybill.id,
