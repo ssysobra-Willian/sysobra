@@ -417,6 +417,7 @@ model Company {
   waybills              Waybill[]
   notifications         Notification[]
   toolDeleteRequests    ToolDeleteRequest[]
+  projectCloseRequests  ProjectCloseRequest[]
 
   @@map("companies")
 }
@@ -569,8 +570,36 @@ model Project {
   projectFolders        ProjectFolder[]
   stockLocations        StockLocation[]
   waybills              Waybill[]
+  closeRequests         ProjectCloseRequest[]
 
   @@map("projects")
+}
+
+// ─────────────────────────────────────────
+// OBRA — Solicitação de Encerramento
+// ─────────────────────────────────────────
+
+/// Solicitação de encerramento de obra com aprovação do gestor
+model ProjectCloseRequest {
+  id           String    @id @default(cuid())
+  companyId    String    @map("company_id")
+  projectId    String    @map("project_id")
+  requestedBy  String    @map("requested_by")   // userId
+  requestedAt  DateTime  @default(now()) @map("requested_at")
+  reason       String?
+  status       String    @default("PENDING") @map("status")
+  // PENDING | APPROVED | REJECTED
+  pendingTools Int       @default(0) @map("pending_tools")
+  reviewedBy   String?   @map("reviewed_by")
+  reviewedAt   DateTime? @map("reviewed_at")
+  reviewNotes  String?   @map("review_notes")
+  isActive     Boolean   @default(true) @map("is_active")
+
+  company  Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  project  Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, status])
+  @@map("project_close_requests")
 }
 
 // ─────────────────────────────────────────

@@ -222,11 +222,12 @@ export default function DiarioProjectPage() {
 
   // ── Carrega ferramentas da obra quando a aba abre ─────────────────────────
   const loadRdoTools = async () => {
-    const token = localStorage.getItem('token') || ''
+    const token     = localStorage.getItem('token') || ''
+    const companyId = localStorage.getItem('companyId') || ''
     setRdoToolsLoading(true)
     try {
       const res  = await fetch(`${API}/api/v1/diary/entries/${projectId}/equipments`, {
-        headers: { Authorization: `Bearer ${token}` },
+        headers: { Authorization: `Bearer ${token}`, 'x-company-id': companyId },
       })
       const data = await res.json()
       setRdoTools(data.tools ?? [])
@@ -239,10 +240,11 @@ export default function DiarioProjectPage() {
   }, [tab])
 
   const handleConfirmTool = async (itemId: string, confirmed: boolean, notes?: string) => {
-    const token = localStorage.getItem('token') || ''
+    const token     = localStorage.getItem('token') || ''
+    const companyId = localStorage.getItem('companyId') || ''
     await fetch(`${API}/api/v1/diary/entries/${projectId}/equipments/confirm`, {
       method:  'POST',
-      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      headers: { Authorization: `Bearer ${token}`, 'x-company-id': companyId, 'Content-Type': 'application/json' },
       body:    JSON.stringify({ itemId, confirmed, notes }),
     })
     loadRdoTools()

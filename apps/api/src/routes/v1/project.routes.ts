@@ -12,6 +12,7 @@ import {
   JwtPayload,
 } from '../../middlewares/auth.middleware'
 import { createAuditLog, diffObjects } from '../../utils/audit'
+import { notifyManagers, createNotification } from '../../utils/notifications'
 import {
   gerarHtmlPlaca,
   getSyslobraLogoBase64,
@@ -1427,6 +1428,137 @@ export async function projectRoutes(app: FastifyInstance) {
       const fullPath = path.join(process.cwd(), file.url)
       if (fs.existsSync(fullPath)) fs.unlinkSync(fullPath)
     } catch { /* não bloquear se arquivo já não existir */ }
+
+    return reply.send({ success: true })
+  })
+
+  // ── POST /:id/request-close — solicitar encerramento ─────────────────────
+  app.post('/:id/request-close', { preHandler: [requireCompany] }, async (request, reply) => {
+    const req       = request as RequestWithMember
+    const companyId = req.companyId!
+    const payload   = request.user as JwtPayload
+    const userId    = payload.sub
+    const { id }    = request.params as { id: string }
+    const body      = request.body as { reason?: string }
+
+    const project = await p.project.findFirst({
+      where: { id, companyId, isActive: true },
+      select: { id: true, name: true, status: true },
+    })
+    if (!project) return reply.status(404).send({ error: 'Obra não encontrada' })
+    if (project.status === 'COMPLETED' || project.status === 'CANCELLED') {
+      return reply.status(400).send({ error: 'Obra já está encerrada ou cancelada' })
+    }
+
+    // Verificar ferramentas pendentes diretamente no banco
+    const pendingTools = await p.stockItem.count({
+      where: { companyId, requiresCustody: true, currentProjectId: id, toolStatus: 'IN_USE' },
+    })
+
+    const closeReq = await p.projectCloseRequest.create({
+      data: {
+        companyId,
+        projectId:   id,
+        requestedBy: userId,
+        reason:      body.reason ?? null,
+        pendingTools,
+        status:      'PENDING',
+        isActive:    true,
+      },
+    })
+
+    await notifyManagers({
+      companyId,
+      type:    'ACTION_REQUIRED',
+      title:   '🏗️ Solicitação de encerramento de obra',
+      message: `Solicitação para encerrar "${project.name}".${
+        pendingTools > 0
+          ? ` ⚠️ ${pendingTools} ferramenta(s) ainda alocada(s).`
+          : ' Sem pendências de ferramentas.'
+      }`,
+      link: `/app/centro-de-custo/${id}`,
+      excludeUserId: userId,
+    })
+
+    return reply.send({
+      success:     true,
+      requestId:   closeReq.id,
+      pendingTools,
+      message: pendingTools > 0
+        ? `Solicitação enviada. Há ${pendingTools} ferramenta(s) pendente(s) informadas ao gestor.`
+        : 'Solicitação enviada ao gestor para aprovação.',
+    })
+  })
+
+  // ── PATCH /:id/close-requests/:requestId/approve ─────────────────────────
+  app.patch('/:id/close-requests/:requestId/approve', { preHandler: [requireCompany] }, async (request, reply) => {
+    const req        = request as RequestWithMember
+    const companyId  = req.companyId!
+    const payload    = request.user as JwtPayload
+    const userId     = payload.sub
+    const memberRole = (req as any).memberRole as string | undefined
+    const { id, requestId } = request.params as { id: string; requestId: string }
+
+    if (!['OWNER', 'ADMIN', 'MANAGER'].includes(memberRole ?? '')) {
+      return reply.status(403).send({ error: 'Sem permissão para aprovar encerramento' })
+    }
+
+    const closeReq = await p.projectCloseRequest.findFirst({
+      where: { id: requestId, projectId: id, status: 'PENDING', isActive: true },
+    })
+    if (!closeReq) return reply.status(404).send({ error: 'Solicitação não encontrada' })
+
+    await p.project.update({ where: { id }, data: { status: 'COMPLETED' } })
+
+    await p.projectCloseRequest.update({
+      where: { id: requestId },
+      data: { status: 'APPROVED', reviewedBy: userId, reviewedAt: new Date() },
+    })
+
+    await createNotification({
+      companyId,
+      userId: closeReq.requestedBy,
+      type:    'INFO',
+      title:   '✅ Encerramento de obra aprovado',
+      message: 'O encerramento da obra foi aprovado pelo gestor.',
+      link:    `/app/centro-de-custo/${id}`,
+    })
+
+    return reply.send({ success: true })
+  })
+
+  // ── PATCH /:id/close-requests/:requestId/reject ──────────────────────────
+  app.patch('/:id/close-requests/:requestId/reject', { preHandler: [requireCompany] }, async (request, reply) => {
+    const req        = request as RequestWithMember
+    const companyId  = req.companyId!
+    const payload    = request.user as JwtPayload
+    const userId     = payload.sub
+    const memberRole = (req as any).memberRole as string | undefined
+    const { id, requestId } = request.params as { id: string; requestId: string }
+    const body = request.body as { notes?: string }
+
+    if (!['OWNER', 'ADMIN', 'MANAGER'].includes(memberRole ?? '')) {
+      return reply.status(403).send({ error: 'Sem permissão para recusar encerramento' })
+    }
+
+    const closeReq = await p.projectCloseRequest.findFirst({
+      where: { id: requestId, projectId: id, status: 'PENDING', isActive: true },
+    })
+    if (!closeReq) return reply.status(404).send({ error: 'Solicitação não encontrada' })
+
+    await p.projectCloseRequest.update({
+      where: { id: requestId },
+      data: { status: 'REJECTED', reviewedBy: userId, reviewedAt: new Date(), reviewNotes: body.notes ?? null },
+    })
+
+    await createNotification({
+      companyId,
+      userId: closeReq.requestedBy,
+      type:    'WARNING',
+      title:   '❌ Encerramento recusado',
+      message: `O encerramento da obra foi recusado.${body.notes ? ` Motivo: ${body.notes}` : ''}`,
+      link:    `/app/centro-de-custo/${id}`,
+    })
 
     return reply.send({ success: true })
   })

@@ -687,6 +687,11 @@ export default function ObraDetailPage() {
   const [toolsLoading,  setToolsLoading]  = useState(false)
   const [toolsCount,    setToolsCount]    = useState(0)
 
+  // ── Modal encerramento de obra ────────────────────────────────────────────
+  const [showCloseModal,  setShowCloseModal]  = useState(false)
+  const [closeReason,     setCloseReason]     = useState('')
+  const [requestingClose, setRequestingClose] = useState(false)
+
   // ── Aba Apropriações ──────────────────────────────────────────────────────
   const [allocTxs,      setAllocTxs]      = useState<AllocTx[]>([])
   const [allocTotal,    setAllocTotal]     = useState(0)
@@ -733,9 +738,10 @@ export default function ObraDetailPage() {
   // ── Ferramentas: load count ao abrir projeto ──────────────────────────────
   useEffect(() => {
     if (!id) return
-    const token = localStorage.getItem('token') || ''
+    const token     = localStorage.getItem('token') || ''
+    const companyId = localStorage.getItem('companyId') || ''
     fetch(`${API}/api/v1/deposit/tools/by-project/${id}`, {
-      headers: { Authorization: `Bearer ${token}` },
+      headers: { Authorization: `Bearer ${token}`, 'x-company-id': companyId },
     })
       .then(r => r.json())
       .then(d => setToolsCount(d.activeCount ?? 0))
@@ -745,10 +751,11 @@ export default function ObraDetailPage() {
   // ── Ferramentas: load detalhado ao entrar na aba ──────────────────────────
   useEffect(() => {
     if (tab !== 'Ferramentas' || !id) return
-    const token = localStorage.getItem('token') || ''
+    const token     = localStorage.getItem('token') || ''
+    const companyId = localStorage.getItem('companyId') || ''
     setToolsLoading(true)
     fetch(`${API}/api/v1/deposit/tools/by-project/${id}`, {
-      headers: { Authorization: `Bearer ${token}` },
+      headers: { Authorization: `Bearer ${token}`, 'x-company-id': companyId },
     })
       .then(r => r.json())
       .then(d => { setProjectTools(d.tools ?? []); setToolsCount(d.activeCount ?? 0) })
@@ -756,35 +763,30 @@ export default function ObraDetailPage() {
       .finally(() => setToolsLoading(false))
   }, [tab, id])
 
-  // ── Encerrar obra com verificação de ferramentas ──────────────────────────
-  const handleCloseProject = async () => {
-    if (toolsCount > 0) {
-      const ok = window.confirm(
-        `⚠️ Esta obra tem ${toolsCount} ferramenta(s) ainda alocada(s).\n\n` +
-        `Ao encerrar, será criada uma pendência para o almoxarife recolher as ferramentas.\n\nDeseja continuar?`
-      )
-      if (!ok) return
-    }
+  // ── Encerrar obra — abre modal de solicitação (aprovação pelo gestor) ────
+  const handleCloseProject = () => setShowCloseModal(true)
+
+  const handleSubmitCloseRequest = async () => {
+    setRequestingClose(true)
     const token     = localStorage.getItem('token') || ''
     const companyId = localStorage.getItem('companyId') || ''
-    await fetch(`${API}/api/v1/projects/${id}`, {
-      method:  'PATCH',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}`, 'x-company-id': companyId },
-      body:    JSON.stringify({ status: 'COMPLETED' }),
-    })
-    if (toolsCount > 0 && project) {
-      await fetch(`${API}/api/v1/notifications/create-for-managers`, {
+    try {
+      const res  = await fetch(`${API}/api/v1/projects/${id}/request-close`, {
         method:  'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}`, 'x-company-id': companyId },
-        body: JSON.stringify({
-          type:    'TOOLS_PENDING_RETURN',
-          title:   '⚠️ Ferramentas pendentes de retorno',
-          message: `A obra "${project.name}" foi encerrada com ${toolsCount} ferramenta(s) ainda alocada(s). Verificar recolhimento.`,
-          link:    `/app/deposito?tab=ferramentas`,
-        }),
+        body:    JSON.stringify({ reason: closeReason }),
       })
-    }
-    loadProject()
+      const data = await res.json()
+      if (!res.ok) { alert(data.error || 'Erro ao solicitar encerramento'); return }
+      alert(
+        data.pendingTools > 0
+          ? `✅ Solicitação enviada!\n⚠️ ${data.pendingTools} ferramenta(s) pendente(s) foram informadas ao gestor.`
+          : '✅ Solicitação enviada ao gestor para aprovação!'
+      )
+      setShowCloseModal(false)
+      setCloseReason('')
+    } catch { alert('Erro ao solicitar encerramento') }
+    finally  { setRequestingClose(false) }
   }
 
   // Carrega lançamentos + summary da aba Apropriações
@@ -2051,6 +2053,57 @@ export default function ObraDetailPage() {
           loadProject()
         }}
       />
+
+      {/* ── Modal: Solicitar encerramento de obra ──────────────────────── */}
+      {showCloseModal && (
+        <div className="fixed inset-0 z-[1000] bg-black/50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl p-6 w-full max-w-md shadow-xl">
+            <h3 className="text-base font-bold text-gray-900 mb-1">Solicitar encerramento da obra</h3>
+            <p className="text-sm text-gray-500 mb-4">{project?.name}</p>
+
+            {toolsCount > 0 && (
+              <div className="mb-4 px-4 py-3 bg-amber-50 border border-amber-300 rounded-xl text-sm text-amber-800">
+                ⚠️ Esta obra tem <strong>{toolsCount} ferramenta(s)</strong> ainda alocada(s).
+                O gestor será informado para providenciar o recolhimento.
+              </div>
+            )}
+
+            <div className="mb-5">
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                Observações <span className="text-gray-400 font-normal">(opcional)</span>
+              </label>
+              <textarea
+                value={closeReason}
+                onChange={e => setCloseReason(e.target.value)}
+                placeholder="Descreva o motivo ou observações do encerramento..."
+                rows={3}
+                className="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm resize-none focus:outline-none focus:ring-2 focus:ring-amber-400"
+              />
+            </div>
+
+            <div className="flex gap-2">
+              <button
+                onClick={() => { setShowCloseModal(false); setCloseReason('') }}
+                className="flex-1 px-4 py-2.5 text-sm font-medium text-gray-700 border border-gray-200 rounded-xl hover:bg-gray-50 transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleSubmitCloseRequest}
+                disabled={requestingClose}
+                className="flex-[2] px-4 py-2.5 text-sm font-bold text-white bg-amber-500 hover:bg-amber-600 disabled:bg-gray-300 rounded-xl transition-colors flex items-center justify-center gap-2"
+              >
+                {requestingClose ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                    Enviando...
+                  </>
+                ) : '📨 Enviar solicitação'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

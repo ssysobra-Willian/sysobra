@@ -131,7 +131,9 @@
       "PowerShell(Start-Sleep -Seconds 15; try { $r = Invoke-WebRequest -Uri \"http://localhost:3000\" -Method GET -TimeoutSec 8; Write-Host \"✅ Web online - Status: $\\($r.StatusCode\\)\" } catch { Write-Host \"⏳ Ainda iniciando ou erro: $\\($_.Exception.Message\\)\" })",
       "PowerShell(Start-Sleep -Seconds 10; try { $r = Invoke-WebRequest -Uri \"http://localhost:3000\" -Method GET -TimeoutSec 8 -UseBasicParsing; Write-Host \"✅ Web online - Status: $\\($r.StatusCode\\)\" } catch { Write-Host \"⏳ Ainda iniciando ou erro: $\\($_.Exception.Message\\)\" })",
       "Bash(Get-ChildItem \"C:/projetos/sysobra/apps/api/src/middlewares/\")",
-      "Bash(Get-ChildItem \"C:/projetos/sysobra/apps/api/src/middleware/\")"
+      "Bash(Get-ChildItem \"C:/projetos/sysobra/apps/api/src/middleware/\")",
+      "PowerShell(cd C:\\\\projetos\\\\sysobra\\\\apps\\\\api; npx ts-node \"$env:TEMP\\\\check_tools.ts\")",
+      "PowerShell(cd C:\\\\projetos\\\\sysobra\\\\packages\\\\database; $env:DATABASE_URL = \\(Get-Content .env | Where-Object { $_ -match \"DATABASE_URL\" } | ForEach-Object { \\($_ -split \"=\", 2\\)[1] }\\); Write-Host \"DB: $env:DATABASE_URL\")"
     ]
   }
 }
