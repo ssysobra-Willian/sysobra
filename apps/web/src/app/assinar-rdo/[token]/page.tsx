@@ -5,21 +5,32 @@ import { useParams } from 'next/navigation'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
 
+/** Formata CPF: 000.000.000-00 */
+function formatCPF(raw: string): string {
+  const digits = raw.replace(/\D/g, '').slice(0, 11)
+  if (digits.length <= 3)  return digits
+  if (digits.length <= 6)  return `${digits.slice(0,3)}.${digits.slice(3)}`
+  if (digits.length <= 9)  return `${digits.slice(0,3)}.${digits.slice(3,6)}.${digits.slice(6)}`
+  return `${digits.slice(0,3)}.${digits.slice(3,6)}.${digits.slice(6,9)}-${digits.slice(9)}`
+}
+
 export default function AssinarRdoPage() {
   const params = useParams()
   const token  = params?.token as string
 
-  const [loading,      setLoading]      = useState(true)
-  const [entry,        setEntry]        = useState<any>(null)
-  const [error,        setError]        = useState('')
-  const [alreadySigned,setAlreadySigned]= useState(false)
-  const [signing,      setSigning]      = useState(false)
-  const [signed,       setSigned]       = useState(false)
-  const [fiscalName,   setFiscalName]   = useState('')
+  const [loading,       setLoading]       = useState(true)
+  const [entry,         setEntry]         = useState<any>(null)
+  const [error,         setError]         = useState('')
+  const [alreadySigned, setAlreadySigned] = useState(false)
+  const [signing,       setSigning]       = useState(false)
+  const [signed,        setSigned]        = useState(false)
+  const [fiscalName,    setFiscalName]    = useState('')
+  const [fiscalDocument,setFiscalDocument]= useState('')   // CPF
+  const [verificationHash, setVerificationHash] = useState('')
 
-  const canvasRef  = useRef<HTMLCanvasElement>(null)
+  const canvasRef   = useRef<HTMLCanvasElement>(null)
   const [isDrawing,   setIsDrawing]   = useState(false)
-  const [hasSignature,setHasSignature] = useState(false)
+  const [hasSignature,setHasSignature]= useState(false)
 
   useEffect(() => {
     if (!token) return
@@ -37,9 +48,14 @@ export default function AssinarRdoPage() {
 
   /* ── Canvas drawing ── */
   function getPos(e: React.MouseEvent | React.TouchEvent, canvas: HTMLCanvasElement) {
-    const rect = canvas.getBoundingClientRect()
-    const src  = 'touches' in e ? e.touches[0] : e
-    return { x: src.clientX - rect.left, y: src.clientY - rect.top }
+    const rect   = canvas.getBoundingClientRect()
+    const scaleX = canvas.width  / rect.width
+    const scaleY = canvas.height / rect.height
+    const src    = 'touches' in e ? e.touches[0] : e
+    return {
+      x: (src.clientX - rect.left) * scaleX,
+      y: (src.clientY - rect.top)  * scaleY,
+    }
   }
 
   function startDraw(e: React.MouseEvent | React.TouchEvent) {
@@ -75,7 +91,7 @@ export default function AssinarRdoPage() {
   }
 
   async function handleSign() {
-    if (!hasSignature || !fiscalName.trim()) return
+    if (!hasSignature || !fiscalName.trim() || !fiscalDocument.trim()) return
     setSigning(true)
     const canvas = canvasRef.current!
     const signatureData = canvas.toDataURL('image/png')
@@ -83,10 +99,11 @@ export default function AssinarRdoPage() {
       const res  = await fetch(`${API}/api/v1/diary/public/sign/${token}`, {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ signatureData, fiscalName }),
+        body:    JSON.stringify({ signatureData, fiscalName, fiscalDocument }),
       })
       const data = await res.json()
       if (!res.ok) { alert(data.error || 'Erro ao assinar'); return }
+      setVerificationHash(data.verificationHash || '')
       setSigned(true)
     } catch { alert('Erro de conexão. Tente novamente.') }
     finally { setSigning(false) }
@@ -111,10 +128,10 @@ export default function AssinarRdoPage() {
     </div>
   )
 
-  if (alreadySigned || signed) return (
+  if (alreadySigned) return (
     <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'sans-serif', flexDirection: 'column', gap: 12, background: '#F0FDF4' }}>
       <div style={{ fontSize: 64 }}>✅</div>
-      <div style={{ fontSize: 22, fontWeight: 700, color: '#16A34A' }}>RDO assinado com sucesso!</div>
+      <div style={{ fontSize: 22, fontWeight: 700, color: '#16A34A' }}>RDO já foi assinado!</div>
       {entry?.reportNumber && (
         <div style={{ fontSize: 14, color: '#6B7280' }}>
           {entry.reportNumber}{entry.projectName ? ` — ${entry.projectName}` : ''}
@@ -124,7 +141,41 @@ export default function AssinarRdoPage() {
     </div>
   )
 
-  const canSubmit = hasSignature && fiscalName.trim().length > 0 && !signing
+  if (signed) return (
+    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'sans-serif', flexDirection: 'column', gap: 16, background: '#F0FDF4', padding: '24px 16px' }}>
+      <div style={{ fontSize: 64 }}>✅</div>
+      <div style={{ fontSize: 22, fontWeight: 700, color: '#16A34A', textAlign: 'center' }}>RDO assinado com sucesso!</div>
+      {entry?.reportNumber && (
+        <div style={{ fontSize: 14, color: '#6B7280', textAlign: 'center' }}>
+          {entry.reportNumber}{entry.projectName ? ` — ${entry.projectName}` : ''}
+        </div>
+      )}
+
+      {/* Botão de download do PDF assinado */}
+      {verificationHash && (
+        <a
+          href={`${API}/api/v1/diary/public/download/${verificationHash}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{
+            marginTop: 8,
+            display: 'inline-flex', alignItems: 'center', gap: 8,
+            padding: '12px 24px', borderRadius: 10,
+            background: '#F5A623', color: '#fff', fontWeight: 700, fontSize: 15,
+            textDecoration: 'none', boxShadow: '0 2px 8px rgba(245,166,35,0.3)',
+          }}
+        >
+          📄 Baixar PDF assinado
+        </a>
+      )}
+
+      <div style={{ fontSize: 12, color: '#9CA3AF', marginTop: 4, textAlign: 'center' }}>
+        Este link não pode mais ser utilizado.
+      </div>
+    </div>
+  )
+
+  const canSubmit = hasSignature && fiscalName.trim().length > 0 && fiscalDocument.replace(/\D/g,'').length === 11 && !signing
 
   return (
     <div style={{ minHeight: '100vh', background: '#F9FAFB', fontFamily: 'sans-serif', padding: '24px 16px' }}>
@@ -150,13 +201,31 @@ export default function AssinarRdoPage() {
           )}
         </div>
 
+        {/* Prévia do PDF */}
+        <div style={{ marginBottom: 16, textAlign: 'center' }}>
+          <a
+            href={`${API}/api/v1/diary/public/pdf/${token}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{
+              display: 'inline-flex', alignItems: 'center', gap: 6,
+              padding: '8px 16px', borderRadius: 8,
+              border: '1px solid #D1D5DB', background: '#fff',
+              fontSize: 13, color: '#374151', textDecoration: 'none',
+              fontWeight: 500,
+            }}
+          >
+            👁️ Visualizar RDO completo (PDF)
+          </a>
+        </div>
+
         {/* Aviso legal */}
         <div style={{ background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: 10, padding: '12px 14px', marginBottom: 20, fontSize: 12, color: '#92400E' }}>
           <strong>⚠ Importante:</strong> Ao assinar este documento você confirma que tomou conhecimento e está de acordo com o conteúdo do Relatório Diário de Obra. Esta assinatura tem validade legal.
         </div>
 
         {/* Nome do fiscal */}
-        <div style={{ marginBottom: 16 }}>
+        <div style={{ marginBottom: 14 }}>
           <label style={{ fontSize: 13, fontWeight: 600, display: 'block', marginBottom: 6 }}>
             Seu nome completo *
           </label>
@@ -168,11 +237,29 @@ export default function AssinarRdoPage() {
           />
         </div>
 
+        {/* CPF do fiscal */}
+        <div style={{ marginBottom: 16 }}>
+          <label style={{ fontSize: 13, fontWeight: 600, display: 'block', marginBottom: 6 }}>
+            CPF *
+          </label>
+          <input
+            value={fiscalDocument}
+            onChange={e => setFiscalDocument(formatCPF(e.target.value))}
+            placeholder="000.000.000-00"
+            inputMode="numeric"
+            maxLength={14}
+            style={{ width: '100%', padding: '10px 12px', border: '1px solid #D1D5DB', borderRadius: 8, fontSize: 14, boxSizing: 'border-box' as const }}
+          />
+          {fiscalDocument && fiscalDocument.replace(/\D/g,'').length < 11 && (
+            <div style={{ fontSize: 11, color: '#DC2626', marginTop: 3 }}>CPF incompleto</div>
+          )}
+        </div>
+
         {/* Canvas de assinatura */}
         <div style={{ marginBottom: 20 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
             <label style={{ fontSize: 13, fontWeight: 600 }}>Assinatura *</label>
-            <button onClick={clearCanvas} style={{ fontSize: 12, color: '#6B7280', background: 'none', border: 'none', cursor: 'pointer', padding: '2px 8px', borderRadius: 4, transition: 'color 0.15s' }}>
+            <button onClick={clearCanvas} style={{ fontSize: 12, color: '#6B7280', background: 'none', border: 'none', cursor: 'pointer', padding: '2px 8px', borderRadius: 4 }}>
               Limpar
             </button>
           </div>

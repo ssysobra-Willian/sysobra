@@ -1,11 +1,42 @@
 import { FastifyInstance } from 'fastify'
 import { prisma } from '@sysobra/database'
 import crypto from 'crypto'
+import { generatePdf } from '../../utils/pdf'
+import { buildDiaryPdfHtml } from './diary.routes'
 
 const p = prisma as any
 
 // ── Rotas PÚBLICAS do Diário de Obra (sem autenticação) ──────────────────────
 // Registradas em server.ts com prefix '/api/v1/diary'
+
+/** Busca entry por fiscalSignatureToken (válido/expirado ok para PDF preview) ou verificationHash */
+async function findEntryForPdf(lookup: string) {
+  // Tenta como fiscalSignatureToken primeiro
+  let entry = await p.diaryEntry.findFirst({
+    where: { fiscalSignatureToken: lookup },
+    include: {
+      author:       { select: { name: true } },
+      project:      { include: { company: { select: { name: true, cnpj: true, logo: true, address: true, city: true, state: true } } } },
+      stageEntries: { include: { stage: { select: { name: true, code: true } } } },
+      occurrences:  true,
+      rainRecord:   true,
+    },
+  })
+  if (entry) return entry
+
+  // Tenta como verificationHash (pós assinatura)
+  entry = await p.diaryEntry.findFirst({
+    where: { verificationHash: lookup },
+    include: {
+      author:       { select: { name: true } },
+      project:      { include: { company: { select: { name: true, cnpj: true, logo: true, address: true, city: true, state: true } } } },
+      stageEntries: { include: { stage: { select: { name: true, code: true } } } },
+      occurrences:  true,
+      rainRecord:   true,
+    },
+  })
+  return entry ?? null
+}
 
 export async function diaryPublicRoutes(app: FastifyInstance) {
 
@@ -53,7 +84,11 @@ export async function diaryPublicRoutes(app: FastifyInstance) {
   // Fiscal externo assina o RDO
   app.post('/public/sign/:token', async (request, reply) => {
     const { token } = request.params as { token: string }
-    const body      = request.body as { signatureData?: string; fiscalName?: string }
+    const body      = request.body as {
+      signatureData?:  string
+      fiscalName?:     string
+      fiscalDocument?: string  // CPF do fiscal
+    }
 
     if (!body.signatureData) {
       return reply.status(400).send({ error: 'signatureData é obrigatório' })
@@ -82,7 +117,8 @@ export async function diaryPublicRoutes(app: FastifyInstance) {
       data: {
         fiscalSignatureUrl: body.signatureData,
         fiscalSigned:       true,
-        fiscalName:         body.fiscalName || entry.fiscalName,
+        fiscalName:         body.fiscalName     || entry.fiscalName,
+        fiscalDocument:     body.fiscalDocument || null,
         verificationHash,
         // Invalida o token após uso
         fiscalSignatureToken:          null,
@@ -95,5 +131,66 @@ export async function diaryPublicRoutes(app: FastifyInstance) {
       verificationHash,
       message:          'RDO assinado com sucesso!',
     })
+  })
+
+  // ── GET /api/v1/diary/public/pdf/:lookup ─────────────────────────────────
+  // Prévia do PDF — aceita fiscalSignatureToken (antes de assinar) ou verificationHash (depois)
+  // Content-Disposition: inline (visualização no browser)
+  app.get('/public/pdf/:lookup', async (request, reply) => {
+    const { lookup } = request.params as { lookup: string }
+
+    const entry = await findEntryForPdf(lookup)
+    if (!entry) return reply.status(404).send({ error: 'RDO não encontrado ou link inválido' })
+
+    const proj    = entry.project
+    const company = proj?.company ?? {}
+
+    const equipments = await p.diaryEquipment.findMany({
+      where:   { diaryEntryId: entry.id, usedInRdo: true },
+      include: { item: { select: { name: true, brand: true, model: true, serialNumber: true, toolType: true } } },
+    })
+
+    const html = buildDiaryPdfHtml(entry, proj, company, equipments)
+    try {
+      const pdfBuffer = await generatePdf({ kind: 'raw', html } as any)
+      const filename  = `RDO-${entry.reportNumber ?? entry.id}.pdf`
+      reply
+        .header('Content-Type', 'application/pdf')
+        .header('Content-Disposition', `inline; filename="${filename}"`)
+        .send(pdfBuffer)
+    } catch (err) {
+      request.log.error(err, 'Public PDF generation failed')
+      return reply.status(500).send({ error: 'Falha ao gerar PDF' })
+    }
+  })
+
+  // ── GET /api/v1/diary/public/download/:lookup ────────────────────────────
+  // Download do PDF — mesma lógica, Content-Disposition: attachment
+  app.get('/public/download/:lookup', async (request, reply) => {
+    const { lookup } = request.params as { lookup: string }
+
+    const entry = await findEntryForPdf(lookup)
+    if (!entry) return reply.status(404).send({ error: 'RDO não encontrado ou link inválido' })
+
+    const proj    = entry.project
+    const company = proj?.company ?? {}
+
+    const equipments = await p.diaryEquipment.findMany({
+      where:   { diaryEntryId: entry.id, usedInRdo: true },
+      include: { item: { select: { name: true, brand: true, model: true, serialNumber: true, toolType: true } } },
+    })
+
+    const html = buildDiaryPdfHtml(entry, proj, company, equipments)
+    try {
+      const pdfBuffer = await generatePdf({ kind: 'raw', html } as any)
+      const filename  = `RDO-${entry.reportNumber ?? entry.id}-assinado.pdf`
+      reply
+        .header('Content-Type', 'application/pdf')
+        .header('Content-Disposition', `attachment; filename="${filename}"`)
+        .send(pdfBuffer)
+    } catch (err) {
+      request.log.error(err, 'Public PDF download failed')
+      return reply.status(500).send({ error: 'Falha ao gerar PDF' })
+    }
   })
 }

@@ -98,18 +98,20 @@ interface DiaryEntry {
     responsible: { id: string; name: string } | null
     company:     { name: string; cnpj: string | null; logo: string | null }
   }
-  stageEntries: StageEntry[]
-  occurrences:  Occurrence[]
-  comments:     DiaryComment[]
+  stageEntries:    StageEntry[]
+  occurrences:     Occurrence[]
+  comments:        DiaryComment[]
+  signatureStatus?: string
 }
 
 // ─── Labels ───────────────────────────────────────────────────────────────────
 
 const STATUS_CFG: Record<string, { label: string; variant: BadgeVariant; bg: string; text: string }> = {
-  DRAFT:    { label: 'Rascunho',           variant: 'gray',   bg: 'bg-gray-50 border-gray-200',   text: 'text-gray-600'  },
-  PENDING:  { label: 'Aguard. aprovação',  variant: 'yellow', bg: 'bg-amber-50 border-amber-200', text: 'text-amber-700' },
-  APPROVED: { label: 'Aprovado',           variant: 'green',  bg: 'bg-green-50 border-green-200', text: 'text-green-700' },
-  REJECTED: { label: 'Devolvido',          variant: 'red',    bg: 'bg-red-50 border-red-200',     text: 'text-red-700'   },
+  DRAFT:                       { label: 'Rascunho',              variant: 'gray',   bg: 'bg-gray-50 border-gray-200',     text: 'text-gray-600'   },
+  PENDING:                     { label: 'Aguard. aprovação',     variant: 'yellow', bg: 'bg-amber-50 border-amber-200',   text: 'text-amber-700'  },
+  APPROVED:                    { label: 'Aprovado',              variant: 'green',  bg: 'bg-green-50 border-green-200',   text: 'text-green-700'  },
+  REJECTED:                    { label: 'Devolvido',             variant: 'red',    bg: 'bg-red-50 border-red-200',       text: 'text-red-700'    },
+  APPROVED_PENDING_SIGNATURES: { label: 'Aprovado · Ass. pend.', variant: 'orange', bg: 'bg-orange-50 border-orange-200', text: 'text-orange-700' },
 }
 
 const WEATHER_LABEL: Record<string, string> = {
@@ -471,7 +473,7 @@ export default function RdoDetailPage() {
     )
   }
 
-  const sc         = STATUS_CFG[entry.status] ?? STATUS_CFG.PENDING
+  const sc         = STATUS_CFG[entry.signatureStatus ?? entry.status] ?? STATUS_CFG.PENDING
   const isOwnEntry = entry.author.id === userId
   const isPending  = entry.status === 'PENDING'
   const isDraft    = entry.status === 'DRAFT'

@@ -35,10 +35,11 @@ const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
 interface DiaryReport {
-  id:             string
-  date:           string
-  reportNumber:   string | null
-  status:         string
+  id:               string
+  date:             string
+  reportNumber:     string | null
+  status:           string
+  signatureStatus?: string
   isComplement:   boolean
   complementLetter: string | null
   totalRainMm:    number
@@ -113,10 +114,11 @@ interface RainSummary {
 // ─── Labels ───────────────────────────────────────────────────────────────────
 
 const STATUS_CFG: Record<string, { label: string; variant: BadgeVariant }> = {
-  DRAFT:    { label: 'Rascunho',              variant: 'gray'   },
-  PENDING:  { label: 'Aguardando aprovação',  variant: 'yellow' },
-  APPROVED: { label: 'Aprovado',              variant: 'green'  },
-  REJECTED: { label: 'Devolvido p/ correção', variant: 'red'    },
+  DRAFT:                       { label: 'Rascunho',              variant: 'gray'   },
+  PENDING:                     { label: 'Aguardando aprovação',  variant: 'yellow' },
+  APPROVED:                    { label: 'Aprovado',              variant: 'green'  },
+  REJECTED:                    { label: 'Devolvido p/ correção', variant: 'red'    },
+  APPROVED_PENDING_SIGNATURES: { label: 'Aprovado · Ass. pendentes', variant: 'orange' },
 }
 
 const WEATHER_LABEL: Record<string, string> = {
@@ -412,7 +414,7 @@ export default function DiarioProjectPage() {
                         <table className="w-full">
                           <tbody>
                             {dayReports.map((r) => {
-                              const sc = STATUS_CFG[r.status] ?? STATUS_CFG.PENDING
+                              const sc = STATUS_CFG[r.signatureStatus ?? r.status] ?? STATUS_CFG.PENDING
                               const isUnworkable = !r.workableMorning || !r.workableAfternoon || !r.workableNight
                               return (
                                 <tr key={r.id}
@@ -466,7 +468,7 @@ export default function DiarioProjectPage() {
                     .slice()
                     .sort((a, b) => b.date.localeCompare(a.date))
                     .map((r) => {
-                      const sc = STATUS_CFG[r.status] ?? STATUS_CFG.PENDING
+                      const sc = STATUS_CFG[r.signatureStatus ?? r.status] ?? STATUS_CFG.PENDING
                       const isUnworkable = !r.workableMorning || !r.workableAfternoon || !r.workableNight
                       return (
                         <Link key={r.id} href={`/app/diario/${projectId}/${r.id}`}
@@ -519,7 +521,7 @@ export default function DiarioProjectPage() {
                     .slice()
                     .sort((a, b) => b.date.localeCompare(a.date))
                     .map((r, idx) => {
-                      const sc = STATUS_CFG[r.status] ?? STATUS_CFG.PENDING
+                      const sc = STATUS_CFG[r.signatureStatus ?? r.status] ?? STATUS_CFG.PENDING
                       const isUnworkable = !r.workableMorning || !r.workableAfternoon || !r.workableNight
                       return (
                         <Link key={r.id} href={`/app/diario/${projectId}/${r.id}`}

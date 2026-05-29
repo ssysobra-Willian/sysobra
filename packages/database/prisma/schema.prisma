@@ -1955,6 +1955,7 @@ model DiaryEntry {
   fiscalSigned         Boolean   @default(false) @map("fiscal_signed")
   fiscalName           String?   @map("fiscal_name")
   fiscalEmail          String?   @map("fiscal_email")
+  fiscalDocument       String?   @map("fiscal_document")   // CPF do fiscal externo
   // Token público para fiscal externo (TTL 48h):
   fiscalSignatureToken          String?   @unique @map("fiscal_signature_token")
   fiscalSignatureTokenExpiresAt DateTime? @map("fiscal_signature_token_expires_at")

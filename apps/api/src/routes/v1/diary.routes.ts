@@ -157,6 +157,22 @@ async function getDiaryConfig(companyId: string): Promise<DiaryConfig> {
   return { ...DEFAULT_CONFIG, ...(addon.config as Record<string, unknown>) } as DiaryConfig
 }
 
+// ─── signatureStatus virtual field ───────────────────────────────────────────
+
+/**
+ * Retorna status enriquecido com `APPROVED_PENDING_SIGNATURES` quando o RDO
+ * está APPROVED mas ainda há assinaturas pendentes.
+ */
+function getSignatureStatus(entry: any): string {
+  if (entry.status !== 'APPROVED') return entry.status
+  const needsFiscal = !!(entry.fiscalEmail || entry.fiscalName)
+  const allSigned =
+    entry.authorSigned &&
+    entry.approverSigned &&
+    (!needsFiscal || entry.fiscalSigned)
+  return allSigned ? 'APPROVED' : 'APPROVED_PENDING_SIGNATURES'
+}
+
 // ─── Rotas ────────────────────────────────────────────────────────────────────
 
 export async function diaryRoutes(app: FastifyInstance) {
@@ -273,7 +289,12 @@ export async function diaryRoutes(app: FastifyInstance) {
       p.diaryEntry.count({ where }),
     ])
 
-    return reply.send({ project: proj, entries, total, page, limit })
+    const entriesWithStatus = entries.map((e: any) => ({
+      ...e,
+      signatureStatus: getSignatureStatus(e),
+    }))
+
+    return reply.send({ project: proj, entries: entriesWithStatus, total, page, limit })
   })
 
   // ── POST /api/v1/diary/reports — criar relatório ──────────────────────────
@@ -1226,6 +1247,8 @@ export async function diaryRoutes(app: FastifyInstance) {
       }))
     }
 
+    serialised.signatureStatus = getSignatureStatus(serialised)
+
     return reply.send({ entry: serialised })
   })
 
@@ -2050,7 +2073,7 @@ const STATUS_LABEL: Record<string, string> = {
   DRAFT: 'Rascunho', PENDING: 'Aguardando aprovação', APPROVED: 'Aprovado', REJECTED: 'Devolvido',
 }
 
-function buildDiaryPdfHtml(entry: any, proj: any, company: any, equipments: any[] = []): string {
+export function buildDiaryPdfHtml(entry: any, proj: any, company: any, equipments: any[] = []): string {
   const fmtDate = (d: Date | string) => new Date(d).toLocaleDateString('pt-BR')
 
   const statusColors: Record<string, { bg: string; color: string }> = {
