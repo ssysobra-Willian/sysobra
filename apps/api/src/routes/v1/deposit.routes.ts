@@ -3794,43 +3794,11 @@ ${getPdfFooter(company?.name ?? '')}
 
   // ── GET /api/v1/deposit/tools/by-project/:projectId ─────────────────────────
   app.get('/tools/by-project/:projectId', { preHandler }, async (request, reply) => {
-    const cid       = companyId(request as RequestWithMember)
+    const cid           = companyId(request as RequestWithMember)
     const { projectId } = request.params as any
 
-    // Ferramentas via romaneio (destinationProjectId)
-    const waybillTools = await p().waybillItem.findMany({
-      where: {
-        isActive: true,
-        waybill: {
-          companyId:            cid,
-          destinationProjectId: projectId,
-          status:               { in: ['IN_TRANSIT', 'COMPLETED'] },
-          category:             'TOOL',
-        },
-      },
-      include: {
-        item: {
-          select: {
-            id: true, name: true, code: true,
-            serialNumber: true, brand: true, model: true,
-            toolType: true, toolStatus: true,
-            imageUrl: true, unitCost: true,
-          },
-        },
-        waybill: {
-          select: {
-            id: true, docNumber: true, status: true,
-            emittedAt: true, receivedAt: true,
-            receiverEmployee: { select: { id: true, name: true } },
-            receiverName: true,
-            senderName:   true,
-          },
-        },
-      },
-    })
-
-    // Ferramentas via currentProjectId (custódia direta)
-    const directTools = await p().stockItem.findMany({
+    // 1. Fonte de verdade: ferramentas atualmente na obra (toolStatus IN_USE + currentProjectId)
+    const activeItems = await p().stockItem.findMany({
       where: {
         companyId:        cid,
         isActive:         true,
@@ -3847,42 +3815,107 @@ ${getPdfFooter(company?.name ?? '')}
       },
     })
 
-    // Consolidar sem duplicatas
-    const toolsMap = new Map<string, any>()
-
-    waybillTools.forEach((wi: any) => {
-      if (!toolsMap.has(wi.item.id)) {
-        toolsMap.set(wi.item.id, {
-          ...wi.item,
-          allocatedAt:   wi.waybill.emittedAt,
-          returnedAt:    wi.item.toolStatus === 'AVAILABLE' ? wi.waybill.receivedAt : null,
-          responsavel:   wi.waybill.receiverEmployee?.name ?? wi.waybill.receiverName ?? '—',
-          docNumber:     wi.waybill.docNumber,
-          waybillId:     wi.waybill.id,
-          waybillStatus: wi.waybill.status,
-          source:        'WAYBILL',
+    // 2. Para cada ferramenta ativa, buscar o último romaneio (dados históricos)
+    const activeTools = await Promise.all(
+      activeItems.map(async (tool: any) => {
+        const lastWI = await p().waybillItem.findFirst({
+          where: {
+            itemId:   tool.id,
+            isActive: true,
+            waybill: {
+              companyId:            cid,
+              destinationProjectId: projectId,
+              category:             'TOOL',
+              status:               { in: ['IN_TRANSIT', 'COMPLETED'] },
+            },
+          },
+          include: {
+            waybill: {
+              select: {
+                id: true, docNumber: true,
+                emittedAt: true, status: true,
+                receiverEmployee: { select: { name: true } },
+                receiverName: true,
+              },
+            },
+          },
+          orderBy: { createdAt: 'desc' },
         })
-      }
-    })
 
-    directTools.forEach((tool: any) => {
-      if (!toolsMap.has(tool.id)) {
-        toolsMap.set(tool.id, {
+        return {
           ...tool,
-          allocatedAt: null,
-          returnedAt:  null,
-          responsavel: '—',
-          source:      'DIRECT',
-        })
-      }
+          allocatedAt: lastWI?.waybill.emittedAt  ?? null,
+          returnedAt:  null,                        // IN_USE = ainda na obra
+          responsavel: lastWI?.waybill.receiverEmployee?.name
+                       ?? lastWI?.waybill.receiverName ?? '—',
+          docNumber:   lastWI?.waybill.docNumber   ?? null,
+          waybillId:   lastWI?.waybill.id          ?? null,
+          source:      'ACTIVE',
+        }
+      })
+    )
+
+    // 3. Ferramentas devolvidas: tiveram romaneio para esta obra mas saíram (AVAILABLE/DAMAGED/MAINTENANCE)
+    const returnedItems = await p().stockItem.findMany({
+      where: {
+        companyId:       cid,
+        isActive:        true,
+        requiresCustody: true,
+        toolStatus:      { in: ['AVAILABLE', 'DAMAGED', 'MAINTENANCE'] },
+        waybillItems: {
+          some: {
+            isActive: true,
+            waybill: {
+              companyId:            cid,
+              destinationProjectId: projectId,
+              category:             'TOOL',
+              status:               'COMPLETED',
+            },
+          },
+        },
+      },
+      select: {
+        id: true, name: true, code: true,
+        serialNumber: true, brand: true, model: true,
+        toolType: true, toolStatus: true,
+        imageUrl: true, unitCost: true,
+      },
     })
 
-    const tools        = Array.from(toolsMap.values())
-    const activeTools  = tools.filter((t: any) => !t.returnedAt)
-    const returnedTools = tools.filter((t: any) => t.returnedAt)
+    const returnedTools = await Promise.all(
+      returnedItems.map(async (tool: any) => {
+        const lastWI = await p().waybillItem.findFirst({
+          where: {
+            itemId: tool.id,
+            waybill: {
+              companyId:            cid,
+              destinationProjectId: projectId,
+              category:             'TOOL',
+            },
+          },
+          include: {
+            waybill: {
+              select: { docNumber: true, emittedAt: true, receivedAt: true },
+            },
+          },
+          orderBy: { createdAt: 'desc' },
+        })
+
+        return {
+          ...tool,
+          allocatedAt: lastWI?.waybill.emittedAt  ?? null,
+          returnedAt:  lastWI?.waybill.receivedAt ?? new Date(),
+          responsavel: '—',
+          docNumber:   lastWI?.waybill.docNumber  ?? null,
+          source:      'RETURNED',
+        }
+      })
+    )
+
+    const allTools = [...activeTools, ...returnedTools]
 
     return reply.send({
-      tools,
+      tools:         allTools,
       activeCount:   activeTools.length,
       returnedCount: returnedTools.length,
       totalValue:    activeTools.reduce((s: number, t: any) => s + Number(t.unitCost || 0), 0),
