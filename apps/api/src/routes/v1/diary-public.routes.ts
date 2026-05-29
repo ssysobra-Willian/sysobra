@@ -3,7 +3,6 @@ import { prisma } from '@sysobra/database'
 import crypto from 'crypto'
 import { generatePdf } from '../../utils/pdf'
 import { buildDiaryPdfHtml } from './diary.routes'
-import { sendEmail, buildSignedEmailHtml } from '../../utils/mailer'
 
 const p = prisma as any
 
@@ -154,39 +153,6 @@ export async function diaryPublicRoutes(app: FastifyInstance) {
         fiscalSignatureTokenExpiresAt: null,
       },
     })
-
-    // Verificar se todos assinaram e enviar email ao fiscal
-    const updated = await p.diaryEntry.findFirst({
-      where:   { id: entry.id },
-      include: {
-        project: { select: { name: true } },
-        author:  { select: { name: true } },
-      },
-    })
-
-    if (
-      updated?.authorSigned &&
-      updated?.approverSigned &&
-      updated?.fiscalSigned &&
-      finalEmail
-    ) {
-      const apiUrl      = process.env.API_URL || 'http://localhost:3001'
-      const downloadLink = `${apiUrl}/api/v1/diary/public/download/${verificationHash}`
-
-      const emailHtml = buildSignedEmailHtml({
-        fiscalName:   updated.fiscalName    || 'Fiscal',
-        reportNumber: updated.reportNumber  || 'RDO',
-        projectName:  updated.project?.name || '',
-        date:         new Date(updated.date).toLocaleDateString('pt-BR'),
-        downloadLink,
-      })
-
-      sendEmail({
-        to:      finalEmail,
-        subject: `✅ RDO assinado — ${updated.reportNumber} | ${updated.project?.name ?? ''}`,
-        html:    emailHtml,
-      }).catch((err: unknown) => app.log.error(err, 'Falha ao enviar email pós-assinatura'))
-    }
 
     return reply.send({
       success:          true,

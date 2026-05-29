@@ -11,7 +11,6 @@ import { generatePdf } from '../../utils/pdf'
 import { PDF_COLORS, getPdfHeader, getPdfFooter, buildPdfDocument } from '../../utils/pdfTemplate'
 import { createAuditLog } from '../../utils/audit'
 import { notifyManagers }  from '../../utils/notifications'
-import { sendEmail, buildFiscalEmailHtml } from '../../utils/mailer'
 
 const p = prisma as any
 
@@ -2028,24 +2027,6 @@ export async function diaryRoutes(app: FastifyInstance) {
 
     const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
     const link    = `${baseUrl}/assinar-rdo/${token}`
-
-    // Enviar email ao fiscal se email fornecido
-    if (body.fiscalEmail) {
-      const emailHtml = buildFiscalEmailHtml({
-        fiscalName:   body.fiscalName   || 'Fiscal',
-        reportNumber: entry.reportNumber || 'RDO',
-        projectName:  entry.project?.name || '',
-        authorName:   entry.author?.name  || '',
-        date:         new Date(entry.date).toLocaleDateString('pt-BR'),
-        signLink:     link,
-      })
-      // Fire-and-forget — não bloqueia a resposta
-      sendEmail({
-        to:      body.fiscalEmail,
-        subject: `✍️ Solicitação de assinatura — RDO ${entry.reportNumber} | ${entry.project?.name ?? ''}`,
-        html:    emailHtml,
-      }).catch((err: unknown) => request.log.error(err, 'Falha ao enviar email fiscal'))
-    }
 
     return reply.send({ success: true, link, token, expiresAt })
   })
