@@ -334,6 +334,8 @@ model User {
   clientsCreated        Client[]               @relation("ClientCreatedBy")
   suppliersCreated      Supplier[]             @relation("SupplierCreatedBy")
   waybillsAsSender      Waybill[]
+  notifications         Notification[]
+  toolDeleteRequestsMade ToolDeleteRequest[] @relation("DeleteRequestor")
 
   @@map("users")
 }
@@ -413,6 +415,8 @@ model Company {
   stockTransfers        StockTransfer[]
   stockBalances         StockBalance[]
   waybills              Waybill[]
+  notifications         Notification[]
+  toolDeleteRequests    ToolDeleteRequest[]
 
   @@map("companies")
 }
@@ -1269,6 +1273,7 @@ model StockItem {
   stockBalances    StockBalance[]
   transferItems    StockTransferItem[]
   waybillItems     WaybillItem[]
+  deleteRequests   ToolDeleteRequest[]
 
   @@map("stock_items")
 }
@@ -2320,4 +2325,53 @@ model WaybillPendency {
   @@index([companyId, status])
   @@index([waybillId])
   @@map("waybill_pendencies")
+}
+
+// ─────────────────────────────────────────
+// NOTIFICAÇÕES
+// ─────────────────────────────────────────
+
+model Notification {
+  id        String    @id @default(cuid())
+  companyId String    @map("company_id")
+  userId    String    @map("user_id")
+  title     String
+  message   String
+  type      String    @default("INFO")   // INFO | WARNING | ACTION_REQUIRED
+  link      String?
+  isRead    Boolean   @default(false) @map("is_read")
+  readAt    DateTime? @map("read_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, userId, isRead])
+  @@map("notifications")
+}
+
+// ─────────────────────────────────────────
+// SOLICITAÇÃO DE EXCLUSÃO DE FERRAMENTA
+// ─────────────────────────────────────────
+
+model ToolDeleteRequest {
+  id          String    @id @default(cuid())
+  companyId   String    @map("company_id")
+  itemId      String    @map("item_id")
+  requestedBy String    @map("requested_by")
+  reason      String
+  status      String    @default("PENDING")  // PENDING | APPROVED | REJECTED
+  reviewedBy  String?   @map("reviewed_by")
+  reviewNotes String?   @map("review_notes")
+  reviewedAt  DateTime? @map("reviewed_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  company   Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  item      StockItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  requestor User      @relation("DeleteRequestor", fields: [requestedBy], references: [id])
+
+  @@index([companyId, status])
+  @@index([itemId])
+  @@map("tool_delete_requests")
 }

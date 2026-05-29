@@ -9,7 +9,7 @@ import {
 } from 'lucide-react'
 import { SignaturePad } from '@/components/deposit/SignaturePad'
 import { useAuthenticatedPdf } from '@/hooks/useAuthenticatedPdf'
-import WaybillModal from '../components/WaybillModal'
+import WaybillModal, { type WaybillDraftData } from '../components/WaybillModal'
 
 // ─── API helpers ─────────────────────────────────────────────────────────────
 
@@ -172,6 +172,7 @@ function WaybillCard({
   onGenerateLink,
   onCancel,
   onPdf,
+  onContinue,
   pdfLoading,
 }: {
   waybill:          Waybill
@@ -179,6 +180,7 @@ function WaybillCard({
   onGenerateLink:   (w: Waybill) => void
   onCancel:         (w: Waybill) => void
   onPdf:            (w: Waybill) => void
+  onContinue?:      (w: Waybill) => void
   pdfLoading:       boolean
 }) {
   const [expanded, setExpanded] = useState(false)
@@ -352,6 +354,18 @@ function WaybillCard({
         padding: '10px 18px', borderTop: '1px solid #F3F4F6',
         display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center',
       }}>
+        {waybill.status === 'DRAFT' && onContinue && (
+          <button
+            onClick={() => onContinue(waybill)}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 5,
+              padding: '7px 14px', borderRadius: 8, fontSize: 12, fontWeight: 600,
+              background: '#F5A623', color: '#fff', border: 'none', cursor: 'pointer',
+            }}
+          >
+            ✏️ Continuar rascunho
+          </button>
+        )}
         {canSign && (
           <button
             onClick={() => onSign(waybill)}
@@ -871,6 +885,8 @@ export default function RomaneiosPage() {
   const [waybillCategory,   setWaybillCategory]   = useState<'MATERIAL' | 'TOOL' | 'EPI_UNIFORM'>('MATERIAL')
   const [waybillLocationId, setWaybillLocationId] = useState('')
   const [waybillLocationNm, setWaybillLocationNm] = useState('')
+  const [waybillDraftData,  setWaybillDraftData]  = useState<WaybillDraftData | undefined>(undefined)
+  const [waybillDraftKey,   setWaybillDraftKey]   = useState('')
 
   // ── load ─────────────────────────────────────────────────────────────────
   const loadWaybills = useCallback(async () => {
@@ -930,6 +946,37 @@ export default function RomaneiosPage() {
     setWaybillCategory(cat)
     setWaybillLocationId(locId)
     setWaybillLocationNm(locName)
+    setWaybillDraftData(undefined)
+    setWaybillDraftKey('')
+    setWaybillModalOpen(true)
+  }
+
+  function handleContinueDraft(w: Waybill) {
+    const loc = locations.find(l => l.id === w.locationId) ?? w.location
+    const draft: WaybillDraftData = {
+      exitType:              w.exitType,
+      destinationProjectId:  w.destinationProject?.id,
+      destinationName:       w.destinationName ?? '',
+      driverName:            w.driverName,
+      driverPhone:           w.driverPhone,
+      vehiclePlate:          w.vehiclePlate,
+      vehicleModel:          w.vehicleModel,
+      receiverName:          w.receiverName,
+      receiverDocument:      w.receiverDocument,
+      notes:                 w.notes,
+      items: w.items?.map(i => ({
+        itemId:      i.item?.id ?? '',
+        name:        i.item?.name ?? '',
+        unit:        i.item?.unit ?? 'un',
+        quantity:    Number(i.requestedQty),
+        availableQty: 0,
+      })),
+    }
+    setWaybillCategory(w.category as any)
+    setWaybillLocationId(loc?.id ?? w.locationId)
+    setWaybillLocationNm(loc?.name ?? '')
+    setWaybillDraftData(draft)
+    setWaybillDraftKey(w.id)
     setWaybillModalOpen(true)
   }
 
@@ -1062,6 +1109,7 @@ export default function RomaneiosPage() {
                 onGenerateLink={setLinkWaybill}
                 onCancel={handleCancel}
                 onPdf={handlePdf}
+                onContinue={handleContinueDraft}
                 pdfLoading={isPdfLoading(`/api/v1/waybill/${w.id}/pdf`)}
               />
             ))}
@@ -1124,12 +1172,14 @@ export default function RomaneiosPage() {
 
       {waybillModalOpen && (
         <WaybillModal
+          key={waybillDraftKey || 'new'}
           isOpen={waybillModalOpen}
-          onClose={() => setWaybillModalOpen(false)}
+          onClose={() => { setWaybillModalOpen(false); setWaybillDraftData(undefined); setWaybillDraftKey('') }}
           category={waybillCategory}
           locationId={waybillLocationId}
           locationName={waybillLocationNm}
-          onSuccess={() => { setWaybillModalOpen(false); loadWaybills() }}
+          draftData={waybillDraftData}
+          onSuccess={() => { setWaybillModalOpen(false); setWaybillDraftData(undefined); setWaybillDraftKey(''); loadWaybills() }}
         />
       )}
     </div>

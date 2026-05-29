@@ -25,6 +25,7 @@ import {
 } from 'lucide-react'
 import { usePermissions } from '@/hooks/usePermissions'
 import { clearSession, saveBaseToken } from '@/lib/auth-cookies'
+import { NotificationBell } from '@/components/ui/NotificationBell'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
 
@@ -231,14 +232,17 @@ function SidebarContent({ collapsed, onToggleCollapsed, showCloseButton, onClose
             </button>
           </div>
         )}
-        <button
-          onClick={handleLogout}
-          title={collapsed ? 'Sair' : undefined}
-          className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-gray-400 hover:bg-white/5 hover:text-red-400 transition-colors group"
-        >
-          <LogOut size={18} className="flex-shrink-0 group-hover:text-red-400" />
-          {!collapsed && <span>Sair</span>}
-        </button>
+        <div className="flex items-center gap-1">
+          <button
+            onClick={handleLogout}
+            title={collapsed ? 'Sair' : undefined}
+            className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-gray-400 hover:bg-white/5 hover:text-red-400 transition-colors group ${collapsed ? '' : 'flex-1'}`}
+          >
+            <LogOut size={18} className="flex-shrink-0 group-hover:text-red-400" />
+            {!collapsed && <span>Sair</span>}
+          </button>
+          <NotificationBell collapsed={collapsed} />
+        </div>
       </div>
     </div>
   )

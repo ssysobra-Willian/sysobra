@@ -469,6 +469,12 @@ export function ToolDrawer({
   const [quickEntryUnitCost,         setQuickEntryUnitCost]         = useState(0)
   const [quickEntryNotes,            setQuickEntryNotes]            = useState('')
   const [userRole,                   setUserRole]                   = useState('')
+  // FIX D: request-delete modal (non-admin)
+  const [showRequestDeleteModal,     setShowRequestDeleteModal]     = useState(false)
+  const [requestDeleteReason,        setRequestDeleteReason]        = useState('')
+  const [requestDeleteLoading,       setRequestDeleteLoading]       = useState(false)
+  const [requestDeleteError,         setRequestDeleteError]         = useState('')
+  const [requestDeleteDone,          setRequestDeleteDone]          = useState(false)
 
   const imgUrl = toAbsUrl(tool.imageUrl) || null
   const maintenanceDays    = daysFromNow(tool.nextMaintenance)
@@ -567,9 +573,53 @@ export function ToolDrawer({
     finally { setProcessingDrawer(false) }
   }
 
+  // FIX D: solicitar exclusão (para não-admins)
+  const handleRequestDeleteSubmit = async () => {
+    if (!requestDeleteReason.trim()) return
+    setRequestDeleteLoading(true); setRequestDeleteError('')
+    try {
+      const res = await fetch(`${API}/api/v1/deposit/tools/${tool.id}/request-delete`, {
+        method: 'POST',
+        headers: {
+          Authorization:  `Bearer ${getToken()}`,
+          'x-company-id': getCompanyId(),
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ reason: requestDeleteReason.trim() }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        setRequestDeleteError((data as any).error ?? 'Erro ao solicitar exclusão')
+        return
+      }
+      setRequestDeleteDone(true)
+      setTimeout(() => {
+        setShowRequestDeleteModal(false)
+        setRequestDeleteDone(false)
+        setRequestDeleteReason('')
+        onRefresh?.()
+        onClose()
+      }, 1500)
+    } catch { setRequestDeleteError('Erro ao enviar solicitação') }
+    finally { setRequestDeleteLoading(false) }
+  }
+
   // FIX 7: quick entry
   const handleQuickEntrySubmit = async () => {
-    const locationId = tool.stockBalances?.[0]?.locationId
+    // FIX A: se não há stockBalance, buscar localização CENTRAL como fallback
+    let locationId = tool.stockBalances?.[0]?.locationId
+    if (!locationId) {
+      try {
+        const locRes = await fetch(`${API}/api/v1/deposit/locations`, {
+          headers: { Authorization: `Bearer ${getToken()}`, 'x-company-id': getCompanyId() },
+        })
+        if (locRes.ok) {
+          const locData = await locRes.json()
+          const central = (locData.locations ?? locData)?.find((l: any) => l.type === 'CENTRAL')
+          locationId = central?.id
+        }
+      } catch {}
+    }
     if (!locationId) return
     setProcessingDrawer(true)
     try {
@@ -643,6 +693,7 @@ export function ToolDrawer({
   }
   const statusCfg = STATUS_CFG[tool.toolStatus ?? 'AVAILABLE'] ?? STATUS_CFG.AVAILABLE
   const canDelete     = ['ADMIN', 'OWNER', 'MANAGER'].includes(userRole) && tool.toolStatus !== 'IN_USE'
+  const canRequestDelete = !canDelete && tool.toolStatus !== 'IN_USE' && tool.toolStatus !== 'PENDING_DELETE' && tool.toolStatus !== 'DISCARDED'
   const hasStockBalance = (tool.stockBalances?.length ?? 0) > 0
 
   return (
@@ -907,6 +958,62 @@ export function ToolDrawer({
         </div>
       )}
 
+      {/* FIX D: Modal — Solicitar exclusão */}
+      {showRequestDeleteModal && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/50">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6 space-y-4">
+            <h3 className="text-base font-bold text-gray-800 flex items-center gap-2">
+              <Trash2 size={16} className="text-orange-500" />Solicitar exclusão
+            </h3>
+            {requestDeleteDone ? (
+              <div className="py-6 text-center">
+                <p className="text-green-600 font-semibold text-sm">✅ Solicitação enviada!</p>
+                <p className="text-xs text-gray-400 mt-1">Os gestores foram notificados.</p>
+              </div>
+            ) : (
+              <>
+                <p className="text-xs text-gray-500">Ferramenta: <strong>{tool.name}</strong></p>
+                <p className="text-xs text-gray-500">
+                  Sua solicitação será analisada por um gestor antes de ser efetivada.
+                </p>
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Motivo da exclusão <span className="text-red-500">*</span></label>
+                  <textarea
+                    rows={3}
+                    value={requestDeleteReason}
+                    onChange={e => { setRequestDeleteReason(e.target.value); setRequestDeleteError('') }}
+                    placeholder="Ex: Ferramenta irrecuperável, descartada após avaria…"
+                    className={`w-full text-sm border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-orange-400 resize-none ${
+                      !requestDeleteReason.trim() ? 'border-red-300' : 'border-gray-200'
+                    }`}
+                  />
+                  {!requestDeleteReason.trim() && (
+                    <p className="text-xs text-red-500 mt-1">O motivo é obrigatório.</p>
+                  )}
+                </div>
+                {requestDeleteError && (
+                  <p className="text-xs text-red-500">{requestDeleteError}</p>
+                )}
+                <div className="flex gap-2 pt-1">
+                  <button
+                    onClick={() => setShowRequestDeleteModal(false)}
+                    className="flex-1 py-2 rounded-xl border border-gray-200 text-gray-600 text-sm font-medium hover:bg-gray-50 transition"
+                  >Cancelar</button>
+                  <button
+                    onClick={handleRequestDeleteSubmit}
+                    disabled={requestDeleteLoading || !requestDeleteReason.trim()}
+                    className="flex-1 py-2 rounded-xl bg-orange-500 text-white text-sm font-semibold hover:bg-orange-600 transition disabled:opacity-50 flex items-center justify-center gap-1.5"
+                  >
+                    {requestDeleteLoading ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
+                    Enviar solicitação
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
       <div className="fixed inset-0 z-40 bg-black/40 backdrop-blur-sm" onClick={onClose} />
 
       <div className="fixed right-0 top-0 bottom-0 z-50 flex flex-col bg-white shadow-2xl w-full sm:w-[480px] lg:w-[520px] overflow-hidden">
@@ -1057,6 +1164,21 @@ export function ToolDrawer({
             >
               <Trash2 size={12} />Excluir ferramenta
             </button>
+          )}
+
+          {/* FIX D: solicitar exclusão — para membros não-admins */}
+          {canRequestDelete && (
+            <button
+              onClick={() => { setRequestDeleteReason(''); setRequestDeleteError(''); setRequestDeleteDone(false); setShowRequestDeleteModal(true) }}
+              className="w-full py-1.5 mt-0.5 rounded-xl border border-orange-200 text-orange-500 text-xs font-medium hover:bg-orange-50 transition flex items-center justify-center gap-1.5"
+            >
+              <Trash2 size={12} />Solicitar exclusão
+            </button>
+          )}
+
+          {/* FIX D: ferramenta aguardando exclusão */}
+          {tool.toolStatus === 'PENDING_DELETE' && (
+            <p className="w-full py-1.5 mt-0.5 text-center text-xs text-orange-500 font-medium">⏳ Aguardando aprovação de exclusão</p>
           )}
         </div>
 

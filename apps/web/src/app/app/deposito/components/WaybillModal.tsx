@@ -20,6 +20,20 @@ function apiFetch(path: string, opts: RequestInit = {}) {
 
 // ─── tipos ───────────────────────────────────────────────────────────────────
 
+export interface WaybillDraftData {
+  exitType?:             string
+  destinationProjectId?: string
+  destinationName?:      string
+  driverName?:           string | null
+  driverPhone?:          string | null
+  vehiclePlate?:         string | null
+  vehicleModel?:         string | null
+  receiverName?:         string | null
+  receiverDocument?:     string | null
+  notes?:                string | null
+  items?: { itemId: string; name: string; unit: string; quantity: number; availableQty?: number }[]
+}
+
 interface WaybillModalProps {
   isOpen:       boolean
   onClose:      () => void
@@ -27,6 +41,7 @@ interface WaybillModalProps {
   locationId:   string
   locationName: string
   onSuccess:    () => void
+  draftData?:   WaybillDraftData
 }
 
 const CATEGORY_LABELS: Record<string, string> = {
@@ -44,7 +59,7 @@ const CATEGORY_ICONS: Record<string, string> = {
 // ─── componente ──────────────────────────────────────────────────────────────
 
 export default function WaybillModal({
-  isOpen, onClose, category, locationId, locationName, onSuccess,
+  isOpen, onClose, category, locationId, locationName, onSuccess, draftData,
 }: WaybillModalProps) {
 
   // ── etapas: 1=Saída/Pessoas 2=Itens 3=Fotos 4=Assinatura ──────────────────
@@ -109,6 +124,36 @@ export default function WaybillModal({
     loadItems()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, category, locationId])
+
+  // ── pré-popular com rascunho ──────────────────────────────────────────────
+  useEffect(() => {
+    if (!isOpen || !draftData) return
+    if (draftData.exitType)             setExitType(draftData.exitType as any)
+    if (draftData.destinationProjectId) setDestinationProjectId(draftData.destinationProjectId)
+    if (draftData.destinationName)      setDestinationName(draftData.destinationName)
+    if (draftData.driverName)           { setDriverType('EXTERNAL'); setDriverName(draftData.driverName) }
+    if (draftData.driverPhone)          setDriverPhone(draftData.driverPhone)
+    if (draftData.vehiclePlate)         setVehiclePlate(draftData.vehiclePlate)
+    if (draftData.vehicleModel)         setVehicleModel(draftData.vehicleModel)
+    if (draftData.receiverName)         { setReceiverType('EXTERNAL'); setReceiverName(draftData.receiverName) }
+    if (draftData.receiverDocument)     setReceiverDocument(draftData.receiverDocument)
+    if (draftData.notes)                setNotes(draftData.notes)
+    if (draftData.items?.length) {
+      setSelectedItems(draftData.items.map(i => ({
+        itemId:        i.itemId,
+        name:          i.name,
+        unit:          i.unit,
+        quantity:      i.quantity,
+        availableQty:  i.availableQty ?? 0,
+        serialNumber:  '',
+        toolBrand:     '',
+        toolModel:     '',
+        toolCondition: 'BOM',
+        category:      category,
+      })))
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, draftData])
 
   async function loadProjects() {
     try {

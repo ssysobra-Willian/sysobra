@@ -91,6 +91,15 @@ export default function PendenciasPage() {
   const [saving,          setSaving]          = useState(false)
   const [saveError,       setSaveError]       = useState('')
 
+  // Solicitações de exclusão de ferramenta
+  const [deleteRequests,     setDeleteRequests]     = useState<any[]>([])
+  const [loadingDelReqs,     setLoadingDelReqs]     = useState(true)
+  const [reviewingReq,       setReviewingReq]       = useState<any>(null)
+  const [reviewAction,       setReviewAction]       = useState<'approve' | 'reject' | null>(null)
+  const [reviewNotes,        setReviewNotes]        = useState('')
+  const [reviewSaving,       setReviewSaving]       = useState(false)
+  const [reviewError,        setReviewError]        = useState('')
+
   // ── Load ───────────────────────────────────────────────────────────────────
   const load = useCallback(async () => {
     setLoading(true)
@@ -105,7 +114,20 @@ export default function PendenciasPage() {
     finally { setLoading(false) }
   }, [statusFilter])
 
+  const loadDeleteRequests = useCallback(async () => {
+    setLoadingDelReqs(true)
+    try {
+      const r = await apiFetch('/api/v1/deposit/tools/delete-requests?status=PENDING')
+      if (r.ok) {
+        const d = await r.json()
+        setDeleteRequests(d.requests ?? [])
+      }
+    } catch { /* silencioso */ }
+    finally { setLoadingDelReqs(false) }
+  }, [])
+
   useEffect(() => { load() }, [load])
+  useEffect(() => { loadDeleteRequests() }, [loadDeleteRequests])
 
   // ── Resolver ───────────────────────────────────────────────────────────────
   async function handleResolve() {
@@ -135,6 +157,27 @@ export default function PendenciasPage() {
     setResolution('')
     setResolutionNotes('')
     setSaveError('')
+  }
+
+  async function handleReviewDeleteRequest() {
+    if (!reviewingReq || !reviewAction) return
+    setReviewSaving(true); setReviewError('')
+    try {
+      const r = await apiFetch(`/api/v1/deposit/tools/delete-requests/${reviewingReq.id}/${reviewAction}`, {
+        method: 'PATCH',
+        body:   JSON.stringify({ notes: reviewNotes }),
+      })
+      if (!r.ok) {
+        const d = await r.json().catch(() => ({}))
+        throw new Error((d as any).error ?? 'Erro ao processar solicitação')
+      }
+      setReviewingReq(null); setReviewAction(null); setReviewNotes(''); setReviewError('')
+      loadDeleteRequests()
+    } catch (e: any) {
+      setReviewError(e.message)
+    } finally {
+      setReviewSaving(false)
+    }
   }
 
   const pendingQty = resolving
@@ -342,6 +385,182 @@ export default function PendenciasPage() {
           </div>
         )}
       </div>
+
+      {/* ── Solicitações de exclusão de ferramenta ──────────────────────────── */}
+      <div style={{ maxWidth: 860, margin: '0 auto', padding: '0 16px 32px' }}>
+        <div style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          marginBottom: 12,
+        }}>
+          <h2 style={{ fontSize: 14, fontWeight: 700, color: '#111827', margin: 0 }}>
+            🗑️ Solicitações de Exclusão de Ferramenta
+          </h2>
+          {deleteRequests.length > 0 && (
+            <span style={{
+              fontSize: 11, fontWeight: 700, padding: '3px 10px',
+              borderRadius: 99, background: '#FEE2E2', color: '#DC2626',
+            }}>{deleteRequests.length} pendente{deleteRequests.length !== 1 ? 's' : ''}</span>
+          )}
+        </div>
+
+        {loadingDelReqs ? (
+          <div style={{ display: 'flex', justifyContent: 'center', padding: '40px 0' }}>
+            <Loader2 size={24} style={{ color: '#F5A623', animation: 'spin 1s linear infinite' }} />
+          </div>
+        ) : deleteRequests.length === 0 ? (
+          <div style={{
+            textAlign: 'center', padding: '30px 20px',
+            background: '#fff', borderRadius: 12, border: '1px solid #E5E7EB',
+            fontSize: 13, color: '#9CA3AF',
+          }}>
+            Nenhuma solicitação de exclusão pendente.
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {deleteRequests.map(req => (
+              <div key={req.id} style={{
+                background: '#fff',
+                border: '1px solid #FCA5A5',
+                borderLeft: '4px solid #EF4444',
+                borderRadius: 10, padding: '14px 16px',
+                boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <p style={{ fontSize: 14, fontWeight: 700, color: '#111827', marginBottom: 2 }}>
+                      {req.item?.name}
+                    </p>
+                    {req.item?.serialNumber && (
+                      <p style={{ fontSize: 11, color: '#6B7280', marginBottom: 2 }}>S/N: {req.item.serialNumber}</p>
+                    )}
+                    <p style={{ fontSize: 12, color: '#374151', margin: '6px 0 2px' }}>
+                      <strong>Motivo:</strong> {req.reason}
+                    </p>
+                    <p style={{ fontSize: 11, color: '#6B7280', marginTop: 4 }}>
+                      Solicitado por <strong>{req.requestor?.name}</strong> · {fmtDate(req.createdAt)}
+                    </p>
+                  </div>
+                  <div style={{ flexShrink: 0, display: 'flex', gap: 6 }}>
+                    <button
+                      onClick={() => { setReviewingReq(req); setReviewAction('approve'); setReviewNotes(''); setReviewError('') }}
+                      style={{
+                        padding: '7px 14px', borderRadius: 8,
+                        background: '#EF4444', border: 'none',
+                        fontWeight: 600, fontSize: 12, cursor: 'pointer', color: '#fff',
+                        display: 'flex', alignItems: 'center', gap: 5,
+                      }}
+                    >
+                      <Check size={12} />Aprovar
+                    </button>
+                    <button
+                      onClick={() => { setReviewingReq(req); setReviewAction('reject'); setReviewNotes(''); setReviewError('') }}
+                      style={{
+                        padding: '7px 14px', borderRadius: 8,
+                        background: 'transparent', border: '1px solid #D1D5DB',
+                        fontWeight: 600, fontSize: 12, cursor: 'pointer', color: '#374151',
+                        display: 'flex', alignItems: 'center', gap: 5,
+                      }}
+                    >
+                      <X size={12} />Recusar
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Modal de revisão de solicitação de exclusão */}
+      {reviewingReq && reviewAction && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 1100,
+          background: 'rgba(0,0,0,0.5)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16,
+        }}>
+          <div style={{
+            background: '#fff', borderRadius: 16, padding: 24,
+            maxWidth: 440, width: '100%',
+            boxShadow: '0 20px 60px rgba(0,0,0,0.3)',
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+              <h3 style={{ fontSize: 16, fontWeight: 700, color: '#111827', margin: 0 }}>
+                {reviewAction === 'approve' ? '⚠️ Confirmar exclusão' : '✋ Recusar solicitação'}
+              </h3>
+              <button
+                onClick={() => { setReviewingReq(null); setReviewAction(null) }}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4 }}
+              >
+                <X size={18} style={{ color: '#9CA3AF' }} />
+              </button>
+            </div>
+
+            <p style={{ fontSize: 13, color: '#374151', marginBottom: 12 }}>
+              {reviewAction === 'approve'
+                ? `A ferramenta "${reviewingReq.item?.name}" será excluída permanentemente.`
+                : `A solicitação de exclusão de "${reviewingReq.item?.name}" será recusada.`}
+            </p>
+            <p style={{ fontSize: 12, color: '#6B7280', marginBottom: 16 }}>
+              <strong>Motivo da solicitação:</strong> {reviewingReq.reason}
+            </p>
+
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ fontSize: 12, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 6 }}>
+                Observações (opcional)
+              </label>
+              <textarea
+                value={reviewNotes}
+                onChange={e => setReviewNotes(e.target.value)}
+                placeholder="Ex: Confirmo o descarte após vistoria..."
+                rows={3}
+                style={{
+                  width: '100%', padding: '8px 12px',
+                  border: '1px solid #D1D5DB', borderRadius: 8,
+                  fontSize: 13, fontFamily: 'inherit', resize: 'vertical',
+                  boxSizing: 'border-box',
+                }}
+              />
+            </div>
+
+            {reviewError && (
+              <div style={{ marginBottom: 12, padding: '8px 12px', background: '#FEF2F2', borderRadius: 6, fontSize: 12, color: '#DC2626' }}>
+                ❌ {reviewError}
+              </div>
+            )}
+
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button
+                onClick={() => { setReviewingReq(null); setReviewAction(null) }}
+                style={{
+                  flex: 1, padding: '10px', borderRadius: 8,
+                  border: '1px solid #D1D5DB', background: 'transparent',
+                  cursor: 'pointer', fontSize: 13,
+                }}
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleReviewDeleteRequest}
+                disabled={reviewSaving}
+                style={{
+                  flex: 2, padding: '10px', borderRadius: 8,
+                  background: reviewSaving ? '#D1D5DB' : reviewAction === 'approve' ? '#EF4444' : '#374151',
+                  border: 'none', fontWeight: 700, fontSize: 14, color: '#fff',
+                  cursor: reviewSaving ? 'not-allowed' : 'pointer',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                }}
+              >
+                {reviewSaving
+                  ? <><Loader2 size={15} style={{ animation: 'spin 1s linear infinite' }} /> Salvando...</>
+                  : reviewAction === 'approve'
+                  ? <><Check size={15} /> Confirmar exclusão</>
+                  : <><X size={15} /> Recusar solicitação</>
+                }
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Modal de resolução */}
       {resolving && (

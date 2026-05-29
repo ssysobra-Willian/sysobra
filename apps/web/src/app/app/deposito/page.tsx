@@ -245,7 +245,7 @@ function ActionMenu({ onView, onEdit, onDelete, onCustody, onBasket }: {
         <div className="absolute right-0 top-8 z-30 bg-white border border-gray-200 rounded-xl shadow-lg min-w-[140px] py-1 overflow-hidden">
           {onView    && <button onClick={() => { onView();    setOpen(false) }} className="w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-gray-50 text-gray-700"><Eye size={13}/>Detalhes</button>}
           {onEdit    && <button onClick={() => { onEdit();    setOpen(false) }} className="w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-gray-50 text-gray-700"><Edit2 size={13}/>Editar</button>}
-          {onCustody && <button onClick={() => { onCustody();setOpen(false) }} className="w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-gray-50 text-orange-600"><Package size={13}/>Cautela</button>}
+          {onCustody && <button onClick={() => { onCustody();setOpen(false) }} className="w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-gray-50 text-orange-600"><Package size={13}/>Romaneio</button>}
           {onBasket  && <button onClick={() => { onBasket(); setOpen(false) }} className="w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-gray-50 text-blue-600"><FileText size={13}/>Romaneio</button>}
           {onDelete  && <button onClick={() => { onDelete(); setOpen(false) }} className="w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-red-50 text-red-600"><Trash2 size={13}/>Remover</button>}
         </div>
@@ -620,6 +620,7 @@ function ToolsTable({ items, onView, onEdit, onCustody, onMaintenance, onSendToM
               <th className="px-3 py-2.5 text-left w-36">Localização</th>
               <th className="px-3 py-2.5 text-center w-24">Qtd</th>
               <th className="px-3 py-2.5 text-right w-24">Valor unit.</th>
+              <th className="px-3 py-2.5 text-right w-28">Valor total</th>
               <th className="px-3 py-2.5 text-left w-28">Status</th>
               <th className="px-3 py-2.5 text-left w-32">Próx. Manutenção</th>
               <th className="px-3 py-2.5 w-8"></th>
@@ -628,7 +629,7 @@ function ToolsTable({ items, onView, onEdit, onCustody, onMaintenance, onSendToM
           <tbody className="divide-y divide-gray-50">
             {filtered.length === 0 ? (
               <tr>
-                <td colSpan={9} className="px-4 py-10 text-center text-sm text-gray-400">
+                <td colSpan={10} className="px-4 py-10 text-center text-sm text-gray-400">
                   Nenhuma ferramenta encontrada
                 </td>
               </tr>
@@ -673,6 +674,15 @@ function ToolsTable({ items, onView, onEdit, onCustody, onMaintenance, onSendToM
                       {item.unitCost ? formatCurrency(item.unitCost) : '—'}
                     </span>
                   </td>
+                  <td className="px-3 py-2.5 text-right">
+                    <span className="text-xs text-gray-700">
+                      {(() => {
+                        const cost = item.averageCost || item.unitCost || 0
+                        const qty  = Number(item.quantity)
+                        return cost && qty ? formatCurrency(cost * qty) : '—'
+                      })()}
+                    </span>
+                  </td>
                   <td className="px-3 py-2.5">{statusBadge(item)}</td>
                   <td className="px-3 py-2.5">{maintenanceBadge(item)}</td>
                   <td className="px-3 py-2.5" onClick={e => e.stopPropagation()}>
@@ -696,7 +706,7 @@ function ToolsTable({ items, onView, onEdit, onCustody, onMaintenance, onSendToM
                           title="Enviar para manutenção"
                         >
                           <Wrench size={11} />
-                          Manutenção
+                          Enviar manutenção
                         </button>
                       )}
                       {/* Retornou — somente para MAINTENANCE */}
@@ -1428,6 +1438,7 @@ export default function DepositoPage() {
   const [maintenanceRecord, setMaintenanceRecord] = useState<any>(null)
   const [receiptBasketId,   setReceiptBasketId]   = useState<string | null>(null)
   const [basketOpen,        setBasketOpen]        = useState(false)
+  const [basketDraftData,   setBasketDraftData]   = useState<import('@/components/deposit/BasketModal').BasketDraftData | undefined>(undefined)
 
   // Form modals
   const [materialFormOpen,  setMaterialFormOpen]  = useState(false)
@@ -2181,7 +2192,8 @@ export default function DepositoPage() {
           }))}
           employees={employees}
           projects={projects}
-          onClose={() => setBasketOpen(false)}
+          draftData={basketDraftData}
+          onClose={() => { setBasketOpen(false); setBasketDraftData(undefined) }}
           onConfirm={handleBasketConfirm}
         />
       )}

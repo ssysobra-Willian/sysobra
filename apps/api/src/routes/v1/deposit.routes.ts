@@ -10,6 +10,7 @@ import {
   JwtPayload,
 } from '../../middlewares/auth.middleware'
 import { getPdfHeader, getPdfFooter, PDF_BASE_STYLES } from '../../utils/pdfTemplate'
+import { notifyManagers } from '../../utils/notifications'
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
@@ -1236,6 +1237,10 @@ export async function depositRoutes(app: FastifyInstance) {
           employee:    { select: { id: true, name: true } },
           responsible: { select: { id: true, name: true } },
           _count: { select: { movements: true } },
+          // Incluir movimentos para rascunhos (para "Continuar rascunho")
+          movements: status === 'DRAFT' ? {
+            include: { stockItem: { select: { id: true, name: true, unit: true } } },
+          } : false,
         },
       }),
       p().stockBasket.count({ where }),
@@ -3559,6 +3564,165 @@ ${getPdfFooter(company?.name ?? '')}
       itemCount,
       isReady:        !!central,
     })
+  })
+
+  // ─── Solicitação de exclusão de ferramenta ────────────────────────────────
+
+  // POST /api/v1/deposit/tools/:id/request-delete
+  app.post('/tools/:id/request-delete', { preHandler }, async (request, reply) => {
+    const req = request as RequestWithMember
+    const cid = companyId(req)
+    const uid = userId(req)
+    const { id } = request.params as { id: string }
+    const body = request.body as { reason?: string }
+
+    if (!body?.reason?.trim()) {
+      return reply.status(400).send({ error: 'Motivo obrigatório para solicitar exclusão.' })
+    }
+
+    const item = await p().stockItem.findFirst({
+      where: { id, companyId: cid, isActive: true, requiresCustody: true },
+    })
+    if (!item) return reply.status(404).send({ error: 'Ferramenta não encontrada' })
+
+    // Verifica se já existe uma solicitação pendente
+    const existing = await p().toolDeleteRequest.findFirst({
+      where: { itemId: id, companyId: cid, status: 'PENDING' },
+    })
+    if (existing) {
+      return reply.status(400).send({ error: 'Já existe uma solicitação pendente para esta ferramenta.' })
+    }
+
+    const deleteReq = await p().toolDeleteRequest.create({
+      data: {
+        companyId:   cid,
+        itemId:      id,
+        requestedBy: uid!,
+        reason:      body.reason.trim(),
+        status:      'PENDING',
+      },
+    })
+
+    // Mudar status para PENDING_DELETE
+    await p().stockItem.update({
+      where: { id },
+      data:  { toolStatus: 'PENDING_DELETE' },
+    })
+
+    // Notificar gestores
+    await notifyManagers({
+      companyId: cid,
+      title:     'Solicitação de exclusão de ferramenta',
+      message:   `"${item.name}" foi marcada para exclusão. Motivo: ${body.reason.trim()}`,
+      type:      'ACTION_REQUIRED',
+      link:      '/app/deposito/pendencias',
+      excludeUserId: uid ?? undefined,
+    })
+
+    return reply.status(201).send({ deleteRequest: deleteReq })
+  })
+
+  // GET /api/v1/deposit/tools/delete-requests
+  app.get('/tools/delete-requests', { preHandler }, async (request, reply) => {
+    const req = request as RequestWithMember
+    const cid = companyId(req)
+    const query = request.query as { status?: string }
+    const statusFilter = query.status ?? 'PENDING'
+
+    const requests = await p().toolDeleteRequest.findMany({
+      where: { companyId: cid, status: statusFilter },
+      include: {
+        item:      { select: { id: true, name: true, toolStatus: true, imageUrl: true, serialNumber: true } },
+        requestor: { select: { id: true, name: true, email: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+    })
+
+    return reply.send({ requests })
+  })
+
+  // PATCH /api/v1/deposit/tools/delete-requests/:id/approve
+  app.patch('/tools/delete-requests/:id/approve', { preHandler }, async (request, reply) => {
+    const req = request as RequestWithMember
+    const cid = companyId(req)
+    const uid = userId(req)
+    const { id } = request.params as { id: string }
+    const body = request.body as { notes?: string }
+
+    const role: string = (req as any).memberRole ?? ''
+    if (!['ADMIN', 'OWNER', 'MANAGER'].includes(role)) {
+      return reply.status(403).send({ error: 'FORBIDDEN', message: 'Apenas gestores podem aprovar exclusões.' })
+    }
+
+    const deleteReq = await p().toolDeleteRequest.findFirst({
+      where: { id, companyId: cid, status: 'PENDING' },
+      include: { item: true },
+    })
+    if (!deleteReq) return reply.status(404).send({ error: 'Solicitação não encontrada' })
+
+    const itemId = deleteReq.itemId
+
+    // Verificar se há custódia ativa
+    const activeCustody = await p().toolCustody.findFirst({
+      where: { stockItemId: itemId, returnedAt: null },
+    })
+    if (activeCustody) {
+      return reply.status(400).send({
+        error: 'TOOL_IN_USE',
+        message: 'Não é possível excluir uma ferramenta em uso. Solicite a devolução primeiro.',
+      })
+    }
+
+    await p().$transaction([
+      p().toolDeleteRequest.update({
+        where: { id },
+        data:  { status: 'APPROVED', reviewedBy: uid, reviewNotes: body?.notes ?? null, reviewedAt: new Date() },
+      }),
+      p().stockBalance.updateMany({
+        where: { itemId, companyId: cid },
+        data:  { quantity: 0, totalValue: 0 },
+      }),
+      p().stockItem.update({
+        where: { id: itemId },
+        data:  { isActive: false, quantity: 0 },
+      }),
+    ])
+
+    return reply.send({ success: true })
+  })
+
+  // PATCH /api/v1/deposit/tools/delete-requests/:id/reject
+  app.patch('/tools/delete-requests/:id/reject', { preHandler }, async (request, reply) => {
+    const req = request as RequestWithMember
+    const cid = companyId(req)
+    const uid = userId(req)
+    const { id } = request.params as { id: string }
+    const body = request.body as { notes?: string }
+
+    const role: string = (req as any).memberRole ?? ''
+    if (!['ADMIN', 'OWNER', 'MANAGER'].includes(role)) {
+      return reply.status(403).send({ error: 'FORBIDDEN', message: 'Apenas gestores podem rejeitar exclusões.' })
+    }
+
+    const deleteReq = await p().toolDeleteRequest.findFirst({
+      where: { id, companyId: cid, status: 'PENDING' },
+      include: { item: true },
+    })
+    if (!deleteReq) return reply.status(404).send({ error: 'Solicitação não encontrada' })
+
+    await p().$transaction([
+      p().toolDeleteRequest.update({
+        where: { id },
+        data:  { status: 'REJECTED', reviewedBy: uid, reviewNotes: body?.notes ?? null, reviewedAt: new Date() },
+      }),
+      // Restaurar status da ferramenta
+      p().stockItem.update({
+        where: { id: deleteReq.itemId },
+        data:  { toolStatus: 'AVAILABLE' },
+      }),
+    ])
+
+    return reply.send({ success: true })
   })
 }
 

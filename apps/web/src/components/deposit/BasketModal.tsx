@@ -35,6 +35,21 @@ interface StockItemOption {
 interface Employee { id: string; name: string; position?: string | null }
 interface Project  { id: string; name: string }
 
+export interface BasketDraftData {
+  type?:       'OUT' | 'EPI' | 'RETURN'
+  projectId?:  string
+  employeeId?: string
+  destinatary?: string
+  notes?:      string
+  items?: {
+    stockItemId: string
+    name:        string
+    unit:        string
+    quantity:    number
+    unitCost?:   number
+  }[]
+}
+
 interface BasketModalProps {
   isOpen:      boolean
   onClose:     () => void
@@ -42,6 +57,7 @@ interface BasketModalProps {
   stockItems:  StockItemOption[]
   employees:   Employee[]
   projects:    Project[]
+  draftData?:  BasketDraftData
 }
 
 export interface BasketPayload {
@@ -373,11 +389,25 @@ function Step3Signatures({
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
-export function BasketModal({ isOpen, onClose, onConfirm, stockItems, employees, projects }: BasketModalProps) {
+export function BasketModal({ isOpen, onClose, onConfirm, stockItems, employees, projects, draftData }: BasketModalProps) {
   const [step, setStep] = useState(1)
-  const [type, setType] = useState<'OUT' | 'EPI' | 'RETURN'>('OUT')
-  const [items, setItems] = useState<BasketItem[]>([])
-  const [dest, setDest] = useState({ projectId: '', employeeId: '', destinatary: '', notes: '' })
+  const [type, setType] = useState<'OUT' | 'EPI' | 'RETURN'>(draftData?.type ?? 'OUT')
+  const [items, setItems] = useState<BasketItem[]>(() =>
+    draftData?.items?.map(i => ({
+      stockItemId: i.stockItemId,
+      name:        i.name,
+      unit:        i.unit,
+      quantity:    i.quantity,
+      unitCost:    i.unitCost,
+      available:   stockItems.find(s => s.id === i.stockItemId)?.quantity ?? 0,
+    })) ?? []
+  )
+  const [dest, setDest] = useState({
+    projectId:   draftData?.projectId   ?? '',
+    employeeId:  draftData?.employeeId  ?? '',
+    destinatary: draftData?.destinatary ?? '',
+    notes:       draftData?.notes       ?? '',
+  })
   const [senderSig,   setSenderSig]   = useState<string | undefined>()
   const [receiverSig, setReceiverSig] = useState<string | undefined>()
   const [saving, setSaving] = useState(false)
