@@ -30,12 +30,21 @@ export interface WaybillDraftData {
   exitType?:             string
   destinationProjectId?: string
   destinationName?:      string
+  // motorista
+  driverType?:           'EMPLOYEE' | 'EXTERNAL'
+  driverEmployeeId?:     string | null
   driverName?:           string | null
+  driverDocument?:       string | null
   driverPhone?:          string | null
   vehiclePlate?:         string | null
   vehicleModel?:         string | null
+  // recebedor
+  receiverType?:         'EMPLOYEE' | 'EXTERNAL'
+  receiverEmployeeId?:   string | null
   receiverName?:         string | null
   receiverDocument?:     string | null
+  receiverPhone?:        string | null
+  receiverRole?:         string | null
   notes?:                string | null
   items?: { itemId: string; name: string; unit: string; quantity: number; availableQty?: number }[]
 }
@@ -137,12 +146,21 @@ export default function WaybillModal({
     if (draftData.exitType)             setExitType(draftData.exitType as any)
     if (draftData.destinationProjectId) setDestinationProjectId(draftData.destinationProjectId)
     if (draftData.destinationName)      setDestinationName(draftData.destinationName)
-    if (draftData.driverName)           { setDriverType('EXTERNAL'); setDriverName(draftData.driverName) }
-    if (draftData.driverPhone)          setDriverPhone(draftData.driverPhone)
-    if (draftData.vehiclePlate)         setVehiclePlate(draftData.vehiclePlate)
-    if (draftData.vehicleModel)         setVehicleModel(draftData.vehicleModel)
-    if (draftData.receiverName)         { setReceiverType('EXTERNAL'); setReceiverName(draftData.receiverName) }
-    if (draftData.receiverDocument)     setReceiverDocument(draftData.receiverDocument)
+    // motorista
+    if (draftData.driverType)           setDriverType(draftData.driverType)
+    if (draftData.driverEmployeeId)     setDriverEmployeeId(draftData.driverEmployeeId)
+    if (draftData.driverName)           setDriverName(draftData.driverName ?? '')
+    if (draftData.driverDocument)       setDriverDocument(draftData.driverDocument ?? '')
+    if (draftData.driverPhone)          setDriverPhone(draftData.driverPhone ?? '')
+    if (draftData.vehiclePlate)         setVehiclePlate(draftData.vehiclePlate ?? '')
+    if (draftData.vehicleModel)         setVehicleModel(draftData.vehicleModel ?? '')
+    // recebedor
+    if (draftData.receiverType)         setReceiverType(draftData.receiverType)
+    if (draftData.receiverEmployeeId)   setReceiverEmployeeId(draftData.receiverEmployeeId)
+    if (draftData.receiverName)         setReceiverName(draftData.receiverName ?? '')
+    if (draftData.receiverDocument)     setReceiverDocument(draftData.receiverDocument ?? '')
+    if (draftData.receiverPhone)        setReceiverPhone(draftData.receiverPhone ?? '')
+    if (draftData.receiverRole)         setReceiverRole(draftData.receiverRole ?? '')
     if (draftData.notes)                setNotes(draftData.notes)
     if (draftData.items?.length) {
       setSelectedItems(draftData.items.map(i => ({
@@ -158,6 +176,7 @@ export default function WaybillModal({
         category:      category,
       })))
     }
+    setStep(2)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, draftData])
 
