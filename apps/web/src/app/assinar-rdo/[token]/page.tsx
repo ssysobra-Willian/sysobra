@@ -26,7 +26,6 @@ export default function AssinarRdoPage() {
   const [signed,        setSigned]        = useState(false)
   const [fiscalName,    setFiscalName]    = useState('')
   const [fiscalDocument,setFiscalDocument]= useState('')   // CPF
-  const [fiscalEmail,   setFiscalEmail]   = useState('')   // email opcional
   const [verificationHash, setVerificationHash] = useState('')
 
   const canvasRef   = useRef<HTMLCanvasElement>(null)
@@ -100,7 +99,7 @@ export default function AssinarRdoPage() {
       const res  = await fetch(`${API}/api/v1/diary/public/sign/${token}`, {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ signatureData, fiscalName, fiscalDocument, fiscalEmail: fiscalEmail || null }),
+        body:    JSON.stringify({ signatureData, fiscalName, fiscalDocument }),
       })
       const data = await res.json()
       if (!res.ok) { alert(data.error || 'Erro ao assinar'); return }
@@ -254,23 +253,6 @@ export default function AssinarRdoPage() {
           {fiscalDocument && fiscalDocument.replace(/\D/g,'').length < 11 && (
             <div style={{ fontSize: 11, color: '#DC2626', marginTop: 3 }}>CPF incompleto</div>
           )}
-        </div>
-
-        {/* Email opcional */}
-        <div style={{ marginBottom: 16 }}>
-          <label style={{ fontSize: 13, fontWeight: 600, display: 'block', marginBottom: 4 }}>
-            E-mail{' '}
-            <span style={{ fontWeight: 400, color: '#6B7280', fontSize: 12 }}>
-              (opcional — receba o RDO assinado quando todos concluírem)
-            </span>
-          </label>
-          <input
-            type="email"
-            value={fiscalEmail}
-            onChange={e => setFiscalEmail(e.target.value)}
-            placeholder="seu@email.com"
-            style={{ width: '100%', padding: '10px 12px', border: '1px solid #D1D5DB', borderRadius: 8, fontSize: 14, boxSizing: 'border-box' as const }}
-          />
         </div>
 
         {/* Canvas de assinatura */}

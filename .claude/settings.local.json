@@ -135,7 +135,9 @@
       "PowerShell(cd C:\\\\projetos\\\\sysobra\\\\apps\\\\api; npx ts-node \"$env:TEMP\\\\check_tools.ts\")",
       "PowerShell(cd C:\\\\projetos\\\\sysobra\\\\packages\\\\database; $env:DATABASE_URL = \\(Get-Content .env | Where-Object { $_ -match \"DATABASE_URL\" } | ForEach-Object { \\($_ -split \"=\", 2\\)[1] }\\); Write-Host \"DB: $env:DATABASE_URL\")",
       "PowerShell(Start-Process powershell -ArgumentList '-NoExit', '-Command', 'cd C:\\\\projetos\\\\sysobra\\\\apps\\\\api; npm run dev' -WindowStyle Normal; Start-Process powershell -ArgumentList '-NoExit', '-Command', 'cd C:\\\\projetos\\\\sysobra\\\\apps\\\\web; npm run dev' -WindowStyle Normal; Write-Host \"Servidores reiniciados\")",
-      "PowerShell(cd C:\\\\projetos\\\\sysobra\\\\apps\\\\api; npx ts-node -e \"const { PrismaClient } = require\\('@prisma/client'\\); const p = new PrismaClient\\(\\); p.company.findMany\\({ select: { id: true, name: true } }\\).then\\(r => { console.log\\(JSON.stringify\\(r\\)\\); return p.stockItem.findMany\\({ where: { requiresCustody: true, toolStatus: 'IN_USE' }, select: { name: true, companyId: true, currentProjectId: true } }\\) }\\).then\\(t => { console.log\\(JSON.stringify\\(t\\)\\); p.\\\\$disconnect\\(\\); }\\)\")"
+      "PowerShell(cd C:\\\\projetos\\\\sysobra\\\\apps\\\\api; npx ts-node -e \"const { PrismaClient } = require\\('@prisma/client'\\); const p = new PrismaClient\\(\\); p.company.findMany\\({ select: { id: true, name: true } }\\).then\\(r => { console.log\\(JSON.stringify\\(r\\)\\); return p.stockItem.findMany\\({ where: { requiresCustody: true, toolStatus: 'IN_USE' }, select: { name: true, companyId: true, currentProjectId: true } }\\) }\\).then\\(t => { console.log\\(JSON.stringify\\(t\\)\\); p.\\\\$disconnect\\(\\); }\\)\")",
+      "Bash(echo \"API PID: $!\")",
+      "Bash(echo \"Web PID: $!\")"
     ]
   }
 }
