@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { useRouter, useParams } from 'next/navigation'
+import { usePermissions } from '@/hooks/usePermissions'
 import Link from 'next/link'
 import {
   ChevronLeft, Edit2, MoreHorizontal, HardHat, TrendingUp, TrendingDown,
@@ -658,6 +659,9 @@ export default function ObraDetailPage() {
   const params        = useParams()
   const id            = params.id as string
 
+  const { memberRole } = usePermissions()
+  const userIsManager  = ['OWNER', 'ADMIN', 'MANAGER'].includes(memberRole)
+
   const [project,   setProject]   = useState<Project | null>(null)
   const [financial, setFinancial] = useState<FinancialSummary | null>(null)
   const [loading,   setLoading]   = useState(true)
@@ -691,6 +695,9 @@ export default function ObraDetailPage() {
   const [showCloseModal,  setShowCloseModal]  = useState(false)
   const [closeReason,     setCloseReason]     = useState('')
   const [requestingClose, setRequestingClose] = useState(false)
+
+  // ── Solicitação de encerramento pendente ──────────────────────────────────
+  const [closeRequest, setCloseRequest] = useState<any>(null)
 
   // ── Aba Apropriações ──────────────────────────────────────────────────────
   const [allocTxs,      setAllocTxs]      = useState<AllocTx[]>([])
@@ -787,6 +794,49 @@ export default function ObraDetailPage() {
       setCloseReason('')
     } catch { alert('Erro ao solicitar encerramento') }
     finally  { setRequestingClose(false) }
+  }
+
+  // ── Carrega solicitação de encerramento pendente ──────────────────────────
+  useEffect(() => {
+    if (!id) return
+    const token     = localStorage.getItem('token') || ''
+    const companyId = localStorage.getItem('companyId') || ''
+    fetch(`${API}/api/v1/projects/${id}/close-requests`, {
+      headers: { Authorization: `Bearer ${token}`, 'x-company-id': companyId },
+    })
+      .then(r => r.json())
+      .then(d => setCloseRequest(d.pendingRequest ?? null))
+      .catch(() => {})
+  }, [id])
+
+  const handleApproveClose = async (requestId: string) => {
+    const token     = localStorage.getItem('token') || ''
+    const companyId = localStorage.getItem('companyId') || ''
+    try {
+      const res = await fetch(`${API}/api/v1/projects/${id}/close-requests/${requestId}/approve`, {
+        method:  'PATCH',
+        headers: { Authorization: `Bearer ${token}`, 'x-company-id': companyId },
+      })
+      if (!res.ok) { const d = await res.json(); alert(d.error || 'Erro ao aprovar'); return }
+      alert('✅ Obra encerrada com sucesso!')
+      loadProject()
+      setCloseRequest(null)
+    } catch { alert('Erro ao aprovar encerramento') }
+  }
+
+  const handleRejectClose = async (requestId: string) => {
+    const notes = window.prompt('Motivo da recusa (opcional):') ?? ''
+    const token     = localStorage.getItem('token') || ''
+    const companyId = localStorage.getItem('companyId') || ''
+    try {
+      await fetch(`${API}/api/v1/projects/${id}/close-requests/${requestId}/reject`, {
+        method:  'PATCH',
+        headers: { Authorization: `Bearer ${token}`, 'x-company-id': companyId, 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ notes }),
+      })
+      alert('Solicitação recusada.')
+      setCloseRequest(null)
+    } catch { alert('Erro ao recusar') }
   }
 
   // Carrega lançamentos + summary da aba Apropriações
@@ -924,6 +974,41 @@ export default function ObraDetailPage() {
         { label: 'Todas as obras',  href: '/app/centro-de-custo' },
         { label: project.name },
       ]} className="mb-1" />
+
+      {/* ── Banner: solicitação de encerramento pendente ──────────────── */}
+      {closeRequest && closeRequest.status === 'PENDING' && (
+        <div className="flex items-center justify-between gap-4 px-4 py-3 bg-amber-50 border border-amber-300 border-l-4 border-l-amber-500 rounded-xl flex-wrap">
+          <div>
+            <div className="text-sm font-bold text-amber-800">
+              ⏳ Solicitação de encerramento aguardando aprovação
+            </div>
+            <div className="text-xs text-amber-700 mt-0.5 flex items-center gap-3 flex-wrap">
+              <span>Solicitada em {new Date(closeRequest.requestedAt).toLocaleDateString('pt-BR')}</span>
+              {closeRequest.pendingTools > 0 && (
+                <span className="text-red-600 font-medium">
+                  · ⚠️ {closeRequest.pendingTools} ferramenta(s) pendente(s)
+                </span>
+              )}
+            </div>
+          </div>
+          {userIsManager && (
+            <div className="flex gap-2 flex-shrink-0">
+              <button
+                onClick={() => handleApproveClose(closeRequest.id)}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-white bg-green-600 hover:bg-green-700 rounded-lg transition-colors"
+              >
+                <CheckCircle2 size={13} /> Aprovar
+              </button>
+              <button
+                onClick={() => handleRejectClose(closeRequest.id)}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-red-600 border border-red-300 hover:bg-red-50 rounded-lg transition-colors"
+              >
+                ❌ Recusar
+              </button>
+            </div>
+          )}
+        </div>
+      )}
 
       <div>
 

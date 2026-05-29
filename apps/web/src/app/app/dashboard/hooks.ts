@@ -26,7 +26,8 @@ function getToken(): string {
 }
 
 function authHeaders() {
-  return { Authorization: `Bearer ${getToken()}` }
+  const companyId = typeof window !== 'undefined' ? (localStorage.getItem('companyId') ?? '') : ''
+  return { Authorization: `Bearer ${getToken()}`, 'x-company-id': companyId }
 }
 
 // ─── Transforma resposta da API no formato que o page.tsx consume ─────────────
@@ -427,4 +428,24 @@ export function useVacationAlerts(): { alerts: VacationAlerts; loading: boolean 
     alerts:  data ?? { proximasCount: 0, vencendoCount: 0, vencidasCount: 0, emFeriasCount: 0 },
     loading: isFetching,
   }
+}
+
+// ─── useCloseRequestAlerts ────────────────────────────────────────────────────
+// Conta solicitações de encerramento de obra pendentes.
+
+export function useCloseRequestAlerts(): { count: number; loading: boolean } {
+  const { data, isFetching } = useQuery<number>({
+    queryKey: ['close-request-alerts'],
+    queryFn:  async () => {
+      const res = await fetch(`${API}/api/v1/projects?limit=1`, {
+        headers: authHeaders(),
+      })
+      if (!res.ok) return 0
+      const json = await res.json()
+      return json.closeRequestsCount ?? 0
+    },
+    staleTime: 2 * 60_000,
+    enabled:   typeof window !== 'undefined' && !!getToken(),
+  })
+  return { count: data ?? 0, loading: isFetching }
 }

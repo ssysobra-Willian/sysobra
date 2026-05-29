@@ -226,7 +226,8 @@ export default function DiarioProjectPage() {
     const companyId = localStorage.getItem('companyId') || ''
     setRdoToolsLoading(true)
     try {
-      const res  = await fetch(`${API}/api/v1/diary/entries/${projectId}/equipments`, {
+      // Usa by-project para listar todas as ferramentas alocadas na obra
+      const res  = await fetch(`${API}/api/v1/deposit/tools/by-project/${projectId}`, {
         headers: { Authorization: `Bearer ${token}`, 'x-company-id': companyId },
       })
       const data = await res.json()
@@ -238,17 +239,6 @@ export default function DiarioProjectPage() {
     if (tab === 'equipments') loadRdoTools()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab])
-
-  const handleConfirmTool = async (itemId: string, confirmed: boolean, notes?: string) => {
-    const token     = localStorage.getItem('token') || ''
-    const companyId = localStorage.getItem('companyId') || ''
-    await fetch(`${API}/api/v1/diary/entries/${projectId}/equipments/confirm`, {
-      method:  'POST',
-      headers: { Authorization: `Bearer ${token}`, 'x-company-id': companyId, 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ itemId, confirmed, notes }),
-    })
-    loadRdoTools()
-  }
 
   // ── Restaura modo de visualização do localStorage ─────────────────────────
   useEffect(() => {
@@ -751,35 +741,32 @@ export default function DiarioProjectPage() {
             <div>
               {/* Resumo */}
               <div className="grid grid-cols-2 gap-3 mb-5">
+                <div className="text-center p-3 rounded-xl bg-blue-50 border border-blue-200">
+                  <div className="text-2xl font-bold text-blue-700">
+                    {rdoTools.filter((t: any) => !t.returnedAt).length}
+                  </div>
+                  <div className="text-xs text-blue-600 mt-0.5">Em uso</div>
+                </div>
                 <div className="text-center p-3 rounded-xl bg-green-50 border border-green-200">
                   <div className="text-2xl font-bold text-green-700">
-                    {rdoTools.filter(t => t.confirmed).length}
+                    {rdoTools.filter((t: any) => t.returnedAt).length}
                   </div>
-                  <div className="text-xs text-green-600 mt-0.5">Confirmadas</div>
-                </div>
-                <div className="text-center p-3 rounded-xl bg-amber-50 border border-amber-200">
-                  <div className="text-2xl font-bold text-amber-700">
-                    {rdoTools.filter(t => !t.confirmed).length}
-                  </div>
-                  <div className="text-xs text-amber-600 mt-0.5">Pendentes</div>
+                  <div className="text-xs text-green-600 mt-0.5">Devolvidas</div>
                 </div>
               </div>
 
               {/* Lista */}
               <div className="space-y-2">
-                {rdoTools.map(tool => {
+                {rdoTools.map((tool: any) => {
                   const imgUrl = tool.imageUrl
                     ? tool.imageUrl.startsWith('http') ? tool.imageUrl
                       : `${API}${tool.imageUrl.startsWith('/') ? '' : '/'}${tool.imageUrl}`
                     : null
-                  const isAbsent = !tool.confirmed && tool.confirmedAt
                   return (
                     <div
                       key={tool.id}
-                      className={`flex items-center gap-3 p-3 rounded-xl border transition-colors ${
-                        tool.confirmed ? 'border-green-200 bg-green-50'
-                        : isAbsent    ? 'border-red-200 bg-red-50'
-                        : 'border-amber-200 bg-amber-50'
+                      className={`flex items-center gap-3 p-3 rounded-xl border ${
+                        tool.returnedAt ? 'border-green-200 bg-green-50' : 'border-blue-200 bg-blue-50'
                       }`}
                     >
                       {/* Foto */}
@@ -799,55 +786,35 @@ export default function DiarioProjectPage() {
                       <div className="flex-1 min-w-0">
                         <div className="font-semibold text-sm text-gray-900">{tool.name}</div>
                         <div className="text-xs text-gray-500">
-                          {[tool.brand, tool.serialNumber ? `Série: ${tool.serialNumber}` : null].filter(Boolean).join(' · ')}
+                          {[tool.brand, tool.model, tool.serialNumber ? `Série: ${tool.serialNumber}` : null].filter(Boolean).join(' · ')}
                         </div>
-                        {tool.confirmedAt && (
-                          <div className={`text-[11px] mt-0.5 ${tool.confirmed ? 'text-green-600' : 'text-red-500'}`}>
-                            {tool.confirmed ? '✓ Confirmada' : '✗ Ausente'} em {new Date(tool.confirmedAt).toLocaleString('pt-BR')}
-                          </div>
-                        )}
+                        <div className="text-xs text-gray-400 mt-0.5">
+                          {tool.responsavel && tool.responsavel !== '—' ? `Responsável: ${tool.responsavel}` : ''}
+                          {tool.allocatedAt ? ` · Desde ${new Date(tool.allocatedAt).toLocaleDateString('pt-BR')}` : ''}
+                        </div>
                       </div>
 
-                      {/* Botões */}
-                      <div className="flex gap-1.5 flex-shrink-0">
-                        <button
-                          onClick={() => handleConfirmTool(tool.id, true)}
-                          className={`flex items-center gap-1 px-3 py-1.5 text-xs font-semibold rounded-lg border-2 transition-colors ${
-                            tool.confirmed
-                              ? 'border-green-500 bg-green-100 text-green-700'
-                              : 'border-gray-200 bg-white text-gray-500 hover:border-green-400 hover:text-green-600'
-                          }`}
-                        >
-                          <i className="ti ti-circle-check" />
-                          Presente
-                        </button>
-                        <button
-                          onClick={() => handleConfirmTool(tool.id, false, 'Não localizada no RDO')}
-                          className={`flex items-center gap-1 px-3 py-1.5 text-xs font-semibold rounded-lg border-2 transition-colors ${
-                            isAbsent
-                              ? 'border-red-500 bg-red-100 text-red-700'
-                              : 'border-gray-200 bg-white text-gray-500 hover:border-red-400 hover:text-red-600'
-                          }`}
-                        >
-                          <i className="ti ti-circle-x" />
-                          Ausente
-                        </button>
-                      </div>
+                      {/* Status badge */}
+                      <span className={`text-[11px] font-bold px-2.5 py-1 rounded-full flex-shrink-0 ${
+                        tool.returnedAt
+                          ? 'bg-green-100 text-green-700'
+                          : 'bg-blue-100 text-blue-700'
+                      }`}>
+                        {tool.returnedAt ? '✅ Devolvida' : '⚙️ Em uso'}
+                      </span>
                     </div>
                   )
                 })}
               </div>
 
-              {/* Rodapé */}
-              <div className={`mt-4 p-3 rounded-xl text-sm text-center ${
-                rdoTools.every(t => t.confirmed)
-                  ? 'bg-green-50 text-green-700 border border-green-200'
-                  : 'bg-gray-50 text-gray-500 border border-gray-200'
-              }`}>
-                {rdoTools.every(t => t.confirmed)
-                  ? '✅ Todas as ferramentas confirmadas!'
-                  : `⏳ ${rdoTools.filter(t => !t.confirmed).length} ferramenta(s) ainda pendente(s)`
-                }
+              {/* Link para depósito */}
+              <div className="mt-4 text-center">
+                <a
+                  href="/app/deposito"
+                  className="text-sm text-amber-600 hover:underline font-medium"
+                >
+                  Gerenciar ferramentas no depósito →
+                </a>
               </div>
             </div>
           )}

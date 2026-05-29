@@ -247,12 +247,18 @@ export async function projectRoutes(app: FastifyInstance) {
     const totalOverBudget    = allActive.filter((p: any) => p.budgetAlert).length
     const totalWithinBudget  = allActive.filter((p: any) => !p.budgetAlert).length
 
+    // Contagem de solicitações de encerramento pendentes
+    const closeRequestsCount = await p.projectCloseRequest.count({
+      where: { companyId, status: 'PENDING', isActive: true },
+    })
+
     return reply.send({
       projects: serialised,
       total,
       page,
       limit,
       meta: { totalActive, totalAlert, totalOverBudget, totalWithinBudget },
+      closeRequestsCount,
     })
   })
 
@@ -1430,6 +1436,20 @@ export async function projectRoutes(app: FastifyInstance) {
     } catch { /* não bloquear se arquivo já não existir */ }
 
     return reply.send({ success: true })
+  })
+
+  // ── GET /:id/close-requests — solicitação pendente ───────────────────────
+  app.get('/:id/close-requests', { preHandler: [requireCompany] }, async (request, reply) => {
+    const req       = request as RequestWithMember
+    const companyId = req.companyId!
+    const { id }    = request.params as { id: string }
+
+    const pendingRequest = await p.projectCloseRequest.findFirst({
+      where:   { projectId: id, companyId, status: 'PENDING', isActive: true },
+      orderBy: { requestedAt: 'desc' },
+    })
+
+    return reply.send({ pendingRequest: pendingRequest ?? null })
   })
 
   // ── POST /:id/request-close — solicitar encerramento ─────────────────────

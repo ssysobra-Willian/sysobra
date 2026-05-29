@@ -14,10 +14,10 @@ import {
   Bell, AlertTriangle, Info,
   ChevronLeft, ChevronRight, X, RefreshCw, AlertCircle,
   SlidersHorizontal, HardHat, Layers,
-  Plus, Pencil, CheckCircle, XCircle, Trash2, RefreshCcw,
+  Plus, Pencil, CheckCircle, XCircle, Trash2, RefreshCcw, ClipboardList,
 } from 'lucide-react'
 
-import { useFilterState, useDashboardData, useBankAccounts, useProjects, useProjectAlerts, useVacationAlerts, useDepositoPendencias, useDepositoAlerts, type ProjectOption } from './hooks'
+import { useFilterState, useDashboardData, useBankAccounts, useProjects, useProjectAlerts, useVacationAlerts, useDepositoPendencias, useDepositoAlerts, useCloseRequestAlerts, type ProjectOption } from './hooks'
 import { ChartModal, ChartDropdown, ZoomBtn, makeChartTooltip, useChartExport, exportCsv } from './chart-actions'
 import type { BillGroup, Transaction, ExpenseCategory, CashflowPoint, BalancePoint } from './data'
 import { formatCurrency, formatCurrencyCompact } from '@/lib/format'
@@ -201,7 +201,7 @@ function ActivitiesCard({ loading }: { loading: boolean }) {
 
 function AlertsCard({
   budgetAlertCount, delayAlertCount, overduePayable, overdueReceivable,
-  vacationAlerts, pendenciasDeposito = 0, depositoAlerts,
+  vacationAlerts, pendenciasDeposito = 0, depositoAlerts, closeRequestsCount = 0,
 }: {
   budgetAlertCount:    number
   delayAlertCount:     number
@@ -210,6 +210,7 @@ function AlertsCard({
   vacationAlerts?:     { proximasCount: number; vencendoCount: number; vencidasCount: number; emFeriasCount: number }
   pendenciasDeposito?: number
   depositoAlerts?:     { lowStockCount: number; overdueReturns: number; inMaintenanceCount: number; overdueMaintenance: number }
+  closeRequestsCount?: number
 }) {
   const items: { icon: React.ElementType; title: string; desc: string; action: string; href?: string; scheme: { bg:string; border:string; icon:string; text:string } }[] = []
 
@@ -243,6 +244,15 @@ function AlertsCard({
     desc:  'Data prevista de conclusão ultrapassada',
     action: 'Ver obras →', href: '/app/centro-de-custo',
     scheme: { bg:'bg-red-50', border:'border-red-200', icon:'text-red-500', text:'text-red-700' },
+  })
+
+  // ── Solicitações de encerramento de obra ─────────────────────────────────
+  if (closeRequestsCount > 0) items.push({
+    icon: ClipboardList,
+    title: `${closeRequestsCount} solicitação${closeRequestsCount !== 1 ? 'ões' : ''} de encerramento de obra pendente${closeRequestsCount !== 1 ? 's' : ''}`,
+    desc:  'Aguardando aprovação do gestor',
+    action: 'Ver obras →', href: '/app/centro-de-custo',
+    scheme: { bg:'bg-amber-50', border:'border-amber-200', icon:'text-amber-500', text:'text-amber-700' },
   })
 
   // ── Alertas do depósito ───────────────────────────────────────────────────
@@ -396,6 +406,7 @@ export default function DashboardPage() {
   const { alerts: vacationAlerts }    = useVacationAlerts()
   const { count: pendenciasDeposito } = useDepositoPendencias()
   const { alerts: depositoAlerts }    = useDepositoAlerts()
+  const { count: closeRequestsCount } = useCloseRequestAlerts()
 
   // Estado do accordion de filtros (mobile)
   const [filtersOpen, setFiltersOpen] = useState(false)
@@ -735,6 +746,7 @@ export default function DashboardPage() {
             vacationAlerts={vacationAlerts}
             pendenciasDeposito={pendenciasDeposito}
             depositoAlerts={depositoAlerts}
+            closeRequestsCount={closeRequestsCount}
           />
         </div>
       </div>
