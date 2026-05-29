@@ -183,6 +183,9 @@ export default function RdoDetailPage() {
   const [commentError,   setCommentError]   = useState('')
   const commentsEndRef = useRef<HTMLDivElement>(null)
 
+  // Ferramentas utilizadas neste RDO
+  const [rdoTools, setRdoTools] = useState<any[]>([])
+
   // ── Carrega relatório — HOOKS ANTES do return condicional ────────────────
 
   const loadEntry = useCallback(async () => {
@@ -207,6 +210,19 @@ export default function RdoDetailPage() {
 
   // Lê userId do localStorage somente no cliente (evita hydration mismatch)
   useEffect(() => { setUserId(localStorage.getItem('userId')) }, [])
+
+  // Carrega ferramentas utilizadas neste RDO
+  useEffect(() => {
+    if (!reportId) return
+    const token     = localStorage.getItem('token') || ''
+    const companyId = localStorage.getItem('companyId') || ''
+    fetch(`${API}/api/v1/diary/entries/${reportId}/tools`, {
+      headers: { Authorization: `Bearer ${token}`, 'x-company-id': companyId },
+    })
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d) setRdoTools((d.tools ?? []).filter((t: any) => t.usedInRdo)) })
+      .catch(() => {})
+  }, [reportId])
 
   // ── Return condicional DEPOIS de todos os hooks ───────────────────────────
   if (!canAccessModule('diario_obra')) return <SemAcesso modulo="Diário de Obra" />
@@ -616,6 +632,37 @@ export default function RdoDetailPage() {
                   {entry.ddsTime && ` às ${new Date(entry.ddsTime).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`}
                   {entry.ddsTheme && <> — <strong>{entry.ddsTheme}</strong></>}
                 </p>
+              </div>
+            </Card>
+          )}
+
+          {/* Ferramentas utilizadas no dia */}
+          {rdoTools.length > 0 && (
+            <Card title={`🔧 Ferramentas Utilizadas no Dia (${rdoTools.length})`}>
+              <div className="space-y-2">
+                {rdoTools.map((tool: any) => {
+                  const imgUrl = tool.imageUrl
+                    ? tool.imageUrl.startsWith('http') ? tool.imageUrl
+                      : `${API}${tool.imageUrl.startsWith('/') ? '' : '/'}${tool.imageUrl}`
+                    : null
+                  return (
+                    <div key={tool.id} className="flex items-center gap-3 px-3 py-2.5 rounded-xl bg-green-50 border border-green-200">
+                      {imgUrl ? (
+                        <img src={imgUrl} className="w-8 h-8 rounded object-cover border border-gray-200 flex-shrink-0"
+                          onError={e => { e.currentTarget.style.display = 'none' }} />
+                      ) : (
+                        <i className="ti ti-tool text-lg text-green-500 flex-shrink-0" />
+                      )}
+                      <div className="flex-1 min-w-0">
+                        <div className="font-semibold text-sm text-gray-900">{tool.name}</div>
+                        {tool.usageNotes && (
+                          <div className="text-xs text-gray-500 mt-0.5">📝 {tool.usageNotes}</div>
+                        )}
+                      </div>
+                      <span className="flex-shrink-0 text-[11px] font-semibold text-green-700">✅ Utilizada</span>
+                    </div>
+                  )
+                })}
               </div>
             </Card>
           )}

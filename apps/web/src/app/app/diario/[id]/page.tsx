@@ -221,35 +221,23 @@ export default function DiarioProjectPage() {
   }, [tab, projectId, rainRecords.length])
 
   // ── Carrega ferramentas da obra quando a aba abre ─────────────────────────
-  // entryId = RDO mais recente (reports[0])
-  const loadRdoTools = async (entryId?: string) => {
-    const eid = entryId ?? reports[0]?.id
+  const loadRdoTools = async () => {
     const token     = localStorage.getItem('token') || ''
     const companyId = localStorage.getItem('companyId') || ''
     setRdoToolsLoading(true)
     try {
-      if (eid) {
-        // Carrega com status de uso por RDO
-        const res  = await fetch(`${API}/api/v1/diary/entries/${eid}/tools`, {
-          headers: { Authorization: `Bearer ${token}`, 'x-company-id': companyId },
-        })
-        const data = await res.json()
-        setRdoTools(data.tools ?? [])
-      } else {
-        // Sem RDO criado — fallback para by-project (somente leitura)
-        const res  = await fetch(`${API}/api/v1/deposit/tools/by-project/${projectId}`, {
-          headers: { Authorization: `Bearer ${token}`, 'x-company-id': companyId },
-        })
-        const data = await res.json()
-        setRdoTools((data.tools ?? []).filter((t: any) => !t.returnedAt))
-      }
+      const res  = await fetch(`${API}/api/v1/deposit/tools/by-project/${projectId}`, {
+        headers: { Authorization: `Bearer ${token}`, 'x-company-id': companyId },
+      })
+      const data = await res.json()
+      setRdoTools(data.tools ?? [])
     } catch {} finally { setRdoToolsLoading(false) }
   }
 
   useEffect(() => {
     if (tab === 'equipments') loadRdoTools()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab, reports.length])
+  }, [tab])
 
   // ── Restaura modo de visualização do localStorage ─────────────────────────
   useEffect(() => {
@@ -735,11 +723,9 @@ export default function DiarioProjectPage() {
       {tab === 'equipments' && (
         <div className="pb-6">
           <div className="mb-4">
-            <h3 className="text-base font-bold text-gray-900">Ferramentas utilizadas hoje</h3>
+            <h3 className="text-base font-bold text-gray-900">Ferramentas alocadas nesta obra</h3>
             <p className="text-sm text-gray-500 mt-0.5">
-              {reports[0]?.id
-                ? `Marque quais ferramentas foram utilizadas neste RDO (${reports[0]?.reportNumber ?? ''}).`
-                : 'Crie o RDO de hoje para registrar o uso de ferramentas.'}
+              Ferramentas atualmente em uso e histórico de devoluções.
             </p>
           </div>
 
@@ -752,74 +738,64 @@ export default function DiarioProjectPage() {
             </div>
           ) : (
             <div>
-              {/* Resumo */}
-              <div className="grid grid-cols-2 gap-3 mb-5">
-                <div className="text-center p-3 rounded-xl bg-green-50 border border-green-200">
-                  <div className="text-2xl font-bold text-green-700">
-                    {rdoTools.filter((t: any) => t.usedInRdo).length}
+              {/* Em uso */}
+              {rdoTools.filter((t: any) => !t.returnedAt).length > 0 && (
+                <div className="mb-5">
+                  <div className="text-xs font-bold text-amber-600 uppercase tracking-wide mb-3">
+                    ⚙️ Em uso ({rdoTools.filter((t: any) => !t.returnedAt).length})
                   </div>
-                  <div className="text-xs text-green-600 mt-0.5">Utilizadas hoje</div>
-                </div>
-                <div className="text-center p-3 rounded-xl bg-gray-50 border border-gray-200">
-                  <div className="text-2xl font-bold text-gray-500">
-                    {rdoTools.filter((t: any) => !t.usedInRdo).length}
+                  <div className="space-y-2">
+                    {rdoTools.filter((t: any) => !t.returnedAt).map((tool: any) => {
+                      const imgUrl = tool.imageUrl
+                        ? tool.imageUrl.startsWith('http') ? tool.imageUrl
+                          : `${API}${tool.imageUrl.startsWith('/') ? '' : '/'}${tool.imageUrl}`
+                        : null
+                      return (
+                        <div key={tool.id} className="flex items-center gap-3 p-3 rounded-xl border border-amber-200 bg-amber-50">
+                          {imgUrl ? (
+                            <img src={imgUrl} className="w-10 h-10 rounded-lg object-cover border border-gray-200 flex-shrink-0"
+                              onError={e => { e.currentTarget.style.display = 'none' }} />
+                          ) : (
+                            <div className="w-10 h-10 rounded-lg bg-gray-100 flex items-center justify-center flex-shrink-0">
+                              <i className="ti ti-tool text-lg text-gray-300" />
+                            </div>
+                          )}
+                          <div className="flex-1 min-w-0">
+                            <div className="font-semibold text-sm text-gray-900">{tool.name}</div>
+                            <div className="text-xs text-gray-500">
+                              {[tool.brand, tool.model, tool.serialNumber ? `Série: ${tool.serialNumber}` : null].filter(Boolean).join(' · ')}
+                            </div>
+                          </div>
+                          <span className="flex-shrink-0 text-[11px] font-bold px-2.5 py-1 rounded-full bg-blue-100 text-blue-700">⚙️ Em uso</span>
+                        </div>
+                      )
+                    })}
                   </div>
-                  <div className="text-xs text-gray-500 mt-0.5">Não utilizadas</div>
                 </div>
-              </div>
+              )}
 
-              {/* Lista — somente leitura (uso registrado no formulário do RDO) */}
-              <div className="space-y-2">
-                {rdoTools.map((tool: any) => {
-                  const imgUrl = tool.imageUrl
-                    ? tool.imageUrl.startsWith('http') ? tool.imageUrl
-                      : `${API}${tool.imageUrl.startsWith('/') ? '' : '/'}${tool.imageUrl}`
-                    : null
-                  return (
-                    <div
-                      key={tool.id}
-                      className={`flex items-center gap-3 p-3 rounded-xl border ${
-                        tool.usedInRdo ? 'border-green-200 bg-green-50' : 'border-gray-200 bg-white'
-                      }`}
-                    >
-                      {/* Foto */}
-                      {imgUrl ? (
-                        <img
-                          src={imgUrl}
-                          className="w-11 h-11 rounded-lg object-cover border border-gray-200 flex-shrink-0"
-                          onError={e => { e.currentTarget.style.display = 'none' }}
-                        />
-                      ) : (
-                        <div className="w-11 h-11 rounded-lg bg-gray-100 flex items-center justify-center flex-shrink-0">
-                          <i className="ti ti-tool text-xl text-gray-300" />
+              {/* Devolvidas */}
+              {rdoTools.filter((t: any) => t.returnedAt).length > 0 && (
+                <div>
+                  <div className="text-xs font-bold text-green-600 uppercase tracking-wide mb-3">
+                    ✅ Devolvidas ({rdoTools.filter((t: any) => t.returnedAt).length})
+                  </div>
+                  <div className="space-y-2">
+                    {rdoTools.filter((t: any) => t.returnedAt).map((tool: any) => (
+                      <div key={tool.id} className="flex items-center justify-between px-3 py-2.5 rounded-xl border border-green-200 bg-green-50 text-sm">
+                        <div className="flex items-center gap-2">
+                          <i className="ti ti-circle-check text-green-600" />
+                          <span className="font-medium text-gray-900">{tool.name}</span>
+                          {tool.serialNumber && <span className="text-xs text-gray-400">({tool.serialNumber})</span>}
                         </div>
-                      )}
-
-                      {/* Info */}
-                      <div className="flex-1 min-w-0">
-                        <div className="font-semibold text-sm text-gray-900">{tool.name}</div>
-                        <div className="text-xs text-gray-500">
-                          {[tool.toolType, tool.brand, tool.serialNumber ? `Série: ${tool.serialNumber}` : null].filter(Boolean).join(' · ')}
-                        </div>
-                        {tool.usedInRdo && tool.usageNotes && (
-                          <div className="text-xs text-green-700 mt-0.5">📝 {tool.usageNotes}</div>
-                        )}
+                        <span className="text-xs text-gray-500">
+                          Devolvida em {new Date(tool.returnedAt).toLocaleDateString('pt-BR')}
+                        </span>
                       </div>
-
-                      {/* Badge somente leitura */}
-                      {tool.usedInRdo ? (
-                        <span className="flex-shrink-0 px-3 py-1 rounded-full bg-green-100 text-green-700 text-xs font-semibold">
-                          ✅ Utilizada
-                        </span>
-                      ) : (
-                        <span className="flex-shrink-0 px-3 py-1 rounded-full bg-gray-100 text-gray-400 text-xs">
-                          — Não utilizada
-                        </span>
-                      )}
-                    </div>
-                  )
-                })}
-              </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               <div className="mt-4 text-center">
                 <a href="/app/deposito" className="text-sm text-amber-600 hover:underline font-medium">

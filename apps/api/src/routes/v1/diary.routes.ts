@@ -841,7 +841,15 @@ export async function diaryRoutes(app: FastifyInstance) {
     const proj    = entry.project
     const company = proj.company
 
-    const html = buildDiaryPdfHtml(entry, proj, company)
+    // Buscar ferramentas utilizadas neste RDO
+    const equipments = await p.diaryEquipment.findMany({
+      where: { diaryEntryId: id, usedInRdo: true, isActive: true },
+      include: {
+        item: { select: { name: true, brand: true, model: true, serialNumber: true, toolType: true } },
+      },
+    })
+
+    const html = buildDiaryPdfHtml(entry, proj, company, equipments)
     try {
       const pdfBuffer = await generatePdf({ kind: 'raw', html } as any)
       const filename = `RDO-${entry.reportNumber ?? id}-${proj.name.replace(/\s+/g,'-').toLowerCase()}.pdf`
@@ -1912,7 +1920,7 @@ const STATUS_LABEL: Record<string, string> = {
   DRAFT: 'Rascunho', PENDING: 'Aguardando aprovação', APPROVED: 'Aprovado', REJECTED: 'Devolvido',
 }
 
-function buildDiaryPdfHtml(entry: any, proj: any, company: any): string {
+function buildDiaryPdfHtml(entry: any, proj: any, company: any, equipments: any[] = []): string {
   const fmtDate = (d: Date | string) => new Date(d).toLocaleDateString('pt-BR')
 
   const statusColors: Record<string, { bg: string; color: string }> = {
@@ -2017,6 +2025,23 @@ function buildDiaryPdfHtml(entry: any, proj: any, company: any): string {
         <p>Tema: <strong>${entry.ddsTheme ?? 'Não especificado'}</strong>
         ${entry.ddsTime ? ` — Realizado às ${new Date(entry.ddsTime).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}` : ''}</p>
       </div>
+    </div>` : ''}
+
+    ${equipments.length > 0 ? `
+    <div class="section">
+      <div class="section-title">🔧 Ferramentas Utilizadas no Dia <span style="font-size:10px;font-weight:400;margin-left:6px">(${equipments.length} ferramenta${equipments.length !== 1 ? 's' : ''})</span></div>
+      <table>
+        <thead><tr><th>Ferramenta</th><th>Série</th><th>Tipo</th><th>Observações</th></tr></thead>
+        <tbody>
+          ${equipments.map((eq: any) => `
+          <tr>
+            <td><strong>${eq.item.name}</strong>${eq.item.brand ? `<br><span style="font-size:10px;color:#6B7280">${eq.item.brand}${eq.item.model ? ' ' + eq.item.model : ''}</span>` : ''}</td>
+            <td style="font-size:11px;color:#6B7280">${eq.item.serialNumber || '—'}</td>
+            <td style="font-size:11px">${eq.item.toolType || '—'}</td>
+            <td style="font-size:11px;color:#6B7280">${eq.usageNotes || '—'}</td>
+          </tr>`).join('')}
+        </tbody>
+      </table>
     </div>` : ''}
 
     ${entry.generalNotes ? `
