@@ -460,16 +460,23 @@ export async function depositRoutes(app: FastifyInstance) {
       })
     }
 
+    // FIX 4: ferramentas não-manuais têm quantidade 1 (identificação única por S/N)
+    const isTool      = body.requiresCustody === true
+    const isManual    = body.toolType === 'MANUAL'
+    const effectiveQty = isTool && body.toolType && !isManual
+      ? 1
+      : Math.max(0, initialQuantity)
+
     // Criar movimento de entrada inicial, se estoque > 0
-    if (initialQuantity > 0) {
+    if (effectiveQty > 0) {
       await p().stockMovement.create({
         data: {
           companyId:   cid,
           stockItemId: item.id,
           type:        'IN',
-          quantity:    initialQuantity,
+          quantity:    effectiveQty,
           unitCost:    avgCost > 0 ? avgCost : null,
-          totalCost:   avgCost > 0 ? initialQuantity * avgCost : null,
+          totalCost:   avgCost > 0 ? effectiveQty * avgCost : null,
           reason:      'Estoque inicial de cadastro',
         },
       })
@@ -477,8 +484,21 @@ export async function depositRoutes(app: FastifyInstance) {
       await p().stockItem.update({
         where: { id: item.id },
         data: {
-          quantity:    initialQuantity,
+          quantity:    effectiveQty,
           averageCost: avgCost > 0 ? avgCost : undefined,
+        },
+      })
+      // FIX 6: criar StockBalance no Depósito Central
+      await p().stockBalance.upsert({
+        where:  { itemId_locationId: { itemId: item.id, locationId: central.id } },
+        update: { quantity: effectiveQty, totalValue: effectiveQty * (avgCost > 0 ? avgCost : 0) },
+        create: {
+          companyId:   cid,
+          itemId:      item.id,
+          locationId:  central.id,
+          quantity:    effectiveQty,
+          averageCost: avgCost > 0 ? avgCost : 0,
+          totalValue:  effectiveQty * (avgCost > 0 ? avgCost : 0),
         },
       })
     }
@@ -543,6 +563,19 @@ export async function depositRoutes(app: FastifyInstance) {
     if (!exists) return reply.status(404).send({ error: 'Item não encontrado' })
 
     const data = buildItemData(body)
+
+    // FIX 5: se toolType mudou para não-manual, forçar quantity=1
+    const isTool   = exists.requiresCustody === true
+    const newType  = body.toolType
+    if (isTool && newType && newType !== 'MANUAL') {
+      data.quantity = 1
+      // Zerar saldos acima de 1
+      await p().stockBalance.updateMany({
+        where:  { itemId: id, companyId: cid, quantity: { gt: 1 } },
+        data:   { quantity: 1 },
+      })
+    }
+
     const item = await p().stockItem.update({ where: { id }, data })
     return reply.send(item)
   })
@@ -1666,8 +1699,8 @@ ${_basketFooter}
     const overdueReturns   = custodies
     const overdueMaint     = maintenances
 
-    // Valor por categoria
-    const itemValue = (i: any) => Number(i.quantity) * Number(i.averageCost ?? i.unitCost ?? 0)
+    // Valor por categoria — usa || para não travar em averageCost=0
+    const itemValue = (i: any) => Number(i.quantity) * Number(i.unitCost || i.averageCost || 0)
     const categorize = (i: any): 'epis' | 'uniformes' | 'ferramentas' | 'materiais' | 'outros' => {
       if (i.isEpi)    return 'epis'
       if (i.isUniform) return 'uniformes'
@@ -2270,6 +2303,54 @@ ${_basketFooter}
     ])
 
     return reply.send({ success: true, toolStatus: 'DISCARDED' })
+  })
+
+  // ── EXCLUIR FERRAMENTA (exclusão lógica) ─────────────────────────────────
+  // DELETE /api/v1/deposit/tools/:id
+  app.delete('/tools/:id', { preHandler }, async (request, reply) => {
+    const req = request as RequestWithMember
+    const cid = companyId(req)
+    const { id } = request.params as { id: string }
+
+    // Verificar permissão: apenas ADMIN, OWNER ou MANAGER podem excluir
+    const role: string = (req as any).memberRole ?? ''
+    if (!['ADMIN', 'OWNER', 'MANAGER'].includes(role)) {
+      return reply.status(403).send({
+        error:   'FORBIDDEN',
+        message: 'Apenas administradores e gestores podem excluir ferramentas.',
+      })
+    }
+
+    const item = await p().stockItem.findFirst({
+      where: { id, companyId: cid, isActive: true, requiresCustody: true },
+    })
+    if (!item) return reply.status(404).send({ error: 'Ferramenta não encontrada' })
+
+    // Bloquear se houver custódia ativa
+    const activeCustody = await p().toolCustody.findFirst({
+      where: { stockItemId: id, returnedAt: null },
+    })
+    if (activeCustody) {
+      return reply.status(400).send({
+        error:   'TOOL_IN_USE',
+        message: 'Não é possível excluir uma ferramenta em uso. Solicite a devolução primeiro.',
+      })
+    }
+
+    await p().$transaction([
+      // Zerar saldos
+      p().stockBalance.updateMany({
+        where: { itemId: id, companyId: cid },
+        data:  { quantity: 0, totalValue: 0 },
+      }),
+      // Exclusão lógica
+      p().stockItem.update({
+        where: { id },
+        data:  { isActive: false, quantity: 0 },
+      }),
+    ])
+
+    return reply.send({ success: true })
   })
 
   // PATCH /api/v1/deposit/baskets/:id/cancel

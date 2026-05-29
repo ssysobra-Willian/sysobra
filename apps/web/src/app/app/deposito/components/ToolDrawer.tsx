@@ -760,14 +760,21 @@ export function ToolDrawer({
             </div>
             <p className="text-xs text-gray-500">Ferramenta: <strong>{tool.name}</strong></p>
             <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Motivo do descarte (opcional)</label>
+              <label className="block text-xs font-medium text-gray-600 mb-1">
+                Motivo do descarte <span className="text-red-500">*</span>
+              </label>
               <textarea
                 rows={3}
                 value={drawerDiscardReason}
                 onChange={e => setDrawerDiscardReason(e.target.value)}
                 placeholder="Ex: Peças sem reposição, vida útil esgotada…"
-                className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-red-400 resize-none"
+                className={`w-full text-sm border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 resize-none ${
+                  !drawerDiscardReason.trim() ? 'border-red-300 focus:ring-red-400' : 'border-gray-200 focus:ring-red-400'
+                }`}
               />
+              {!drawerDiscardReason.trim() && (
+                <p className="text-[11px] text-red-500 mt-1">⚠️ Motivo é obrigatório para registrar o descarte.</p>
+              )}
             </div>
             <div className="flex gap-2 pt-1">
               <button
@@ -776,7 +783,7 @@ export function ToolDrawer({
               >Cancelar</button>
               <button
                 onClick={handleDiscardSubmit}
-                disabled={processingDrawer}
+                disabled={!drawerDiscardReason.trim() || processingDrawer}
                 className="flex-1 py-2 rounded-xl bg-red-600 text-white text-sm font-semibold hover:bg-red-700 transition disabled:opacity-50 flex items-center justify-center gap-1.5"
               >
                 {processingDrawer ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
@@ -1022,8 +1029,8 @@ export function ToolDrawer({
                   <Wrench size={13} />Manutenção prev.
                 </button>
               )}
-              {/* FIX 7: entrada rápida — só quando disponível e com saldo vinculado */}
-              {tool.toolStatus === 'AVAILABLE' && hasStockBalance && (
+              {/* FIX 7: entrada rápida — só para MANUAL, disponível e com saldo vinculado */}
+              {tool.toolType === 'MANUAL' && tool.toolStatus === 'AVAILABLE' && hasStockBalance && (
                 <button
                   onClick={() => { setQuickEntryQty(1); setQuickEntryNotes(''); setQuickEntryUnitCost(0); setShowQuickEntryModal(true) }}
                   className="flex-1 min-w-[100px] py-2 rounded-xl border border-green-300 text-green-700 text-xs font-semibold hover:bg-green-50 transition flex items-center justify-center gap-1.5"

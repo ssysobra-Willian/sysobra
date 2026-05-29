@@ -4,7 +4,7 @@ import React, { useState, useRef, useCallback, useEffect } from 'react'
 import {
   X, Wrench, Upload, Loader2, CheckCircle2, AlertCircle,
   ChevronDown, ChevronUp, Calendar, MapPin, Phone, Building2,
-  Zap, Battery, Wind, Ruler, HardHat, PenTool, Camera,
+  Zap, Battery, Wind, Ruler, HardHat, PenTool, Camera, Lock,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -250,6 +250,7 @@ export function ToolFormModal({ isOpen, onClose, onSuccess, tool }: Props) {
   const [serviceCenterCity,  setServiceCenterCity]  = useState('')
   const [serviceCenterAddress, setServiceCenterAddress] = useState('')
   const [requiresCustody,    setRequiresCustody]    = useState(true)
+  const [initialQuantity,    setInitialQuantity]    = useState<number>(1)
   const [photoFile,          setPhotoFile]          = useState<File | null>(null)
 
   // ── Status ──────────────────────────────────────────────────────────────────
@@ -305,7 +306,7 @@ export function ToolFormModal({ isOpen, onClose, onSuccess, tool }: Props) {
     setUnitCost(''); setLocationShelf(''); setLocationSection('')
     setLocationDetail(''); setLastMaintenance(''); setNextMaintenance('')
     setServiceCenter(''); setServiceCenterPhone(''); setServiceCenterCity('')
-    setServiceCenterAddress(''); setRequiresCustody(true)
+    setServiceCenterAddress(''); setRequiresCustody(true); setInitialQuantity(1)
     setPhotoFile(null); setError(''); setSuccess(false)
   }
 
@@ -371,6 +372,10 @@ export function ToolFormModal({ isOpen, onClose, onSuccess, tool }: Props) {
         isEpi:             false,
         isUniform:         false,
         unit:              'un',
+        // FIX 2+6: quantidade inicial — MANUAL livre, outros sempre 1
+        ...(!isEdit ? {
+          initialQuantity: (toolType && toolType !== 'MANUAL') ? 1 : Math.max(1, initialQuantity),
+        } : {}),
       }
       if (imageUrl) payload.imageUrl = imageUrl
 
@@ -410,7 +415,7 @@ export function ToolFormModal({ isOpen, onClose, onSuccess, tool }: Props) {
     locationShelf, locationSection, locationDetail,
     lastMaintenance, nextMaintenance,
     serviceCenter, serviceCenterPhone, serviceCenterCity, serviceCenterAddress,
-    requiresCustody, photoFile, isEdit, tool, onClose, onSuccess,
+    requiresCustody, initialQuantity, photoFile, isEdit, tool, onClose, onSuccess,
   ])
 
   if (!isOpen) return null
@@ -520,12 +525,48 @@ export function ToolFormModal({ isOpen, onClose, onSuccess, tool }: Props) {
                   className={inputCls('resize-none')}
                 />
               </Field>
+              {/* FIX 2+6: quantidade inicial — regra por tipo de ferramenta */}
+              {!isEdit && (
+                toolType === 'MANUAL' || !toolType ? (
+                  <Field label="Quantidade inicial">
+                    <div className="flex items-center gap-3">
+                      <input
+                        type="number"
+                        min={1}
+                        value={initialQuantity}
+                        onChange={e => setInitialQuantity(Math.max(1, Number(e.target.value)))}
+                        className={inputCls('w-24')}
+                      />
+                      <p className="text-xs text-gray-400">
+                        Ferramentas manuais podem ter múltiplas unidades (ex: chaves, alicates).
+                      </p>
+                    </div>
+                  </Field>
+                ) : (
+                  <Field label="Quantidade inicial">
+                    <div className="flex items-center gap-2 px-3 py-2.5 bg-gray-50 border border-gray-100 rounded-xl text-sm text-gray-500">
+                      <Lock size={12} className="text-gray-400 flex-shrink-0" />
+                      <span>1 unidade — identificação única por número de série</span>
+                    </div>
+                    <p className="text-[11px] text-gray-400 mt-1">
+                      Ferramentas elétricas, pneumáticas e hidráulicas são cadastradas individualmente.
+                    </p>
+                  </Field>
+                )
+              )}
             </Section>
 
             {/* ── Tipo e Energia ────────────────────────────────────────── */}
             <Section title="Tipo e Energia" icon={<Zap size={14} className="text-blue-500" />}>
               <Field label="Tipo de ferramenta">
-                <ToolTypeChips value={toolType} onChange={setToolType} />
+                <ToolTypeChips
+                  value={toolType}
+                  onChange={v => {
+                    setToolType(v)
+                    // FIX 2: não-manual → quantidade sempre 1
+                    if (v && v !== 'MANUAL') setInitialQuantity(1)
+                  }}
+                />
               </Field>
 
               {(toolType === 'ELECTRIC' || toolType === 'PNEUMATIC') && (
