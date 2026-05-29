@@ -15,6 +15,7 @@ import type { BadgeVariant }                         from '@/components/ui/Badge
 import { resolveUploadUrl }                          from '@/lib/upload'
 import { PhotoCarousel }                             from '../../components/PhotoCarousel'
 import { ActivityFeed }                              from '@/components/ui/ActivityFeed'
+import SignatureModal                                from '@/components/ui/SignatureModal'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
 
@@ -186,6 +187,17 @@ export default function RdoDetailPage() {
   // Ferramentas utilizadas neste RDO
   const [rdoTools, setRdoTools] = useState<any[]>([])
 
+  // Assinaturas
+  const [signatures,          setSignatures]          = useState<any>(null)
+  const [showSignModal,       setShowSignModal]       = useState(false)
+  const [signRole,            setSignRole]            = useState<'author' | 'approver'>('author')
+  const [signingLoading,      setSigningLoading]      = useState(false)
+  const [savedSignature,      setSavedSignature]      = useState<string | null>(null)
+  const [showFiscalModal,     setShowFiscalModal]     = useState(false)
+  const [fiscalName,          setFiscalName]          = useState('')
+  const [fiscalLink,          setFiscalLink]          = useState('')
+  const [generatingFiscalLink,setGeneratingFiscalLink]= useState(false)
+
   // ── Carrega relatório — HOOKS ANTES do return condicional ────────────────
 
   const loadEntry = useCallback(async () => {
@@ -224,6 +236,22 @@ export default function RdoDetailPage() {
       .catch(() => {})
   }, [reportId])
 
+  // Carrega status de assinaturas do RDO e assinatura salva do usuário
+  useEffect(() => {
+    if (!reportId) return
+    const token     = localStorage.getItem('token') || ''
+    const companyId = localStorage.getItem('companyId') || ''
+    const headers   = { Authorization: `Bearer ${token}`, 'x-company-id': companyId }
+    fetch(`${API}/api/v1/diary/reports/${reportId}/signatures`, { headers })
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d?.signatures) setSignatures(d.signatures) })
+      .catch(() => {})
+    fetch(`${API}/api/v1/auth/me`, { headers })
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d?.user?.savedSignatureUrl) setSavedSignature(d.user.savedSignatureUrl) })
+      .catch(() => {})
+  }, [reportId])
+
   // ── Return condicional DEPOIS de todos os hooks ───────────────────────────
   if (!canAccessModule('diario_obra')) return <SemAcesso modulo="Diário de Obra" />
 
@@ -240,6 +268,51 @@ export default function RdoDetailPage() {
   }
 
   function getToken() { return localStorage.getItem('token') || '' }
+
+  // ── Assinar RDO (autor/aprovador) ────────────────────────────────────────
+
+  async function handleSign(signatureData: string, save: boolean) {
+    setSigningLoading(true)
+    const token     = localStorage.getItem('token') || ''
+    const companyId = localStorage.getItem('companyId') || ''
+    try {
+      await fetch(`${API}/api/v1/diary/reports/${reportId}/sign`, {
+        method:  'POST',
+        headers: { Authorization: `Bearer ${token}`, 'x-company-id': companyId, 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ signatureData, role: signRole, saveSignature: save }),
+      })
+      if (save) setSavedSignature(signatureData)
+      setShowSignModal(false)
+      // Recarregar assinaturas
+      const res = await fetch(`${API}/api/v1/diary/reports/${reportId}/signatures`, {
+        headers: { Authorization: `Bearer ${token}`, 'x-company-id': companyId },
+      })
+      const d = await res.json()
+      if (d?.signatures) setSignatures(d.signatures)
+      flash('ok', 'RDO assinado com sucesso!')
+    } catch { flash('err', 'Erro ao assinar. Tente novamente.') }
+    finally { setSigningLoading(false) }
+  }
+
+  // ── Gerar link para fiscal externo ────────────────────────────────────────
+
+  async function handleGenerateFiscalLink() {
+    if (!fiscalName.trim()) return
+    setGeneratingFiscalLink(true)
+    const token     = localStorage.getItem('token') || ''
+    const companyId = localStorage.getItem('companyId') || ''
+    try {
+      const res  = await fetch(`${API}/api/v1/diary/reports/${reportId}/generate-fiscal-link`, {
+        method:  'POST',
+        headers: { Authorization: `Bearer ${token}`, 'x-company-id': companyId, 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ fiscalName }),
+      })
+      const data = await res.json()
+      if (!res.ok) { flash('err', data.error || 'Erro ao gerar link'); return }
+      setFiscalLink(data.link)
+    } catch { flash('err', 'Erro ao gerar link') }
+    finally { setGeneratingFiscalLink(false) }
+  }
 
   // ── Aprovar ───────────────────────────────────────────────────────────────
 
@@ -703,6 +776,93 @@ export default function RdoDetailPage() {
             </Card>
           )}
 
+          {/* ── Assinaturas (apenas para APPROVED) ───────────────────────── */}
+          {entry.status === 'APPROVED' && signatures && (
+            <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-5">
+              <h3 className="text-sm font-semibold text-gray-800 mb-4">✍️ Assinaturas</h3>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+
+                {/* Autor */}
+                <div className={`p-4 rounded-xl border ${signatures.authorSigned ? 'border-green-200 bg-green-50' : 'border-gray-200 bg-gray-50'}`}>
+                  <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-3">Autor do RDO</p>
+                  {signatures.authorSigned ? (
+                    <div>
+                      {signatures.authorSignatureUrl && (
+                        <img src={signatures.authorSignatureUrl} alt="Assinatura" className="w-full max-h-14 object-contain mb-2" />
+                      )}
+                      <p className="text-xs text-green-600 font-medium">✅ Assinado</p>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => { setSignRole('author'); setShowSignModal(true) }}
+                      className="w-full py-2 px-3 rounded-lg border border-orange-300 text-orange-600 bg-orange-50 text-xs font-semibold hover:bg-orange-100 transition-colors"
+                    >
+                      ✍️ Assinar
+                    </button>
+                  )}
+                </div>
+
+                {/* Aprovador */}
+                <div className={`p-4 rounded-xl border ${signatures.approverSigned ? 'border-green-200 bg-green-50' : 'border-gray-200 bg-gray-50'}`}>
+                  <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-3">Aprovador</p>
+                  {signatures.approverSigned ? (
+                    <div>
+                      {signatures.approverSignatureUrl && (
+                        <img src={signatures.approverSignatureUrl} alt="Assinatura" className="w-full max-h-14 object-contain mb-2" />
+                      )}
+                      <p className="text-xs text-green-600 font-medium">✅ Assinado</p>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => { setSignRole('approver'); setShowSignModal(true) }}
+                      className="w-full py-2 px-3 rounded-lg border border-orange-300 text-orange-600 bg-orange-50 text-xs font-semibold hover:bg-orange-100 transition-colors"
+                    >
+                      ✍️ Assinar
+                    </button>
+                  )}
+                </div>
+
+                {/* Fiscal externo */}
+                <div className={`p-4 rounded-xl border ${signatures.fiscalSigned ? 'border-green-200 bg-green-50' : 'border-gray-200 bg-gray-50'}`}>
+                  <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1">Fiscal / Engenheiro</p>
+                  {signatures.fiscalName && (
+                    <p className="text-xs text-gray-500 mb-2 truncate">{signatures.fiscalName}</p>
+                  )}
+                  {signatures.fiscalSigned ? (
+                    <div>
+                      {signatures.fiscalSignatureUrl && (
+                        <img src={signatures.fiscalSignatureUrl} alt="Assinatura" className="w-full max-h-14 object-contain mb-2" />
+                      )}
+                      <p className="text-xs text-green-600 font-medium">✅ Assinado</p>
+                    </div>
+                  ) : (fiscalLink || signatures.fiscalSignatureToken) ? (
+                    <div>
+                      <p className="text-xs text-amber-600 mb-2">⏳ Aguardando...</p>
+                      <button
+                        onClick={() => {
+                          const link = fiscalLink || `${typeof window !== 'undefined' ? window.location.origin : ''}/assinar-rdo/${signatures.fiscalSignatureToken}`
+                          navigator.clipboard.writeText(link)
+                          flash('ok', 'Link copiado!')
+                        }}
+                        className="w-full py-1.5 px-2 rounded-lg border border-gray-300 text-gray-500 text-xs hover:bg-gray-100 transition-colors"
+                      >
+                        📋 Copiar link
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => setShowFiscalModal(true)}
+                      className="w-full py-2 px-3 rounded-lg border border-indigo-300 text-indigo-600 bg-indigo-50 text-xs font-semibold hover:bg-indigo-100 transition-colors"
+                    >
+                      🔗 Gerar link
+                    </button>
+                  )}
+                </div>
+
+              </div>
+            </div>
+          )}
+
         </div>
 
         {/* ── Coluna lateral: comentários ────────────────────────────────── */}
@@ -838,6 +998,72 @@ export default function RdoDetailPage() {
           Etapas, ocorrências e registros de chuva associados serão removidos.
         </p>
       </Modal>
+
+      {/* ── Modal assinatura interna ──────────────────────────────────────── */}
+      <SignatureModal
+        isOpen={showSignModal}
+        onClose={() => setShowSignModal(false)}
+        onSign={handleSign}
+        savedSignature={savedSignature}
+        loading={signingLoading}
+        title={signRole === 'author' ? 'Assinar como Autor' : 'Assinar como Aprovador'}
+        subtitle={`RDO ${entry?.reportNumber ?? ''}`}
+      />
+
+      {/* ── Modal gerar link fiscal ───────────────────────────────────────── */}
+      {showFiscalModal && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+          <div style={{ background: '#fff', borderRadius: 16, padding: 24, maxWidth: 420, width: '100%', boxShadow: '0 20px 60px rgba(0,0,0,0.25)' }}>
+            <h3 style={{ fontSize: 16, fontWeight: 700, margin: '0 0 6px' }}>Gerar link para fiscal</h3>
+            <p style={{ fontSize: 13, color: '#6B7280', margin: '0 0 16px' }}>
+              O link gerado é válido por 48 horas e de uso único.
+            </p>
+            {!fiscalLink ? (
+              <>
+                <input
+                  value={fiscalName}
+                  onChange={e => setFiscalName(e.target.value)}
+                  placeholder="Nome do fiscal / engenheiro *"
+                  style={{ width: '100%', padding: '10px 12px', border: '1px solid #D1D5DB', borderRadius: 8, fontSize: 14, marginBottom: 16, boxSizing: 'border-box' as const }}
+                />
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button onClick={() => setShowFiscalModal(false)} style={{ flex: 1, padding: 10, borderRadius: 8, border: '1px solid #D1D5DB', background: 'transparent', cursor: 'pointer', fontSize: 14 }}>
+                    Cancelar
+                  </button>
+                  <button
+                    onClick={handleGenerateFiscalLink}
+                    disabled={!fiscalName.trim() || generatingFiscalLink}
+                    style={{ flex: 2, padding: 10, borderRadius: 8, background: fiscalName.trim() && !generatingFiscalLink ? '#6366F1' : '#D1D5DB', border: 'none', color: '#fff', fontWeight: 700, cursor: 'pointer', fontSize: 14 }}
+                  >
+                    {generatingFiscalLink ? 'Gerando...' : '🔗 Gerar link'}
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div style={{ padding: '10px 12px', background: '#F0FDF4', border: '1px solid #BBF7D0', borderRadius: 8, fontSize: 12, wordBreak: 'break-all', marginBottom: 12, color: '#166534' }}>
+                  {fiscalLink}
+                </div>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button
+                    onClick={() => { navigator.clipboard.writeText(fiscalLink); flash('ok', 'Link copiado!') }}
+                    style={{ flex: 1, padding: 10, borderRadius: 8, background: '#16A34A', border: 'none', color: '#fff', fontWeight: 700, cursor: 'pointer', fontSize: 14 }}
+                  >
+                    📋 Copiar link
+                  </button>
+                  <button
+                    onClick={() => { setShowFiscalModal(false); setFiscalLink(''); setFiscalName('') }}
+                    style={{ flex: 1, padding: 10, borderRadius: 8, border: '1px solid #D1D5DB', background: 'transparent', cursor: 'pointer', fontSize: 14 }}
+                  >
+                    Fechar
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
     </div>
   )
 }

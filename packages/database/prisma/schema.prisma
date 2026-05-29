@@ -297,7 +297,8 @@ model User {
   name         String
   email        String    @unique
   passwordHash String?   @map("password_hash")
-  avatarUrl    String?   @map("avatar_url")
+  avatarUrl          String?   @map("avatar_url")
+  savedSignatureUrl  String?   @map("saved_signature_url")
   phone        String?
   cpf          String?   @unique
   isActive     Boolean   @default(true) @map("is_active")
@@ -1945,6 +1946,21 @@ model DiaryEntry {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt      @map("updated_at")
 
+  // ── Assinaturas ─────────────────────────────────────────────────────────
+  authorSignatureUrl   String?   @map("author_signature_url")
+  approverSignatureUrl String?   @map("approver_signature_url")
+  fiscalSignatureUrl   String?   @map("fiscal_signature_url")
+  authorSigned         Boolean   @default(false) @map("author_signed")
+  approverSigned       Boolean   @default(false) @map("approver_signed")
+  fiscalSigned         Boolean   @default(false) @map("fiscal_signed")
+  fiscalName           String?   @map("fiscal_name")
+  fiscalEmail          String?   @map("fiscal_email")
+  // Token público para fiscal externo (TTL 48h):
+  fiscalSignatureToken          String?   @unique @map("fiscal_signature_token")
+  fiscalSignatureTokenExpiresAt DateTime? @map("fiscal_signature_token_expires_at")
+  // Hash de verificação pública:
+  verificationHash String? @unique @map("verification_hash")
+
   project    Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
   author     User           @relation("DiaryAuthor",   fields: [authorId],    references: [id])
   approvedBy User?          @relation("DiaryApprover", fields: [approvedById], references: [id])
@@ -1957,6 +1973,7 @@ model DiaryEntry {
   rainRecord    DiaryRainRecord?
   equipments    DiaryEquipment[]
 
+  @@index([fiscalSignatureToken])
   @@map("diary_entries")
 }
 

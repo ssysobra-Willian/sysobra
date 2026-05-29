@@ -1916,6 +1916,109 @@ export async function diaryRoutes(app: FastifyInstance) {
     await prisma.diaryComment.delete({ where: { id: commentId } })
     return reply.send({ success: true })
   })
+
+  // ── POST /api/v1/diary/reports/:id/sign ──────────────────────────────────
+  // Autor ou Aprovador assina o RDO internamente
+  app.post('/reports/:id/sign', { preHandler: [requireCompany] }, async (request, reply) => {
+    const req     = request as RequestWithMember
+    const payload = request.user as JwtPayload
+    const { id }  = request.params as { id: string }
+    const body    = request.body as {
+      signatureData: string
+      role:          'author' | 'approver'
+      saveSignature?: boolean
+    }
+
+    if (!body.signatureData) return reply.status(400).send({ error: 'signatureData é obrigatório' })
+    if (!body.role || !['author', 'approver'].includes(body.role)) {
+      return reply.status(400).send({ error: 'role deve ser author ou approver' })
+    }
+
+    const entry = await p.diaryEntry.findFirst({
+      where: { id, project: { companyId: req.companyId } },
+    })
+    if (!entry) return reply.status(404).send({ error: 'RDO não encontrado' })
+
+    // Salvar assinatura no perfil do usuário (se pedido ou se não tem ainda)
+    if (body.saveSignature) {
+      await p.user.update({
+        where: { id: payload.sub },
+        data:  { savedSignatureUrl: body.signatureData },
+      })
+    }
+
+    const updateData: any = {}
+    if (body.role === 'author') {
+      updateData.authorSignatureUrl = body.signatureData
+      updateData.authorSigned       = true
+    } else {
+      updateData.approverSignatureUrl = body.signatureData
+      updateData.approverSigned       = true
+    }
+
+    await p.diaryEntry.update({ where: { id }, data: updateData })
+    return reply.send({ success: true })
+  })
+
+  // ── POST /api/v1/diary/reports/:id/generate-fiscal-link ──────────────────
+  // Gera token público de 48h para fiscal externo assinar
+  app.post('/reports/:id/generate-fiscal-link', { preHandler: [requireCompany] }, async (request, reply) => {
+    const req    = request as RequestWithMember
+    const { id } = request.params as { id: string }
+    const body   = request.body as { fiscalName?: string; fiscalEmail?: string }
+    const crypto = await import('crypto')
+
+    const entry = await p.diaryEntry.findFirst({
+      where: { id, project: { companyId: req.companyId } },
+    })
+    if (!entry) return reply.status(404).send({ error: 'RDO não encontrado' })
+
+    const token     = crypto.randomBytes(32).toString('hex')
+    const expiresAt = new Date(Date.now() + 48 * 60 * 60 * 1000)
+
+    await p.diaryEntry.update({
+      where: { id },
+      data: {
+        fiscalSignatureToken:          token,
+        fiscalSignatureTokenExpiresAt: expiresAt,
+        fiscalName:  body.fiscalName  || null,
+        fiscalEmail: body.fiscalEmail || null,
+      },
+    })
+
+    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
+    const link    = `${baseUrl}/assinar-rdo/${token}`
+
+    return reply.send({ success: true, link, token, expiresAt })
+  })
+
+  // ── GET /api/v1/diary/reports/:id/signatures ─────────────────────────────
+  // Status das assinaturas de um RDO
+  app.get('/reports/:id/signatures', { preHandler: [requireCompany] }, async (request, reply) => {
+    const req    = request as RequestWithMember
+    const { id } = request.params as { id: string }
+
+    const entry = await p.diaryEntry.findFirst({
+      where: { id, project: { companyId: req.companyId } },
+      select: {
+        authorSigned:                  true,
+        approverSigned:                true,
+        fiscalSigned:                  true,
+        fiscalName:                    true,
+        fiscalEmail:                   true,
+        fiscalSignatureToken:          true,
+        fiscalSignatureTokenExpiresAt: true,
+        authorSignatureUrl:            true,
+        approverSignatureUrl:          true,
+        fiscalSignatureUrl:            true,
+        verificationHash:              true,
+        status:                        true,
+      },
+    })
+
+    if (!entry) return reply.status(404).send({ error: 'RDO não encontrado' })
+    return reply.send({ signatures: entry })
+  })
 }
 
 // ─── Helpers internos ─────────────────────────────────────────────────────────

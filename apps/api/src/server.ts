@@ -13,7 +13,8 @@ import { userRoutes }     from './routes/v1/user.routes'
 import { companyRoutes }  from './routes/v1/company.routes'
 import { projectRoutes }  from './routes/v1/project.routes'
 import { memberRoutes }   from './routes/v1/member.routes'
-import { diaryRoutes }    from './routes/v1/diary.routes'
+import { diaryRoutes }       from './routes/v1/diary.routes'
+import { diaryPublicRoutes } from './routes/v1/diary-public.routes'
 import { financialRoutes } from './routes/v1/financial.routes'
 import { clientRoutes }   from './routes/v1/client.routes'
 import { supplierRoutes } from './routes/v1/supplier.routes'
@@ -160,7 +161,8 @@ async function bootstrap() {
   await app.register(companyRoutes, { prefix: '/api/v1/companies' })
   await app.register(projectRoutes, { prefix: '/api/v1/projects' })
   await app.register(memberRoutes, { prefix: '/api/v1/company' })
-  await app.register(diaryRoutes,     { prefix: '/api/v1/diary' })
+  await app.register(diaryRoutes,       { prefix: '/api/v1/diary' })
+  await app.register(diaryPublicRoutes, { prefix: '/api/v1/diary' })
   await app.register(financialRoutes, { prefix: '/api/financial' })
   await app.register(clientRoutes,   { prefix: '/api/v1/clients' })
   await app.register(supplierRoutes, { prefix: '/api/v1/suppliers' })
