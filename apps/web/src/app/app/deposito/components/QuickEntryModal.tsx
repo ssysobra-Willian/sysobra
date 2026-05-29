@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useCallback, useEffect } from 'react'
+import React, { useState, useCallback, useEffect, useRef } from 'react'
 import {
   X, Search, Package, Plus, Loader2, CheckCircle2, AlertCircle,
   MapPin, ArrowLeft, ChevronRight, Trash2,
@@ -30,6 +30,7 @@ interface ItemResult {
   brand?: string | null; imageUrl?: string | null
   itemCategory?: string | null
   toolType?: string | null
+  quantity?: number
   balances?: { locationId: string; quantity: number }[]
 }
 interface SelectedEntry {
@@ -81,6 +82,8 @@ export function QuickEntryModal({ isOpen, onClose, onSuccess, locations, default
   const [supplierResults,   setSupplierResults]   = useState<{ id: string; name: string; cpfCnpj?: string | null }[]>([])
   const [supplierFocused,   setSupplierFocused]   = useState(false)
   const [allSuppliers,      setAllSuppliers]      = useState<{ id: string; name: string; cpfCnpj?: string | null }[]>([])
+  const [dropdownPos,       setDropdownPos]       = useState({ top: 0, left: 0, width: 0 })
+  const supplierInputRef = useRef<HTMLInputElement>(null)
 
   // ─ Step 2: Itens ─
   const [itemSearch,   setItemSearch]   = useState('')
@@ -149,18 +152,21 @@ export function QuickEntryModal({ isOpen, onClose, onSuccess, locations, default
     if (q.length < 2) { setItemResults([]); return }
     setSearching(true)
     try {
-      const res = await apiFetch(`/api/v1/deposit/items?search=${encodeURIComponent(q)}&limit=12`)
+      const params = new URLSearchParams({ search: q, limit: '12', includeBalances: 'true' })
+      if (locationId) params.set('locationId', locationId)
+      const res = await apiFetch(`/api/v1/deposit/items?${params}`)
       if (res.ok) {
         const d = await res.json()
         setItemResults(d.items ?? [])
       }
     } finally { setSearching(false) }
-  }, [])
+  }, [locationId])
 
   useEffect(() => {
+    if (!itemSearch) return
     const t = setTimeout(() => doSearchItems(itemSearch), 300)
     return () => clearTimeout(t)
-  }, [itemSearch, doSearchItems])
+  }, [itemSearch, doSearchItems, locationId])
 
   // ─── Adicionar item à lista ───────────────────────────────────────────────
   const addEntry = (item: ItemResult) => {
@@ -306,18 +312,30 @@ export function QuickEntryModal({ isOpen, onClose, onSuccess, locations, default
                         <>
                           <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 z-10" />
                           <input
+                            ref={supplierInputRef}
                             value={supplierSearch}
                             onChange={e => searchSuppliers(e.target.value)}
-                            onFocus={() => { setSupplierFocused(true); if (!supplierSearch) setSupplierResults(allSuppliers.slice(0, 10)) }}
+                            onFocus={() => {
+                              if (!supplierSearch) setSupplierResults(allSuppliers.slice(0, 10))
+                              if (supplierInputRef.current) {
+                                const r = supplierInputRef.current.getBoundingClientRect()
+                                setDropdownPos({ top: r.bottom + 4, left: r.left, width: r.width })
+                              }
+                              setSupplierFocused(true)
+                            }}
                             onBlur={() => setTimeout(() => setSupplierFocused(false), 150)}
                             placeholder="Clique para ver fornecedores..."
                             className={cn(inp, 'pl-8')}
                           />
+                          {/* Dropdown com position:fixed para escapar do overflow-y-auto */}
                           {supplierFocused && supplierResults.length > 0 && (
-                            <div className="absolute left-0 right-0 top-full z-50 bg-white border border-gray-200 rounded-xl mt-1 shadow-lg max-h-48 overflow-y-auto">
+                            <div
+                              className="bg-white border border-gray-200 rounded-xl shadow-xl max-h-48 overflow-y-auto"
+                              style={{ position: 'fixed', top: dropdownPos.top, left: dropdownPos.left, width: dropdownPos.width, zIndex: 9999 }}
+                            >
                               {supplierResults.map(s => (
                                 <button key={s.id} type="button"
-                                  onClick={() => { setSupplierId(s.id); setSupplierName(s.name); setSupplierSearch(''); setSupplierResults([]); setSupplierFocused(false) }}
+                                  onMouseDown={e => { e.preventDefault(); setSupplierId(s.id); setSupplierName(s.name); setSupplierSearch(''); setSupplierResults([]); setSupplierFocused(false) }}
                                   className="w-full flex items-center gap-2 px-3 py-2 hover:bg-gray-50 text-left border-b border-gray-50 last:border-0">
                                   <div className="flex-1 min-w-0">
                                     <div className="text-xs font-medium text-gray-800 truncate">{s.name}</div>
@@ -379,6 +397,9 @@ export function QuickEntryModal({ isOpen, onClose, onSuccess, locations, default
                       {itemResults.map(item => {
                         const alreadyAdded = entries.find(e => e.itemId === item.id)
                         const img = getAssetUrl(item.imageUrl)
+                        const localBalance = locationId
+                          ? (item.balances?.find(b => b.locationId === locationId)?.quantity ?? item.quantity ?? 0)
+                          : (item.quantity ?? 0)
                         return (
                           <div
                             key={item.id}
@@ -395,10 +416,13 @@ export function QuickEntryModal({ isOpen, onClose, onSuccess, locations, default
                               <p className="text-sm font-medium text-gray-800 truncate">{item.name}</p>
                               <p className="text-xs text-gray-400">{item.code ?? ''} · {item.unit}</p>
                             </div>
-                            {alreadyAdded
-                              ? <CheckCircle2 size={14} className="text-green-500 flex-shrink-0" />
-                              : <ChevronRight size={14} className="text-gray-300 flex-shrink-0" />
-                            }
+                            <div className="text-right flex-shrink-0">
+                              <div className={cn('text-xs font-semibold', localBalance > 0 ? 'text-green-600' : 'text-gray-400')}>
+                                {Number(localBalance).toLocaleString('pt-BR')} {item.unit}
+                              </div>
+                              <div className="text-[10px] text-gray-400">em estoque</div>
+                            </div>
+                            {alreadyAdded && <CheckCircle2 size={14} className="text-green-500 flex-shrink-0" />}
                           </div>
                         )
                       })}

@@ -490,7 +490,7 @@ const TOOL_STATUS_CONFIG: Record<string, { label: string; bg: string; text: stri
   DISCARDED:   { label: '🗑️ Descartada',   bg: 'bg-gray-100',   text: 'text-gray-500'   },
 }
 
-function ToolsTable({ items, onView, onEdit, onCustody, onMaintenance, onSendToMaintenance, onReturn, onReturnFromMaintenance, selectedLocationId }: {
+function ToolsTable({ items, onView, onEdit, onCustody, onMaintenance, onSendToMaintenance, onReturn, onReturnFromMaintenance, selectedLocationId, onExpandPhoto }: {
   items:                       StockItem[]
   onView:                      (item: StockItem) => void
   onEdit?:                     (item: StockItem) => void
@@ -500,6 +500,7 @@ function ToolsTable({ items, onView, onEdit, onCustody, onMaintenance, onSendToM
   onReturn?:                   (item: StockItem) => void
   onReturnFromMaintenance?:    (item: StockItem) => void
   selectedLocationId?:         string
+  onExpandPhoto?:              (url: string) => void
 }) {
   const [query,        setQuery]        = useState('')
   // FIX 3: status filter
@@ -652,10 +653,29 @@ function ToolsTable({ items, onView, onEdit, onCustody, onMaintenance, onSendToM
                   onClick={() => onView(item)}
                 >
                   <td className="px-3 py-2.5">
-                    <p className="font-medium text-gray-800 leading-tight">{item.name}</p>
-                    {(item.brand || item.model) && (
-                      <p className="text-xs text-gray-400 mt-0.5">{[item.brand, item.model].filter(Boolean).join(' · ')}</p>
-                    )}
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      {(() => {
+                        const toolImg = item.imageUrl ? getAssetUrl(item.imageUrl) : null
+                        return toolImg ? (
+                          <img
+                            src={toolImg} alt=""
+                            className={cn('w-8 h-8 rounded-lg object-cover flex-shrink-0 transition-opacity', onExpandPhoto ? 'cursor-zoom-in hover:opacity-80' : '')}
+                            onClick={onExpandPhoto ? (e => { e.stopPropagation(); onExpandPhoto(toolImg) }) : undefined}
+                            onError={e => { (e.currentTarget as HTMLImageElement).style.display = 'none' }}
+                          />
+                        ) : (
+                          <div className="w-8 h-8 rounded-lg bg-gray-100 flex items-center justify-center flex-shrink-0">
+                            <Wrench size={13} className="text-gray-400" />
+                          </div>
+                        )
+                      })()}
+                      <div className="min-w-0">
+                        <p className="font-medium text-gray-800 leading-tight truncate">{item.name}</p>
+                        {(item.brand || item.model) && (
+                          <p className="text-xs text-gray-400 mt-0.5 truncate">{[item.brand, item.model].filter(Boolean).join(' · ')}</p>
+                        )}
+                      </div>
+                    </div>
                   </td>
                   <td className="px-3 py-2.5">
                     {item.code && <p className="text-xs font-mono text-gray-500">{item.code}</p>}
@@ -2091,12 +2111,16 @@ export default function DepositoPage() {
                     items={tools}
                     onView={handleViewItem}
                     onEdit={item => { setEditingTool(item); setToolFormOpen(true) }}
-                    onCustody={item => setCustodyItem(item)}
+                    onCustody={item => {
+                      const params = new URLSearchParams({ categoria: 'TOOL', openNew: 'true', itemId: item.id, itemName: item.name })
+                      router.push(`/app/deposito/romaneios?${params.toString()}`)
+                    }}
                     onMaintenance={item => { setMaintenanceTool(item); setMaintenanceRecord(null) }}
                     onSendToMaintenance={handleSendToMaintenanceFromTable}
                     onReturn={item => setReturnToolItem(item)}
                     onReturnFromMaintenance={handleReturnFromMaintenanceFromTable}
                     selectedLocationId={selectedLocation !== 'all' ? selectedLocation : undefined}
+                    onExpandPhoto={url => setExpandedPhoto(url)}
                   />
                 )}
                 {tab === 'epis' && (
