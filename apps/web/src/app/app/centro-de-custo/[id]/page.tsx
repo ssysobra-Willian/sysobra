@@ -113,7 +113,8 @@ interface Project {
   deviation: number
   isOverBudget: boolean
   isDelayed: boolean
-  warrantyMonths: number
+  warrantyMonths:  number
+  diaryMaxPhotos:  number
   cno: string | null
   artExecution: string | null
   artProjects: string | null

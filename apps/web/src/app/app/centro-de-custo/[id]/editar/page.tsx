@@ -68,10 +68,11 @@ export default function EditarObraPage() {
   const [technicalTitle, setTechTitle]     = useState('')
   const [technicalCrea,  setTechCrea]      = useState('')
   // ── Dados adicionais da obra
-  const [totalArea,      setTotalArea]     = useState('')
-  const [floors,         setFloors]        = useState('')
-  const [buildingPermit, setBuildingPermit]= useState('')
-  const [slogan,         setSlogan]        = useState('')
+  const [totalArea,       setTotalArea]      = useState('')
+  const [floors,          setFloors]         = useState('')
+  const [buildingPermit,  setBuildingPermit] = useState('')
+  const [slogan,          setSlogan]         = useState('')
+  const [diaryMaxPhotos,  setDiaryMaxPhotos] = useState('10')
 
   // ── Busca endereço pelo CEP via ViaCEP ────────────────────────────────────────
   const handleZipBlur = async () => {
@@ -136,6 +137,7 @@ export default function EditarObraPage() {
       setFloors(proj.floors            ? String(proj.floors)            : '')
       setBuildingPermit(proj.buildingPermit                             ?? '')
       setSlogan(proj.slogan                                             ?? '')
+      setDiaryMaxPhotos(proj.diaryMaxPhotos  ? String(proj.diaryMaxPhotos) : '10')
 
       // Preenche cliente e responsável selecionados
       const allClients: Client[] = clientsData.clients ?? []
@@ -204,6 +206,7 @@ export default function EditarObraPage() {
         floors:          floors          ? parseInt(floors)        : null,
         buildingPermit:  buildingPermit  || null,
         slogan:          slogan          || null,
+        diaryMaxPhotos:  parseInt(diaryMaxPhotos) || 10,
       }
 
       const res = await fetch(`${API}/api/v1/projects/${id}`, {
@@ -675,6 +678,22 @@ export default function EditarObraPage() {
               maxLength={80}
             />
             <p className="text-xs text-gray-400 mt-1">Exibido na faixa azul da placa de obra quando preenchido.</p>
+          </div>
+
+          <hr className="border-gray-100" />
+          <h3 className="text-sm font-semibold text-gray-700">Diário de Obra (RDO)</h3>
+
+          <div>
+            <label className={LabelClass}>Máximo de fotos por RDO</label>
+            <input
+              type="number"
+              min={1}
+              max={20}
+              value={diaryMaxPhotos}
+              onChange={e => setDiaryMaxPhotos(e.target.value)}
+              className={InputClass}
+            />
+            <p className="text-xs text-gray-400 mt-1">Quantidade máxima de fotos permitida por relatório. Padrão: 10. Máximo: 20.</p>
           </div>
         </div>
       )}

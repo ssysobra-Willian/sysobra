@@ -21,6 +21,16 @@ interface Stage {
   status:          string
 }
 
+interface WorkerEntry {
+  employeeId:  string
+  name:        string
+  role:        string | null
+  photo:       string | null
+  hours:       number
+  isAllocated: boolean
+  selected:    boolean
+}
+
 interface StageEntry {
   stageId:          string
   previousProgress: number
@@ -144,7 +154,21 @@ export default function EditarRdoPage() {
   const [notesPublic,  setNotesPublic]  = useState(false)
 
   // ── Seção 8: Fotos ────────────────────────────────────────────────────────
-  const [photos, setPhotos] = useState<PhotoItem[]>([])
+  const [photos,    setPhotos]    = useState<PhotoItem[]>([])
+  const [maxPhotos, setMaxPhotos] = useState(10)
+
+  // ── Seção Colaboradores ───────────────────────────────────────────────────
+  const [workers,          setWorkers]          = useState<WorkerEntry[]>([])
+  const [workersLoading,   setWorkersLoading]   = useState(false)
+  const [showOtherWorkers, setShowOtherWorkers] = useState(false)
+
+  // ── Seção Ferramentas ────────────────────────────────────────────────────
+  const [rdoTools,       setRdoTools]       = useState<{
+    id: string; name: string; serialNumber?: string
+    brand?: string; model?: string; toolType?: string
+    imageUrl?: string; usedInRdo: boolean; usageNotes: string
+  }[]>([])
+  const [loadingRdoTools, setLoadingRdoTools] = useState(false)
 
   // ── Carrega dados do RDO ──────────────────────────────────────────────────
 
@@ -170,6 +194,7 @@ export default function EditarRdoPage() {
         setProjectId(e.project?.id ?? '')
         setProjectName(e.project?.name ?? '')
         setReportNumber(e.reportNumber ?? '')
+        if (e.project?.diaryMaxPhotos) setMaxPhotos(e.project.diaryMaxPhotos)
 
         // Etapas do projeto
         const projectStages: Stage[] = (e.project?.stages ?? [])
@@ -248,10 +273,90 @@ export default function EditarRdoPage() {
           progress: 100,
         }))
         setPhotos(existingPhotos)
+
+        // Equipamentos usados neste RDO (para pré-preenchimento)
+        if (Array.isArray(e.equipments) && e.equipments.length > 0) {
+          setRdoTools((prev) => {
+            if (prev.length === 0) return e.equipments.map((eq: any) => ({
+              id:           eq.item?.id ?? eq.itemId,
+              name:         eq.item?.name ?? '',
+              serialNumber: eq.item?.serialNumber ?? undefined,
+              brand:        eq.item?.brand ?? undefined,
+              model:        eq.item?.model ?? undefined,
+              usedInRdo:    true,
+              usageNotes:   eq.usageNotes ?? '',
+            }))
+            return prev.map((t) => {
+              const saved = e.equipments.find((eq: any) => (eq.item?.id ?? eq.itemId) === t.id)
+              if (!saved) return t
+              return { ...t, usedInRdo: saved.usedInRdo ?? false, usageNotes: saved.usageNotes ?? '' }
+            })
+          })
+        }
       })
       .catch((err) => setError(err.message ?? 'Erro ao carregar RDO'))
       .finally(() => setDataLoading(false))
   }, [entryId, router])
+
+  // ── Carrega colaboradores da obra quando projectId estiver disponível ────────
+  useEffect(() => {
+    if (!projectId) return
+    const token     = localStorage.getItem('token')
+    const companyId = localStorage.getItem('companyId')
+    if (!token) return
+    setWorkersLoading(true)
+    fetch(`${API}/api/v1/employees/by-project/${projectId}`, {
+      headers: { Authorization: `Bearer ${token}`, ...(companyId ? { 'x-company-id': companyId } : {}) },
+    })
+      .then(r => r.ok ? r.json() : null)
+      .then(d => {
+        if (!d) return
+        const allocated: WorkerEntry[] = (d.allocated ?? []).map((e: any) => ({
+          employeeId: e.id, name: e.name, role: e.role ?? null,
+          photo: e.photo ?? null, hours: 8, isAllocated: true, selected: true,
+        }))
+        const others: WorkerEntry[] = (d.others ?? []).map((e: any) => ({
+          employeeId: e.id, name: e.name, role: e.role ?? null,
+          photo: e.photo ?? null, hours: 8, isAllocated: false, selected: false,
+        }))
+        setWorkers([...allocated, ...others])
+      })
+      .catch(() => {})
+      .finally(() => setWorkersLoading(false))
+  }, [projectId])
+
+  // ── Carrega ferramentas IN_USE da obra quando projectId estiver disponível ──
+  useEffect(() => {
+    if (!projectId) return
+    const token     = localStorage.getItem('token') || ''
+    const companyId = localStorage.getItem('companyId') || ''
+    if (!token) return
+    setLoadingRdoTools(true)
+    fetch(`${API}/api/v1/deposit/tools/by-project/${projectId}`, {
+      headers: { Authorization: `Bearer ${token}`, 'x-company-id': companyId },
+    })
+      .then(r => r.ok ? r.json() : null)
+      .then(d => {
+        if (!d) return
+        const active = (d.tools ?? []).filter((t: any) => !t.returnedAt)
+        setRdoTools(prev => {
+          // Se já temos pré-preenchimento do entry, mantemos usedInRdo/usageNotes
+          const savedMap = new Map(prev.map(t => [t.id, t]))
+          return active.map((t: any) => {
+            const saved = savedMap.get(t.id)
+            return {
+              id: t.id, name: t.name,
+              serialNumber: t.serialNumber, brand: t.brand, model: t.model,
+              toolType: t.toolType, imageUrl: t.imageUrl,
+              usedInRdo:  saved?.usedInRdo  ?? false,
+              usageNotes: saved?.usageNotes ?? '',
+            }
+          })
+        })
+      })
+      .catch(() => {})
+      .finally(() => setLoadingRdoTools(false))
+  }, [projectId])
 
   // ── Return condicional após TODOS os hooks ────────────────────────────────
 
@@ -277,6 +382,20 @@ export default function EditarRdoPage() {
       next[idx] = { ...next[idx], [field]: value }
       return next
     })
+  }
+
+  function toggleWorker(idx: number) {
+    setWorkers(prev => prev.map((w, i) => i === idx ? { ...w, selected: !w.selected } : w))
+  }
+  function updateWorkerHours(idx: number, h: number) {
+    setWorkers(prev => prev.map((w, i) => i === idx ? { ...w, hours: h } : w))
+  }
+
+  function toggleToolUsage(id: string) {
+    setRdoTools(prev => prev.map(t => t.id === id ? { ...t, usedInRdo: !t.usedInRdo } : t))
+  }
+  function updateToolNotes(id: string, notes: string) {
+    setRdoTools(prev => prev.map(t => t.id === id ? { ...t, usageNotes: notes } : t))
   }
 
   // ── Submit ────────────────────────────────────────────────────────────────
@@ -329,6 +448,9 @@ export default function EditarRdoPage() {
             comments:         se.comments || null,
           })),
         occurrences: occurrences.filter(o => o.description.trim()),
+        equipments: rdoTools
+          .filter(t => t.usedInRdo)
+          .map(t => ({ itemId: t.id, usedInRdo: true, usageNotes: t.usageNotes || null })),
       }
 
       const res = await fetch(`${API}/api/v1/diary/entries/${entryId}`, {
@@ -639,8 +761,163 @@ export default function EditarRdoPage() {
           )}
         </Section>
 
-        {/* ── Seção 7: Observações gerais ────────────────────────────────── */}
-        <Section number={stages.length > 0 ? 7 : 6} title="Observações Gerais">
+        {/* ── Seção: Colaboradores no dia ────────────────────────────────── */}
+        <Section number={stages.length > 0 ? 7 : 6} title="Colaboradores no Dia">
+          {workersLoading ? (
+            <p className="text-sm text-gray-400">Carregando equipe da obra...</p>
+          ) : workers.length === 0 ? (
+            <p className="text-sm text-gray-400">Nenhum colaborador cadastrado nesta obra.</p>
+          ) : (() => {
+            const allocated = workers.filter(w => w.isAllocated)
+            const others    = workers.filter(w => !w.isAllocated)
+            const selectedCount = workers.filter(w => w.selected).length
+            const totalHours    = workers.filter(w => w.selected).reduce((s, w) => s + w.hours, 0)
+
+            return (
+              <div className="space-y-4">
+                <div className="flex items-center gap-4 text-xs text-gray-500">
+                  <span className="font-medium text-gray-700">{selectedCount} colaboradores · {totalHours}h</span>
+                </div>
+
+                {allocated.length > 0 && (
+                  <div>
+                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Alocados nesta obra</p>
+                    <div className="space-y-2">
+                      {allocated.map((w, idx) => (
+                        <div key={w.employeeId} className={`flex items-center gap-3 p-3 rounded-xl border transition-colors ${w.selected ? 'bg-green-50 border-green-200' : 'bg-gray-50 border-gray-200'}`}>
+                          {w.photo
+                            ? <img src={w.photo} className="w-8 h-8 rounded-full object-cover flex-shrink-0" alt="" />
+                            : <div className="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center flex-shrink-0 text-xs font-bold text-gray-500">{w.name.charAt(0)}</div>
+                          }
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium text-gray-800 truncate">{w.name}</p>
+                            {w.role && <p className="text-xs text-gray-500 truncate">{w.role}</p>}
+                          </div>
+                          {w.selected && (
+                            <input
+                              type="number" min="1" max="24" value={w.hours}
+                              onChange={(e) => updateWorkerHours(workers.indexOf(w), Number(e.target.value))}
+                              className="w-16 border border-gray-200 rounded-lg px-2 py-1 text-xs text-center focus:outline-none focus:ring-2 focus:ring-orange-300 bg-white"
+                            />
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => toggleWorker(workers.indexOf(w))}
+                            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${w.selected ? 'bg-green-500 text-white hover:bg-green-600' : 'bg-gray-200 text-gray-600 hover:bg-gray-300'}`}
+                          >
+                            {w.selected ? '✓ Presente' : 'Marcar'}
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {others.length > 0 && (
+                  <div>
+                    <button
+                      type="button"
+                      onClick={() => setShowOtherWorkers(v => !v)}
+                      className="text-xs text-orange-500 font-medium hover:underline"
+                    >
+                      {showOtherWorkers ? '▲ Ocultar' : '▼ Mostrar'} outros colaboradores ({others.length})
+                    </button>
+                    {showOtherWorkers && (
+                      <div className="space-y-2 mt-2">
+                        {others.map((w) => (
+                          <div key={w.employeeId} className={`flex items-center gap-3 p-3 rounded-xl border transition-colors ${w.selected ? 'bg-green-50 border-green-200' : 'bg-gray-50 border-gray-200'}`}>
+                            {w.photo
+                              ? <img src={w.photo} className="w-8 h-8 rounded-full object-cover flex-shrink-0" alt="" />
+                              : <div className="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center flex-shrink-0 text-xs font-bold text-gray-500">{w.name.charAt(0)}</div>
+                            }
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-medium text-gray-800 truncate">{w.name}</p>
+                              {w.role && <p className="text-xs text-gray-500 truncate">{w.role}</p>}
+                            </div>
+                            {w.selected && (
+                              <input
+                                type="number" min="1" max="24" value={w.hours}
+                                onChange={(e) => updateWorkerHours(workers.indexOf(w), Number(e.target.value))}
+                                className="w-16 border border-gray-200 rounded-lg px-2 py-1 text-xs text-center focus:outline-none focus:ring-2 focus:ring-orange-300 bg-white"
+                              />
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => toggleWorker(workers.indexOf(w))}
+                              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${w.selected ? 'bg-green-500 text-white hover:bg-green-600' : 'bg-gray-200 text-gray-600 hover:bg-gray-300'}`}
+                            >
+                              {w.selected ? '✓ Presente' : 'Marcar'}
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )
+          })()}
+        </Section>
+
+        {/* ── Seção: Equipamentos e Ferramentas ─────────────────────────── */}
+        <Section number={stages.length > 0 ? 8 : 7} title="Equipamentos e Ferramentas">
+          {loadingRdoTools ? (
+            <p className="text-sm text-gray-400">Carregando ferramentas da obra...</p>
+          ) : rdoTools.length === 0 ? (
+            <p className="text-sm text-gray-400">Nenhuma ferramenta em uso nesta obra no momento.</p>
+          ) : (
+            <div className="space-y-3">
+              <div className="text-xs text-gray-500">
+                <span className="font-medium text-gray-700">
+                  {rdoTools.filter(t => t.usedInRdo).length} utilizadas
+                </span>
+                {' / '}
+                {rdoTools.filter(t => !t.usedInRdo).length} não utilizadas
+              </div>
+              {rdoTools.map((tool) => (
+                <div key={tool.id} className={`border rounded-xl p-4 transition-colors ${tool.usedInRdo ? 'border-amber-200 bg-amber-50' : 'border-gray-200 bg-gray-50'}`}>
+                  <div className="flex items-center gap-3">
+                    {tool.imageUrl
+                      ? <img src={tool.imageUrl} className="w-10 h-10 rounded-lg object-cover flex-shrink-0" alt="" />
+                      : <div className="w-10 h-10 rounded-lg bg-gray-200 flex items-center justify-center text-lg flex-shrink-0">🔧</div>
+                    }
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold text-gray-800 truncate">{tool.name}</p>
+                      <p className="text-xs text-gray-500 truncate">
+                        {[tool.brand, tool.model, tool.serialNumber ? `#${tool.serialNumber}` : null].filter(Boolean).join(' · ')}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => toggleToolUsage(tool.id)}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors flex-shrink-0 ${
+                        tool.usedInRdo
+                          ? 'bg-amber-500 text-white hover:bg-amber-600'
+                          : 'bg-gray-200 text-gray-600 hover:bg-gray-300'
+                      }`}
+                    >
+                      {tool.usedInRdo ? '✅ Utilizada' : 'Marcar uso'}
+                    </button>
+                  </div>
+                  {tool.usedInRdo && (
+                    <div className="mt-3">
+                      <input
+                        type="text"
+                        placeholder="Observações sobre o uso (opcional)..."
+                        value={tool.usageNotes}
+                        onChange={(e) => updateToolNotes(tool.id, e.target.value)}
+                        className="w-full border border-gray-200 rounded-lg px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-orange-300 bg-white"
+                      />
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </Section>
+
+        {/* ── Seção: Observações gerais ──────────────────────────────────── */}
+        <Section number={stages.length > 0 ? 9 : 8} title="Observações Gerais">
           <Textarea
             label="Observações e anotações gerais"
             rows={3}
@@ -654,12 +931,12 @@ export default function EditarRdoPage() {
           </label>
         </Section>
 
-        {/* ── Seção 8: Fotos ─────────────────────────────────────────────── */}
-        <Section number={stages.length > 0 ? 8 : 7} title="Fotos">
+        {/* ── Seção 10: Fotos ────────────────────────────────────────────── */}
+        <Section number={stages.length > 0 ? 10 : 9} title="Fotos">
           <PhotoUpload
             photos={photos}
             onChange={setPhotos}
-            maxPhotos={20}
+            maxPhotos={maxPhotos}
             diaryId={entryId}
             token={token}
           />

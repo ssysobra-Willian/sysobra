@@ -153,6 +153,7 @@ const createProjectSchema = z.object({
   floors:           z.number().int().optional().nullable(),
   buildingPermit:   z.string().optional().nullable(),
   slogan:           z.string().max(80).optional().nullable(),
+  diaryMaxPhotos:   z.number().int().min(1).max(20).optional(),
   stages: z.array(z.object({
     code:           z.string().optional().nullable(),
     name:           z.string().min(1),
@@ -322,6 +323,7 @@ export async function projectRoutes(app: FastifyInstance) {
         floors:          body.floors          ?? null,
         buildingPermit:  body.buildingPermit  ?? null,
         slogan:          body.slogan          ?? null,
+        diaryMaxPhotos:  body.diaryMaxPhotos  ?? 10,
         stages: { create: stagesToCreate },
       },
       include: {
@@ -563,6 +565,7 @@ export async function projectRoutes(app: FastifyInstance) {
     if (body.floors          !== undefined) data.floors          = body.floors
     if (body.buildingPermit  !== undefined) data.buildingPermit  = body.buildingPermit
     if (body.slogan          !== undefined) data.slogan          = body.slogan
+    if (body.diaryMaxPhotos  !== undefined) data.diaryMaxPhotos  = body.diaryMaxPhotos
 
     const project = await p.project.update({
       where: { id },

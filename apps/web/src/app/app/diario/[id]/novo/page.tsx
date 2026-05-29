@@ -156,7 +156,8 @@ export default function NovoRdoPage() {
   const [loadingRdoTools, setLoadingRdoTools] = useState(false)
 
   // ── Seção 8: Fotos ────────────────────────────────────────────────────────
-  const [photos, setPhotos] = useState<PhotoItem[]>([])
+  const [photos,    setPhotos]    = useState<PhotoItem[]>([])
+  const [maxPhotos, setMaxPhotos] = useState(10)
 
   // ── Carrega etapas do projeto e DDS ──────────────────────────────────────
   useEffect(() => {
@@ -174,6 +175,7 @@ export default function NovoRdoPage() {
       .then((d) => {
         const proj = d.project ?? d
         setProjectName(proj?.name ?? '')
+        if (proj?.diaryMaxPhotos) setMaxPhotos(proj.diaryMaxPhotos)
         const ss: Stage[] = (proj?.stages ?? []).filter((s: any) => s.status !== 'CANCELLED')
         setStages(ss)
         setStageEntries(ss.map((s) => ({
@@ -1007,7 +1009,7 @@ export default function NovoRdoPage() {
           <PhotoUpload
             photos={photos}
             onChange={setPhotos}
-            maxPhotos={20}
+            maxPhotos={maxPhotos}
             diaryId={projectId}
             token={typeof window !== 'undefined' ? localStorage.getItem('token') || '' : ''}
           />

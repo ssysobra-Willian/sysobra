@@ -1170,6 +1170,7 @@ export async function diaryRoutes(app: FastifyInstance) {
         project: {
           select: {
             id: true, name: true, code: true,
+            diaryMaxPhotos: true,
             // Etapas incluídas para o formulário de edição do RDO
             stages: {
               where:   { status: { not: 'CANCELLED' } },
@@ -1181,6 +1182,10 @@ export async function diaryRoutes(app: FastifyInstance) {
               },
             },
           },
+        },
+        equipments: {
+          where:   { usedInRdo: true },
+          include: { item: { select: { id: true, name: true, serialNumber: true, brand: true, model: true } } },
         },
         comments: {
           where:   isInternal ? {} : { isInternal: false },
@@ -1333,6 +1338,28 @@ export async function diaryRoutes(app: FastifyInstance) {
             visitorCompany: occ.visitorCompany ?? null,
             notifyManager:  occ.notifyManager  ?? false,
           },
+        })
+      }
+    }
+
+    // Atualiza equipamentos utilizados se fornecidos
+    if (Array.isArray(body.equipments)) {
+      // Remove registros de uso anteriores e recria
+      await p.diaryEquipment.deleteMany({ where: { diaryEntryId: id, usedInRdo: true } })
+      const companyId = req.companyId!
+      if (body.equipments.length > 0) {
+        await p.diaryEquipment.createMany({
+          data: (body.equipments as any[]).map((eq: any) => ({
+            companyId,
+            diaryEntryId: id,
+            itemId:       eq.itemId,
+            usedInRdo:    true,
+            usedAt:       new Date(),
+            usedBy:       payload.sub,
+            usageNotes:   eq.usageNotes ?? null,
+            isActive:     true,
+          })),
+          skipDuplicates: true,
         })
       }
     }
