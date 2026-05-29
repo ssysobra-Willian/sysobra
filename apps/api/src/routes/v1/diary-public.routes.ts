@@ -3,39 +3,64 @@ import { prisma } from '@sysobra/database'
 import crypto from 'crypto'
 import { generatePdf } from '../../utils/pdf'
 import { buildDiaryPdfHtml } from './diary.routes'
+import { sendEmail, buildSignedEmailHtml } from '../../utils/mailer'
 
 const p = prisma as any
+
+// ── Include compartilhado para queries de PDF ─────────────────────────────────
+const PDF_INCLUDE = {
+  author:       { select: { name: true } },
+  approvedBy:   { select: { name: true } },
+  project:      { include: { company: { select: { name: true, cnpj: true, logo: true, address: true, city: true, state: true } } } },
+  stageEntries: { include: { stage: { select: { name: true, code: true } } } },
+  occurrences:  true,
+  rainRecord:   true,
+}
 
 // ── Rotas PÚBLICAS do Diário de Obra (sem autenticação) ──────────────────────
 // Registradas em server.ts com prefix '/api/v1/diary'
 
-/** Busca entry por fiscalSignatureToken (válido/expirado ok para PDF preview) ou verificationHash */
+/** Busca entry por fiscalSignatureToken (válido ou expirado, para prévia) ou verificationHash (pós-assinatura) */
 async function findEntryForPdf(lookup: string) {
-  // Tenta como fiscalSignatureToken primeiro
+  // Tenta como fiscalSignatureToken (sem verificar TTL — prévia é permitida mesmo expirado)
   let entry = await p.diaryEntry.findFirst({
-    where: { fiscalSignatureToken: lookup },
-    include: {
-      author:       { select: { name: true } },
-      project:      { include: { company: { select: { name: true, cnpj: true, logo: true, address: true, city: true, state: true } } } },
-      stageEntries: { include: { stage: { select: { name: true, code: true } } } },
-      occurrences:  true,
-      rainRecord:   true,
-    },
+    where:   { fiscalSignatureToken: lookup },
+    include: PDF_INCLUDE,
   })
   if (entry) return entry
 
   // Tenta como verificationHash (pós assinatura)
   entry = await p.diaryEntry.findFirst({
-    where: { verificationHash: lookup },
-    include: {
-      author:       { select: { name: true } },
-      project:      { include: { company: { select: { name: true, cnpj: true, logo: true, address: true, city: true, state: true } } } },
-      stageEntries: { include: { stage: { select: { name: true, code: true } } } },
-      occurrences:  true,
-      rainRecord:   true,
-    },
+    where:   { verificationHash: lookup },
+    include: PDF_INCLUDE,
   })
   return entry ?? null
+}
+
+/** Gera PDF e retorna buffer + equipamentos */
+async function buildPdfBuffer(entry: any): Promise<Buffer> {
+  const proj    = entry.project
+  const company = proj?.company ?? {}
+
+  const equipments = await p.diaryEquipment.findMany({
+    where:   { diaryEntryId: entry.id, usedInRdo: true },
+    include: { item: { select: { name: true, brand: true, model: true, serialNumber: true, toolType: true } } },
+  })
+
+  const html = buildDiaryPdfHtml(entry, proj, company, equipments, {
+    authorSignatureUrl:   entry.authorSignatureUrl,
+    approverSignatureUrl: entry.approverSignatureUrl,
+    fiscalSignatureUrl:   entry.fiscalSignatureUrl,
+    authorName:           entry.author?.name,
+    approverName:         entry.approvedBy?.name,
+    fiscalName:           entry.fiscalName,
+    fiscalDocument:       entry.fiscalDocument,
+    authorSigned:         entry.authorSigned,
+    approverSigned:       entry.approverSigned,
+    fiscalSigned:         entry.fiscalSigned,
+  })
+
+  return generatePdf({ kind: 'raw', html } as any)
 }
 
 export async function diaryPublicRoutes(app: FastifyInstance) {
@@ -69,13 +94,13 @@ export async function diaryPublicRoutes(app: FastifyInstance) {
     }
 
     return reply.send({
-      id:           entry.id,
-      reportNumber: entry.reportNumber,
-      date:         entry.date,
-      projectName:  entry.project?.name  ?? null,
-      projectCode:  entry.project?.code  ?? null,
-      authorName:   entry.author?.name   ?? null,
-      fiscalName:   entry.fiscalName     ?? null,
+      id:            entry.id,
+      reportNumber:  entry.reportNumber,
+      date:          entry.date,
+      projectName:   entry.project?.name  ?? null,
+      projectCode:   entry.project?.code  ?? null,
+      authorName:    entry.author?.name   ?? null,
+      fiscalName:    entry.fiscalName     ?? null,
       alreadySigned: false,
     })
   })
@@ -88,6 +113,7 @@ export async function diaryPublicRoutes(app: FastifyInstance) {
       signatureData?:  string
       fiscalName?:     string
       fiscalDocument?: string  // CPF do fiscal
+      fiscalEmail?:    string  // email opcional (para notificação de conclusão)
     }
 
     if (!body.signatureData) {
@@ -112,19 +138,55 @@ export async function diaryPublicRoutes(app: FastifyInstance) {
       .update(`${entry.id}-fiscal-${Date.now()}-${crypto.randomBytes(8).toString('hex')}`)
       .digest('hex')
 
+    const finalEmail = body.fiscalEmail || entry.fiscalEmail || null
+
     await p.diaryEntry.update({
       where: { id: entry.id },
       data: {
-        fiscalSignatureUrl: body.signatureData,
-        fiscalSigned:       true,
-        fiscalName:         body.fiscalName     || entry.fiscalName,
-        fiscalDocument:     body.fiscalDocument || null,
+        fiscalSignatureUrl:            body.signatureData,
+        fiscalSigned:                  true,
+        fiscalName:                    body.fiscalName    || entry.fiscalName,
+        fiscalDocument:                body.fiscalDocument || null,
+        fiscalEmail:                   finalEmail,
         verificationHash,
         // Invalida o token após uso
         fiscalSignatureToken:          null,
         fiscalSignatureTokenExpiresAt: null,
       },
     })
+
+    // Verificar se todos assinaram e enviar email ao fiscal
+    const updated = await p.diaryEntry.findFirst({
+      where:   { id: entry.id },
+      include: {
+        project: { select: { name: true } },
+        author:  { select: { name: true } },
+      },
+    })
+
+    if (
+      updated?.authorSigned &&
+      updated?.approverSigned &&
+      updated?.fiscalSigned &&
+      finalEmail
+    ) {
+      const apiUrl      = process.env.API_URL || 'http://localhost:3001'
+      const downloadLink = `${apiUrl}/api/v1/diary/public/download/${verificationHash}`
+
+      const emailHtml = buildSignedEmailHtml({
+        fiscalName:   updated.fiscalName    || 'Fiscal',
+        reportNumber: updated.reportNumber  || 'RDO',
+        projectName:  updated.project?.name || '',
+        date:         new Date(updated.date).toLocaleDateString('pt-BR'),
+        downloadLink,
+      })
+
+      sendEmail({
+        to:      finalEmail,
+        subject: `✅ RDO assinado — ${updated.reportNumber} | ${updated.project?.name ?? ''}`,
+        html:    emailHtml,
+      }).catch((err: unknown) => app.log.error(err, 'Falha ao enviar email pós-assinatura'))
+    }
 
     return reply.send({
       success:          true,
@@ -142,17 +204,8 @@ export async function diaryPublicRoutes(app: FastifyInstance) {
     const entry = await findEntryForPdf(lookup)
     if (!entry) return reply.status(404).send({ error: 'RDO não encontrado ou link inválido' })
 
-    const proj    = entry.project
-    const company = proj?.company ?? {}
-
-    const equipments = await p.diaryEquipment.findMany({
-      where:   { diaryEntryId: entry.id, usedInRdo: true },
-      include: { item: { select: { name: true, brand: true, model: true, serialNumber: true, toolType: true } } },
-    })
-
-    const html = buildDiaryPdfHtml(entry, proj, company, equipments)
     try {
-      const pdfBuffer = await generatePdf({ kind: 'raw', html } as any)
+      const pdfBuffer = await buildPdfBuffer(entry)
       const filename  = `RDO-${entry.reportNumber ?? entry.id}.pdf`
       reply
         .header('Content-Type', 'application/pdf')
@@ -172,17 +225,8 @@ export async function diaryPublicRoutes(app: FastifyInstance) {
     const entry = await findEntryForPdf(lookup)
     if (!entry) return reply.status(404).send({ error: 'RDO não encontrado ou link inválido' })
 
-    const proj    = entry.project
-    const company = proj?.company ?? {}
-
-    const equipments = await p.diaryEquipment.findMany({
-      where:   { diaryEntryId: entry.id, usedInRdo: true },
-      include: { item: { select: { name: true, brand: true, model: true, serialNumber: true, toolType: true } } },
-    })
-
-    const html = buildDiaryPdfHtml(entry, proj, company, equipments)
     try {
-      const pdfBuffer = await generatePdf({ kind: 'raw', html } as any)
+      const pdfBuffer = await buildPdfBuffer(entry)
       const filename  = `RDO-${entry.reportNumber ?? entry.id}-assinado.pdf`
       reply
         .header('Content-Type', 'application/pdf')

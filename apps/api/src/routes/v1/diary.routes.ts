@@ -11,6 +11,7 @@ import { generatePdf } from '../../utils/pdf'
 import { PDF_COLORS, getPdfHeader, getPdfFooter, buildPdfDocument } from '../../utils/pdfTemplate'
 import { createAuditLog } from '../../utils/audit'
 import { notifyManagers }  from '../../utils/notifications'
+import { sendEmail, buildFiscalEmailHtml } from '../../utils/mailer'
 
 const p = prisma as any
 
@@ -848,7 +849,8 @@ export async function diaryRoutes(app: FastifyInstance) {
     const entry = await p.diaryEntry.findFirst({
       where:   { id, project: { companyId } },
       include: {
-        author:  { select: { name: true } },
+        author:     { select: { name: true } },
+        approvedBy: { select: { name: true } },
         project: {
           include: { company: { select: { name: true, cnpj: true, logo: true, address: true, city: true, state: true } } },
         },
@@ -870,7 +872,18 @@ export async function diaryRoutes(app: FastifyInstance) {
       },
     })
 
-    const html = buildDiaryPdfHtml(entry, proj, company, equipments)
+    const html = buildDiaryPdfHtml(entry, proj, company, equipments, {
+      authorSignatureUrl:  entry.authorSignatureUrl,
+      approverSignatureUrl: entry.approverSignatureUrl,
+      fiscalSignatureUrl:  entry.fiscalSignatureUrl,
+      authorName:          entry.author?.name,
+      approverName:        entry.approvedBy?.name,
+      fiscalName:          entry.fiscalName,
+      fiscalDocument:      entry.fiscalDocument,
+      authorSigned:        entry.authorSigned,
+      approverSigned:      entry.approverSigned,
+      fiscalSigned:        entry.fiscalSigned,
+    })
     try {
       const pdfBuffer = await generatePdf({ kind: 'raw', html } as any)
       const filename = `RDO-${entry.reportNumber ?? id}-${proj.name.replace(/\s+/g,'-').toLowerCase()}.pdf`
@@ -1992,7 +2005,11 @@ export async function diaryRoutes(app: FastifyInstance) {
     const crypto = await import('crypto')
 
     const entry = await p.diaryEntry.findFirst({
-      where: { id, project: { companyId: req.companyId } },
+      where:   { id, project: { companyId: req.companyId } },
+      include: {
+        author:  { select: { name: true } },
+        project: { select: { name: true } },
+      },
     })
     if (!entry) return reply.status(404).send({ error: 'RDO não encontrado' })
 
@@ -2011,6 +2028,24 @@ export async function diaryRoutes(app: FastifyInstance) {
 
     const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
     const link    = `${baseUrl}/assinar-rdo/${token}`
+
+    // Enviar email ao fiscal se email fornecido
+    if (body.fiscalEmail) {
+      const emailHtml = buildFiscalEmailHtml({
+        fiscalName:   body.fiscalName   || 'Fiscal',
+        reportNumber: entry.reportNumber || 'RDO',
+        projectName:  entry.project?.name || '',
+        authorName:   entry.author?.name  || '',
+        date:         new Date(entry.date).toLocaleDateString('pt-BR'),
+        signLink:     link,
+      })
+      // Fire-and-forget — não bloqueia a resposta
+      sendEmail({
+        to:      body.fiscalEmail,
+        subject: `✍️ Solicitação de assinatura — RDO ${entry.reportNumber} | ${entry.project?.name ?? ''}`,
+        html:    emailHtml,
+      }).catch((err: unknown) => request.log.error(err, 'Falha ao enviar email fiscal'))
+    }
 
     return reply.send({ success: true, link, token, expiresAt })
   })
@@ -2073,7 +2108,26 @@ const STATUS_LABEL: Record<string, string> = {
   DRAFT: 'Rascunho', PENDING: 'Aguardando aprovação', APPROVED: 'Aprovado', REJECTED: 'Devolvido',
 }
 
-export function buildDiaryPdfHtml(entry: any, proj: any, company: any, equipments: any[] = []): string {
+export interface DiaryPdfSignatures {
+  authorSignatureUrl?:  string | null
+  approverSignatureUrl?: string | null
+  fiscalSignatureUrl?:  string | null
+  authorName?:          string | null
+  approverName?:        string | null
+  fiscalName?:          string | null
+  fiscalDocument?:      string | null
+  authorSigned?:        boolean
+  approverSigned?:      boolean
+  fiscalSigned?:        boolean
+}
+
+export function buildDiaryPdfHtml(
+  entry:      any,
+  proj:       any,
+  company:    any,
+  equipments: any[] = [],
+  sigs?:      DiaryPdfSignatures,
+): string {
   const fmtDate = (d: Date | string) => new Date(d).toLocaleDateString('pt-BR')
 
   const statusColors: Record<string, { bg: string; color: string }> = {
@@ -2203,22 +2257,65 @@ export function buildDiaryPdfHtml(entry: any, proj: any, company: any, equipment
       <div class="text-block-warn">${entry.generalNotes}</div>
     </div>` : ''}
 
+    ${(entry.imageUrls ?? []).length > 0 ? `
+    <div class="section">
+      <div class="section-title">📷 Registro Fotográfico
+        <span style="font-size:10px;font-weight:400;margin-left:8px">(${entry.imageUrls.length} foto${entry.imageUrls.length !== 1 ? 's' : ''})</span>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:8px">
+        ${(entry.imageUrls as string[]).map((url: string) => {
+          const apiBase = (process.env.API_URL || 'http://localhost:3001').replace(/\/$/, '')
+          const absUrl  = url.startsWith('http') ? url : `${apiBase}${url.startsWith('/') ? '' : '/'}${url}`
+          return `<div style="break-inside:avoid"><img src="${absUrl}" style="width:100%;height:120px;object-fit:cover;border-radius:4px;border:1px solid #E5E7EB" onerror="this.style.display='none'" /></div>`
+        }).join('')}
+      </div>
+    </div>` : ''}
+
     <!-- Assinaturas -->
-    <div class="signatures">
-      <div class="signature-box">
-        <div class="signature-line"></div>
-        <div class="signature-name">${entry.author?.name ?? 'Responsável'}</div>
-        <div class="signature-role">Autor do RDO</div>
-      </div>
-      <div class="signature-box">
-        <div class="signature-line"></div>
-        <div class="signature-name">_____________________</div>
-        <div class="signature-role">Fiscal / Engenheiro</div>
-      </div>
-      <div class="signature-box">
-        <div class="signature-line"></div>
-        <div class="signature-name">_____________________</div>
-        <div class="signature-role">Gerente da Obra</div>
+    <div class="section" style="page-break-inside:avoid">
+      <div class="section-title">✍️ Assinaturas</div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-top:12px">
+
+        <!-- Autor -->
+        <div style="border:1px solid #E5E7EB;border-radius:8px;padding:12px;text-align:center">
+          <div style="font-size:10px;color:#6B7280;font-weight:700;text-transform:uppercase;margin-bottom:8px">Autor do RDO</div>
+          ${sigs?.authorSigned && sigs?.authorSignatureUrl ? `
+            <img src="${sigs.authorSignatureUrl}" style="width:100%;max-height:60px;object-fit:contain;margin-bottom:6px" />
+            <div style="font-size:10px;color:#16A34A;font-weight:600">✅ Assinado</div>
+          ` : `
+            <div style="height:60px;border-bottom:1px solid #374151;margin-bottom:6px"></div>
+            <div style="font-size:10px;color:#9CA3AF">Aguardando</div>
+          `}
+          <div style="font-size:10px;color:#374151;margin-top:6px;font-weight:600">${sigs?.authorName ?? entry.author?.name ?? ''}</div>
+        </div>
+
+        <!-- Aprovador -->
+        <div style="border:1px solid #E5E7EB;border-radius:8px;padding:12px;text-align:center">
+          <div style="font-size:10px;color:#6B7280;font-weight:700;text-transform:uppercase;margin-bottom:8px">Aprovador</div>
+          ${sigs?.approverSigned && sigs?.approverSignatureUrl ? `
+            <img src="${sigs.approverSignatureUrl}" style="width:100%;max-height:60px;object-fit:contain;margin-bottom:6px" />
+            <div style="font-size:10px;color:#16A34A;font-weight:600">✅ Assinado</div>
+          ` : `
+            <div style="height:60px;border-bottom:1px solid #374151;margin-bottom:6px"></div>
+            <div style="font-size:10px;color:#9CA3AF">Aguardando</div>
+          `}
+          <div style="font-size:10px;color:#374151;margin-top:6px;font-weight:600">${sigs?.approverName ?? ''}</div>
+        </div>
+
+        <!-- Fiscal -->
+        <div style="border:1px solid #E5E7EB;border-radius:8px;padding:12px;text-align:center">
+          <div style="font-size:10px;color:#6B7280;font-weight:700;text-transform:uppercase;margin-bottom:8px">Fiscal / Engenheiro</div>
+          ${sigs?.fiscalSigned && sigs?.fiscalSignatureUrl ? `
+            <img src="${sigs.fiscalSignatureUrl}" style="width:100%;max-height:60px;object-fit:contain;margin-bottom:6px" />
+            <div style="font-size:10px;color:#16A34A;font-weight:600">✅ Assinado</div>
+          ` : `
+            <div style="height:60px;border-bottom:1px solid #374151;margin-bottom:6px"></div>
+            <div style="font-size:10px;color:#9CA3AF">Aguardando</div>
+          `}
+          <div style="font-size:10px;color:#374151;margin-top:6px;font-weight:600">${sigs?.fiscalName ?? ''}</div>
+          ${sigs?.fiscalDocument ? `<div style="font-size:9px;color:#6B7280">CPF: ${sigs.fiscalDocument}</div>` : ''}
+        </div>
+
       </div>
     </div>
   `

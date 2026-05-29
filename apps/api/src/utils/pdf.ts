@@ -271,7 +271,7 @@ export async function generatePdf(data: ReportData): Promise<Buffer> {
 
   try {
     const page = await browser.newPage()
-    await page.setContent(html, { waitUntil: 'domcontentloaded' })
+    await page.setContent(html, { waitUntil: 'load' })
     const pdf = await page.pdf({
       format:          'A4',
       printBackground: true,
