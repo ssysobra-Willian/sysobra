@@ -96,10 +96,11 @@ export default function NovaObraPage() {
   const [technicalTitle, setTechTitle]     = useState('')
   const [technicalCrea,  setTechCrea]      = useState('')
   // ── Dados adicionais da obra
-  const [totalArea,      setTotalArea]     = useState('')
-  const [floors,         setFloors]        = useState('')
-  const [buildingPermit, setBuildingPermit]= useState('')
-  const [slogan,         setSlogan]        = useState('')
+  const [totalArea,       setTotalArea]      = useState('')
+  const [floors,          setFloors]         = useState('')
+  const [buildingPermit,  setBuildingPermit] = useState('')
+  const [slogan,          setSlogan]         = useState('')
+  const [diaryMaxPhotos,  setDiaryMaxPhotos] = useState(10)
 
   // ── Etapas
   const [stages,      setStages]      = useState<StageRow[]>([newStage()])
@@ -189,6 +190,7 @@ export default function NovaObraPage() {
         floors:          floors    ? parseInt(floors)      : null,
         buildingPermit:  buildingPermit || null,
         slogan:          slogan         || null,
+        diaryMaxPhotos,
         stages: validStages.map((s, i) => ({
           code:           s.code || null,
           name:           s.name,
@@ -511,6 +513,29 @@ export default function NovaObraPage() {
               maxLength={80}
             />
             <p className="text-xs text-gray-400 mt-1">Exibido na faixa azul da placa de obra quando preenchido.</p>
+          </div>
+
+          <hr className="border-gray-100" />
+          <h3 className="text-sm font-semibold text-gray-700">Diário de Obra (RDO)</h3>
+
+          <div>
+            <label className={LabelClass}>Limite de fotos por RDO</label>
+            <div className="flex items-center gap-3">
+              <input
+                type="number"
+                min={1}
+                max={20}
+                value={diaryMaxPhotos}
+                onChange={e => setDiaryMaxPhotos(Math.min(20, Math.max(1, Number(e.target.value))))}
+                className="w-20 px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-[#F5A623] bg-white text-center"
+              />
+              <span className="text-sm text-gray-500">fotos por RDO (máximo 20)</span>
+            </div>
+            <p className={`text-xs mt-1 ${diaryMaxPhotos > 15 ? 'text-amber-600' : 'text-gray-400'}`}>
+              {diaryMaxPhotos > 15
+                ? '⚠️ Limite alto de fotos consome mais armazenamento do seu plano.'
+                : 'Cada foto consome armazenamento do seu plano. Recomendamos até 10.'}
+            </p>
           </div>
         </div>
       )}

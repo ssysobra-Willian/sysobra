@@ -428,7 +428,7 @@ export default function RdoDetailPage() {
             )}
             {/* Editar */}
             {canEdit && (isDraft || isRejected) && (isOwnEntry || canApprove) && (
-              <Link href={`/app/diario/${projectId}/novo?edit=${reportId}`}>
+              <Link href={`/app/diario/${reportId}/editar`}>
                 <Button variant="secondary" size="sm">Editar</Button>
               </Link>
             )}
