@@ -12,6 +12,12 @@ import { PhotoUpload, type PhotoItem } from '../../components/PhotoUpload'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
 
+const getAssetUrl = (url: string | null | undefined): string => {
+  if (!url) return ''
+  if (url.startsWith('http')) return url
+  return `${API}${url.startsWith('/') ? '' : '/'}${url}`
+}
+
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
 interface Stage {
@@ -786,7 +792,7 @@ export default function EditarRdoPage() {
                       {allocated.map((w, idx) => (
                         <div key={w.employeeId} className={`flex items-center gap-3 p-3 rounded-xl border transition-colors ${w.selected ? 'bg-green-50 border-green-200' : 'bg-gray-50 border-gray-200'}`}>
                           {w.photo
-                            ? <img src={w.photo} className="w-8 h-8 rounded-full object-cover flex-shrink-0" alt="" />
+                            ? <img src={getAssetUrl(w.photo)} className="w-8 h-8 rounded-full object-cover flex-shrink-0" alt="" />
                             : <div className="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center flex-shrink-0 text-xs font-bold text-gray-500">{w.name.charAt(0)}</div>
                           }
                           <div className="flex-1 min-w-0">
@@ -827,7 +833,7 @@ export default function EditarRdoPage() {
                         {others.map((w) => (
                           <div key={w.employeeId} className={`flex items-center gap-3 p-3 rounded-xl border transition-colors ${w.selected ? 'bg-green-50 border-green-200' : 'bg-gray-50 border-gray-200'}`}>
                             {w.photo
-                              ? <img src={w.photo} className="w-8 h-8 rounded-full object-cover flex-shrink-0" alt="" />
+                              ? <img src={getAssetUrl(w.photo)} className="w-8 h-8 rounded-full object-cover flex-shrink-0" alt="" />
                               : <div className="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center flex-shrink-0 text-xs font-bold text-gray-500">{w.name.charAt(0)}</div>
                             }
                             <div className="flex-1 min-w-0">
@@ -878,7 +884,7 @@ export default function EditarRdoPage() {
                 <div key={tool.id} className={`border rounded-xl p-4 transition-colors ${tool.usedInRdo ? 'border-amber-200 bg-amber-50' : 'border-gray-200 bg-gray-50'}`}>
                   <div className="flex items-center gap-3">
                     {tool.imageUrl
-                      ? <img src={tool.imageUrl} className="w-10 h-10 rounded-lg object-cover flex-shrink-0" alt="" />
+                      ? <img src={getAssetUrl(tool.imageUrl)} className="w-10 h-10 rounded-lg object-cover flex-shrink-0" alt="" />
                       : <div className="w-10 h-10 rounded-lg bg-gray-200 flex items-center justify-center text-lg flex-shrink-0">🔧</div>
                     }
                     <div className="flex-1 min-w-0">
