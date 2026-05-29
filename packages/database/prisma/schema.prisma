@@ -2022,17 +2022,24 @@ model DiaryRainRecord {
   @@map("diary_rain_records")
 }
 
-/// Confirmação de presença de equipamentos/ferramentas no RDO
+/// Confirmação de presença e registro de uso de ferramentas no RDO
 model DiaryEquipment {
   id           String    @id @default(cuid())
   companyId    String    @map("company_id")
   diaryEntryId String    @map("diary_entry_id")
   itemId       String    @map("item_id")          // StockItem (ferramenta)
+  // Presença (diário de obra)
   confirmed    Boolean   @default(false)
   confirmedAt  DateTime? @map("confirmed_at")
   confirmedBy  String?   @map("confirmed_by")     // userId
-  notes        String?
+  // Uso no RDO
+  usedInRdo    Boolean   @default(false) @map("used_in_rdo")
+  usedAt       DateTime? @map("used_at")
+  usedBy       String?   @map("used_by")
+  usageNotes   String?   @map("usage_notes")
+  // Alertas
   alertSent    Boolean   @default(false) @map("alert_sent")
+  notes        String?
   isActive     Boolean   @default(true) @map("is_active")
   createdAt    DateTime  @default(now()) @map("created_at")
 

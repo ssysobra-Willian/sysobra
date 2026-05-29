@@ -687,9 +687,12 @@ export default function ObraDetailPage() {
   const [uploadingFile,    setUploadingFile]    = useState(false)
 
   // ── Aba Ferramentas ──────────────────────────────────────────────────────
-  const [projectTools,  setProjectTools]  = useState<any[]>([])
-  const [toolsLoading,  setToolsLoading]  = useState(false)
-  const [toolsCount,    setToolsCount]    = useState(0)
+  const [projectTools,     setProjectTools]     = useState<any[]>([])
+  const [toolsLoading,     setToolsLoading]     = useState(false)
+  const [toolsCount,       setToolsCount]       = useState(0)
+  const [activeToolsPage,  setActiveToolsPage]  = useState(1)
+  const [returnedToolsPage, setReturnedToolsPage] = useState(1)
+  const TOOLS_PER_PAGE = 10
 
   // ── Modal encerramento de obra ────────────────────────────────────────────
   const [showCloseModal,  setShowCloseModal]  = useState(false)
@@ -765,7 +768,7 @@ export default function ObraDetailPage() {
       headers: { Authorization: `Bearer ${token}`, 'x-company-id': companyId },
     })
       .then(r => r.json())
-      .then(d => { setProjectTools(d.tools ?? []); setToolsCount(d.activeCount ?? 0) })
+      .then(d => { setProjectTools(d.tools ?? []); setToolsCount(d.activeCount ?? 0); setActiveToolsPage(1); setReturnedToolsPage(1) })
       .catch(() => {})
       .finally(() => setToolsLoading(false))
   }, [tab, id])
@@ -1628,121 +1631,155 @@ export default function ObraDetailPage() {
               )}
 
               {/* ── Aba Ferramentas ────────────────────────────────────────── */}
-              {tab === 'Ferramentas' && (
-                <div className="pb-6">
-                  {/* Header */}
-                  <div className="flex items-center justify-between mb-4">
-                    <div>
-                      <h3 className="text-base font-bold text-gray-900">Ferramentas alocadas nesta obra</h3>
-                      <p className="text-sm text-gray-500 mt-0.5">
-                        {toolsCount > 0 ? `${toolsCount} ferramenta(s) em uso` : 'Nenhuma ferramenta alocada'}
-                      </p>
-                    </div>
-                    <a
-                      href="/app/deposito?tab=ferramentas"
-                      className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-amber-600 border border-amber-400 rounded-lg hover:bg-amber-50 transition-colors"
-                    >
-                      <i className="ti ti-tool text-sm" />
-                      Ir ao depósito
-                    </a>
-                  </div>
+              {tab === 'Ferramentas' && (() => {
+                const activeList   = projectTools.filter(t => !t.returnedAt)
+                const returnedList = projectTools.filter(t => t.returnedAt)
+                const activeTotalPages   = Math.ceil(activeList.length / TOOLS_PER_PAGE)
+                const returnedTotalPages = Math.ceil(returnedList.length / TOOLS_PER_PAGE)
+                const pagedActive   = activeList.slice((activeToolsPage - 1) * TOOLS_PER_PAGE, activeToolsPage * TOOLS_PER_PAGE)
+                const pagedReturned = returnedList.slice((returnedToolsPage - 1) * TOOLS_PER_PAGE, returnedToolsPage * TOOLS_PER_PAGE)
 
-                  {toolsLoading ? (
-                    <div className="text-center py-8 text-gray-400 text-sm">Carregando ferramentas...</div>
-                  ) : projectTools.length === 0 ? (
-                    <div className="text-center py-12 text-gray-400 text-sm">
-                      <i className="ti ti-tool text-4xl block mb-3 text-gray-300" />
-                      Nenhuma ferramenta alocada nesta obra
+                const PaginationBar = ({ page, total, totalItems, onChange }: { page: number; total: number; totalItems: number; onChange: (p: number) => void }) => {
+                  if (total <= 1) return null
+                  const pages = Array.from({ length: total }, (_, i) => i + 1)
+                    .filter(p => p === 1 || p === total || Math.abs(p - page) <= 1)
+                    .reduce((acc: (number | string)[], p, idx, arr) => {
+                      if (idx > 0 && (p as number) - (arr[idx - 1] as number) > 1) acc.push('…')
+                      acc.push(p); return acc
+                    }, [])
+                  return (
+                    <div className="flex items-center justify-center gap-1.5 mt-3">
+                      <button onClick={() => onChange(page - 1)} disabled={page === 1}
+                        className={`px-2.5 py-1 rounded-md border text-sm ${page === 1 ? 'text-gray-300 border-gray-200 cursor-not-allowed' : 'border-gray-300 hover:bg-gray-50 cursor-pointer'}`}>←</button>
+                      {pages.map((p, i) => (
+                        <button key={i} onClick={() => typeof p === 'number' && onChange(p)} disabled={p === '…'}
+                          className={`px-2.5 py-1 rounded-md border text-sm font-medium ${p === page ? 'bg-amber-50 border-amber-400 text-amber-800 font-bold' : p === '…' ? 'border-transparent text-gray-400 cursor-default' : 'border-gray-200 hover:bg-gray-50 cursor-pointer'}`}>
+                          {p}
+                        </button>
+                      ))}
+                      <button onClick={() => onChange(page + 1)} disabled={page === total}
+                        className={`px-2.5 py-1 rounded-md border text-sm ${page === total ? 'text-gray-300 border-gray-200 cursor-not-allowed' : 'border-gray-300 hover:bg-gray-50 cursor-pointer'}`}>→</button>
+                      <span className="text-xs text-gray-400 ml-1">{page}/{total} · {totalItems} total</span>
                     </div>
-                  ) : (
-                    <div className="space-y-5">
-                      {/* Em uso */}
-                      {projectTools.filter(t => !t.returnedAt).length > 0 && (
-                        <div>
-                          <div className="text-xs font-bold text-amber-600 uppercase tracking-wide mb-2">
-                            ⚙️ Em uso ({projectTools.filter(t => !t.returnedAt).length})
-                          </div>
-                          <div className="border border-gray-200 rounded-xl overflow-hidden">
-                            <table className="w-full text-sm">
-                              <thead>
-                                <tr className="bg-gray-50 border-b border-gray-200">
-                                  {['Ferramenta', 'Série', 'Responsável', 'Romaneio', 'Alocado em', 'Status'].map(h => (
-                                    <th key={h} className="px-3 py-2.5 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wide">{h}</th>
-                                  ))}
-                                </tr>
-                              </thead>
-                              <tbody>
-                                {projectTools.filter(t => !t.returnedAt).map(tool => {
-                                  const imgUrl = tool.imageUrl
-                                    ? tool.imageUrl.startsWith('http') ? tool.imageUrl : `${API}${tool.imageUrl.startsWith('/') ? '' : '/'}${tool.imageUrl}`
-                                    : null
-                                  return (
-                                    <tr key={tool.id} className="border-t border-gray-100 hover:bg-gray-50 transition-colors">
-                                      <td className="px-3 py-2.5">
-                                        <div className="flex items-center gap-2">
-                                          {imgUrl ? (
-                                            <img src={imgUrl} className="w-8 h-8 rounded object-cover border border-gray-200 flex-shrink-0" onError={e => { e.currentTarget.style.display = 'none' }} />
-                                          ) : (
-                                            <div className="w-8 h-8 rounded bg-gray-100 flex items-center justify-center flex-shrink-0">
-                                              <i className="ti ti-tool text-sm text-gray-300" />
-                                            </div>
-                                          )}
-                                          <div>
-                                            <div className="font-medium text-gray-900">{tool.name}</div>
-                                            {(tool.brand || tool.model) && (
-                                              <div className="text-xs text-gray-400">{[tool.brand, tool.model].filter(Boolean).join(' ')}</div>
+                  )
+                }
+
+                return (
+                  <div className="pb-6">
+                    {/* Header */}
+                    <div className="flex items-center justify-between mb-4">
+                      <div>
+                        <h3 className="text-base font-bold text-gray-900">Ferramentas alocadas nesta obra</h3>
+                        <p className="text-sm text-gray-500 mt-0.5">
+                          {toolsCount > 0 ? `${toolsCount} ferramenta(s) em uso` : 'Nenhuma ferramenta alocada'}
+                        </p>
+                      </div>
+                      <a href="/app/deposito?tab=ferramentas"
+                        className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-amber-600 border border-amber-400 rounded-lg hover:bg-amber-50 transition-colors">
+                        <i className="ti ti-tool text-sm" />
+                        Ir ao depósito
+                      </a>
+                    </div>
+
+                    {toolsLoading ? (
+                      <div className="text-center py-8 text-gray-400 text-sm">Carregando ferramentas...</div>
+                    ) : projectTools.length === 0 ? (
+                      <div className="text-center py-12 text-gray-400 text-sm">
+                        <i className="ti ti-tool text-4xl block mb-3 text-gray-300" />
+                        Nenhuma ferramenta alocada nesta obra
+                      </div>
+                    ) : (
+                      <div className="space-y-5">
+                        {/* Em uso */}
+                        {activeList.length > 0 && (
+                          <div>
+                            <div className="text-xs font-bold text-amber-600 uppercase tracking-wide mb-2">
+                              ⚙️ Em uso ({activeList.length})
+                            </div>
+                            <div className="border border-gray-200 rounded-xl overflow-hidden">
+                              <table className="w-full text-sm">
+                                <thead>
+                                  <tr className="bg-gray-50 border-b border-gray-200">
+                                    {['Ferramenta', 'Série', 'Responsável', 'Romaneio', 'Alocado em', 'Status'].map(h => (
+                                      <th key={h} className="px-3 py-2.5 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wide">{h}</th>
+                                    ))}
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {pagedActive.map(tool => {
+                                    const imgUrl = tool.imageUrl
+                                      ? tool.imageUrl.startsWith('http') ? tool.imageUrl : `${API}${tool.imageUrl.startsWith('/') ? '' : '/'}${tool.imageUrl}`
+                                      : null
+                                    return (
+                                      <tr key={tool.id} className="border-t border-gray-100 hover:bg-gray-50 transition-colors">
+                                        <td className="px-3 py-2.5">
+                                          <div className="flex items-center gap-2">
+                                            {imgUrl ? (
+                                              <img src={imgUrl} className="w-8 h-8 rounded object-cover border border-gray-200 flex-shrink-0" onError={e => { e.currentTarget.style.display = 'none' }} />
+                                            ) : (
+                                              <div className="w-8 h-8 rounded bg-gray-100 flex items-center justify-center flex-shrink-0">
+                                                <i className="ti ti-tool text-sm text-gray-300" />
+                                              </div>
                                             )}
+                                            <div>
+                                              <div className="font-medium text-gray-900">{tool.name}</div>
+                                              {(tool.brand || tool.model) && (
+                                                <div className="text-xs text-gray-400">{[tool.brand, tool.model].filter(Boolean).join(' ')}</div>
+                                              )}
+                                            </div>
                                           </div>
-                                        </div>
-                                      </td>
-                                      <td className="px-3 py-2.5 text-xs text-gray-500">{tool.serialNumber || '—'}</td>
-                                      <td className="px-3 py-2.5 text-sm">{tool.responsavel}</td>
-                                      <td className="px-3 py-2.5">
-                                        {tool.docNumber ? (
-                                          <a href="/app/deposito/romaneios" className="text-xs text-blue-600 hover:underline">{tool.docNumber}</a>
-                                        ) : '—'}
-                                      </td>
-                                      <td className="px-3 py-2.5 text-xs text-gray-500">
-                                        {tool.allocatedAt ? new Date(tool.allocatedAt).toLocaleDateString('pt-BR') : '—'}
-                                      </td>
-                                      <td className="px-3 py-2.5">
-                                        <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-blue-100 text-blue-700">⚙️ Em uso</span>
-                                      </td>
-                                    </tr>
-                                  )
-                                })}
-                              </tbody>
-                            </table>
+                                        </td>
+                                        <td className="px-3 py-2.5 text-xs text-gray-500">{tool.serialNumber || '—'}</td>
+                                        <td className="px-3 py-2.5 text-sm">{tool.responsavel}</td>
+                                        <td className="px-3 py-2.5">
+                                          {tool.docNumber ? (
+                                            <a href="/app/deposito/romaneios" className="text-xs text-blue-600 hover:underline">{tool.docNumber}</a>
+                                          ) : '—'}
+                                        </td>
+                                        <td className="px-3 py-2.5 text-xs text-gray-500">
+                                          {tool.allocatedAt ? new Date(tool.allocatedAt).toLocaleDateString('pt-BR') : '—'}
+                                        </td>
+                                        <td className="px-3 py-2.5">
+                                          <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-blue-100 text-blue-700">⚙️ Em uso</span>
+                                        </td>
+                                      </tr>
+                                    )
+                                  })}
+                                </tbody>
+                              </table>
+                            </div>
+                            <PaginationBar page={activeToolsPage} total={activeTotalPages} totalItems={activeList.length} onChange={setActiveToolsPage} />
                           </div>
-                        </div>
-                      )}
+                        )}
 
-                      {/* Devolvidas */}
-                      {projectTools.filter(t => t.returnedAt).length > 0 && (
-                        <div>
-                          <div className="text-xs font-bold text-green-600 uppercase tracking-wide mb-2">
-                            ✅ Devolvidas ({projectTools.filter(t => t.returnedAt).length})
-                          </div>
-                          <div className="space-y-1.5">
-                            {projectTools.filter(t => t.returnedAt).map(tool => (
-                              <div key={tool.id} className="flex items-center justify-between px-3 py-2.5 rounded-xl border border-green-200 bg-green-50 text-sm">
-                                <div className="flex items-center gap-2">
-                                  <i className="ti ti-circle-check text-green-600" />
-                                  <span className="font-medium">{tool.name}</span>
-                                  {tool.serialNumber && <span className="text-xs text-gray-400">({tool.serialNumber})</span>}
+                        {/* Devolvidas */}
+                        {returnedList.length > 0 && (
+                          <div>
+                            <div className="text-xs font-bold text-green-600 uppercase tracking-wide mb-2">
+                              ✅ Devolvidas ({returnedList.length})
+                            </div>
+                            <div className="space-y-1.5">
+                              {pagedReturned.map(tool => (
+                                <div key={tool.id} className="flex items-center justify-between px-3 py-2.5 rounded-xl border border-green-200 bg-green-50 text-sm">
+                                  <div className="flex items-center gap-2">
+                                    <i className="ti ti-circle-check text-green-600" />
+                                    <span className="font-medium">{tool.name}</span>
+                                    {tool.serialNumber && <span className="text-xs text-gray-400">({tool.serialNumber})</span>}
+                                  </div>
+                                  <span className="text-xs text-gray-500">
+                                    Devolvida em {new Date(tool.returnedAt).toLocaleDateString('pt-BR')}
+                                  </span>
                                 </div>
-                                <span className="text-xs text-gray-500">
-                                  Devolvida em {new Date(tool.returnedAt).toLocaleDateString('pt-BR')}
-                                </span>
-                              </div>
-                            ))}
+                              ))}
+                            </div>
+                            <PaginationBar page={returnedToolsPage} total={returnedTotalPages} totalItems={returnedList.length} onChange={setReturnedToolsPage} />
                           </div>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              )}
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )
+              })()}
 
               {/* ── Aba Pasta de Projetos ───────────────────────────────────── */}
               {tab === 'Pasta de Projetos' && (

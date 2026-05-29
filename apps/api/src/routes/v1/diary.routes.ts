@@ -1747,6 +1747,98 @@ export async function diaryRoutes(app: FastifyInstance) {
     return reply.send({ success: true })
   })
 
+  // ── GET /api/v1/diary/entries/:entryId/tools ────────────────────────────
+  // Lista ferramentas IN_USE na obra com status de uso para este RDO
+  app.get('/entries/:entryId/tools', { preHandler: [requirePermission('diario_obra', 'view')] }, async (request, reply) => {
+    const req         = request as RequestWithMember
+    const companyId   = req.companyId!
+    const { entryId } = request.params as { entryId: string }
+
+    const entry = await p.diaryEntry.findFirst({
+      where:  { id: entryId, project: { companyId } },
+      select: { id: true, projectId: true, date: true },
+    })
+    if (!entry) return reply.status(404).send({ error: 'RDO não encontrado' })
+
+    const tools = await p.stockItem.findMany({
+      where: {
+        companyId,
+        isActive:         true,
+        requiresCustody:  true,
+        currentProjectId: entry.projectId,
+        toolStatus:       'IN_USE',
+      },
+      select: {
+        id: true, name: true, code: true,
+        serialNumber: true, brand: true, model: true,
+        imageUrl: true, toolType: true,
+      },
+    })
+
+    const usageRecords = await p.diaryEquipment.findMany({
+      where: { diaryEntryId: entryId, isActive: true },
+    })
+
+    const toolsWithUsage = tools.map((tool: any) => {
+      const rec = usageRecords.find((r: any) => r.itemId === tool.id)
+      return {
+        ...tool,
+        usedInRdo:  rec?.usedInRdo  ?? false,
+        usedAt:     rec?.usedAt     ?? null,
+        usageNotes: rec?.usageNotes ?? '',
+        recordId:   rec?.id         ?? null,
+      }
+    })
+
+    return reply.send({
+      tools:      toolsWithUsage,
+      usedCount:  toolsWithUsage.filter((t: any) => t.usedInRdo).length,
+      totalTools: tools.length,
+    })
+  })
+
+  // ── POST /api/v1/diary/entries/:entryId/tools/usage ──────────────────────
+  // Registrar/atualizar uso de ferramenta no RDO
+  app.post('/entries/:entryId/tools/usage', { preHandler: [requirePermission('diario_obra', 'edit')] }, async (request, reply) => {
+    const req         = request as RequestWithMember
+    const companyId   = req.companyId!
+    const payload     = request.user as JwtPayload
+    const userId      = payload.sub
+    const { entryId } = request.params as { entryId: string }
+    const body        = request.body as { itemId: string; usedInRdo: boolean; usageNotes?: string }
+
+    const existing = await p.diaryEquipment.findFirst({
+      where: { diaryEntryId: entryId, itemId: body.itemId, isActive: true },
+    })
+
+    if (existing) {
+      await p.diaryEquipment.update({
+        where: { id: existing.id },
+        data: {
+          usedInRdo:  body.usedInRdo,
+          usedAt:     body.usedInRdo ? new Date() : null,
+          usedBy:     body.usedInRdo ? userId : null,
+          usageNotes: body.usageNotes ?? existing.usageNotes,
+        },
+      })
+    } else {
+      await p.diaryEquipment.create({
+        data: {
+          companyId,
+          diaryEntryId: entryId,
+          itemId:       body.itemId,
+          usedInRdo:    body.usedInRdo,
+          usedAt:       body.usedInRdo ? new Date() : null,
+          usedBy:       body.usedInRdo ? userId : null,
+          usageNotes:   body.usageNotes ?? null,
+          isActive:     true,
+        },
+      })
+    }
+
+    return reply.send({ success: true })
+  })
+
   // ── DELETE /api/v1/diary/comments/:commentId ─────────────────────────────
   app.delete('/comments/:commentId', { preHandler: [requirePermission('diario_obra', 'comment')] }, async (request, reply) => {
     const req     = request as RequestWithMember

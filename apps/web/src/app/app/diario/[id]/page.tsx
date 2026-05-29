@@ -221,24 +221,35 @@ export default function DiarioProjectPage() {
   }, [tab, projectId, rainRecords.length])
 
   // ── Carrega ferramentas da obra quando a aba abre ─────────────────────────
-  const loadRdoTools = async () => {
+  // entryId = RDO mais recente (reports[0])
+  const loadRdoTools = async (entryId?: string) => {
+    const eid = entryId ?? reports[0]?.id
     const token     = localStorage.getItem('token') || ''
     const companyId = localStorage.getItem('companyId') || ''
     setRdoToolsLoading(true)
     try {
-      // Usa by-project para listar todas as ferramentas alocadas na obra
-      const res  = await fetch(`${API}/api/v1/deposit/tools/by-project/${projectId}`, {
-        headers: { Authorization: `Bearer ${token}`, 'x-company-id': companyId },
-      })
-      const data = await res.json()
-      setRdoTools(data.tools ?? [])
+      if (eid) {
+        // Carrega com status de uso por RDO
+        const res  = await fetch(`${API}/api/v1/diary/entries/${eid}/tools`, {
+          headers: { Authorization: `Bearer ${token}`, 'x-company-id': companyId },
+        })
+        const data = await res.json()
+        setRdoTools(data.tools ?? [])
+      } else {
+        // Sem RDO criado — fallback para by-project (somente leitura)
+        const res  = await fetch(`${API}/api/v1/deposit/tools/by-project/${projectId}`, {
+          headers: { Authorization: `Bearer ${token}`, 'x-company-id': companyId },
+        })
+        const data = await res.json()
+        setRdoTools((data.tools ?? []).filter((t: any) => !t.returnedAt))
+      }
     } catch {} finally { setRdoToolsLoading(false) }
   }
 
   useEffect(() => {
     if (tab === 'equipments') loadRdoTools()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab])
+  }, [tab, reports.length])
 
   // ── Restaura modo de visualização do localStorage ─────────────────────────
   useEffect(() => {
@@ -724,9 +735,11 @@ export default function DiarioProjectPage() {
       {tab === 'equipments' && (
         <div className="pb-6">
           <div className="mb-4">
-            <h3 className="text-base font-bold text-gray-900">Ferramentas alocadas nesta obra</h3>
+            <h3 className="text-base font-bold text-gray-900">Ferramentas utilizadas hoje</h3>
             <p className="text-sm text-gray-500 mt-0.5">
-              Confirme a presença de cada ferramenta. Ausências geram alerta para o almoxarife.
+              {reports[0]?.id
+                ? `Marque quais ferramentas foram utilizadas neste RDO (${reports[0]?.reportNumber ?? ''}).`
+                : 'Crie o RDO de hoje para registrar o uso de ferramentas.'}
             </p>
           </div>
 
@@ -741,17 +754,17 @@ export default function DiarioProjectPage() {
             <div>
               {/* Resumo */}
               <div className="grid grid-cols-2 gap-3 mb-5">
-                <div className="text-center p-3 rounded-xl bg-blue-50 border border-blue-200">
-                  <div className="text-2xl font-bold text-blue-700">
-                    {rdoTools.filter((t: any) => !t.returnedAt).length}
-                  </div>
-                  <div className="text-xs text-blue-600 mt-0.5">Em uso</div>
-                </div>
                 <div className="text-center p-3 rounded-xl bg-green-50 border border-green-200">
                   <div className="text-2xl font-bold text-green-700">
-                    {rdoTools.filter((t: any) => t.returnedAt).length}
+                    {rdoTools.filter((t: any) => t.usedInRdo).length}
                   </div>
-                  <div className="text-xs text-green-600 mt-0.5">Devolvidas</div>
+                  <div className="text-xs text-green-600 mt-0.5">Utilizadas hoje</div>
+                </div>
+                <div className="text-center p-3 rounded-xl bg-gray-50 border border-gray-200">
+                  <div className="text-2xl font-bold text-gray-500">
+                    {rdoTools.filter((t: any) => !t.usedInRdo).length}
+                  </div>
+                  <div className="text-xs text-gray-500 mt-0.5">Não utilizadas</div>
                 </div>
               </div>
 
@@ -762,11 +775,12 @@ export default function DiarioProjectPage() {
                     ? tool.imageUrl.startsWith('http') ? tool.imageUrl
                       : `${API}${tool.imageUrl.startsWith('/') ? '' : '/'}${tool.imageUrl}`
                     : null
+                  const entryId = reports[0]?.id ?? null
                   return (
                     <div
                       key={tool.id}
-                      className={`flex items-center gap-3 p-3 rounded-xl border ${
-                        tool.returnedAt ? 'border-green-200 bg-green-50' : 'border-blue-200 bg-blue-50'
+                      className={`flex items-center gap-3 p-3 rounded-xl border transition-all ${
+                        tool.usedInRdo ? 'border-green-200 bg-green-50' : 'border-gray-200 bg-white'
                       }`}
                     >
                       {/* Foto */}
@@ -786,33 +800,45 @@ export default function DiarioProjectPage() {
                       <div className="flex-1 min-w-0">
                         <div className="font-semibold text-sm text-gray-900">{tool.name}</div>
                         <div className="text-xs text-gray-500">
-                          {[tool.brand, tool.model, tool.serialNumber ? `Série: ${tool.serialNumber}` : null].filter(Boolean).join(' · ')}
+                          {[tool.toolType, tool.brand, tool.serialNumber ? `Série: ${tool.serialNumber}` : null].filter(Boolean).join(' · ')}
                         </div>
-                        <div className="text-xs text-gray-400 mt-0.5">
-                          {tool.responsavel && tool.responsavel !== '—' ? `Responsável: ${tool.responsavel}` : ''}
-                          {tool.allocatedAt ? ` · Desde ${new Date(tool.allocatedAt).toLocaleDateString('pt-BR')}` : ''}
-                        </div>
+                        {tool.usedInRdo && tool.usageNotes && (
+                          <div className="text-xs text-green-700 mt-0.5">📝 {tool.usageNotes}</div>
+                        )}
                       </div>
 
-                      {/* Status badge */}
-                      <span className={`text-[11px] font-bold px-2.5 py-1 rounded-full flex-shrink-0 ${
-                        tool.returnedAt
-                          ? 'bg-green-100 text-green-700'
-                          : 'bg-blue-100 text-blue-700'
-                      }`}>
-                        {tool.returnedAt ? '✅ Devolvida' : '⚙️ Em uso'}
-                      </span>
+                      {/* Toggle */}
+                      {entryId ? (
+                        <button
+                          onClick={async () => {
+                            const token     = localStorage.getItem('token') || ''
+                            const companyId = localStorage.getItem('companyId') || ''
+                            await fetch(`${API}/api/v1/diary/entries/${entryId}/tools/usage`, {
+                              method:  'POST',
+                              headers: { Authorization: `Bearer ${token}`, 'x-company-id': companyId, 'Content-Type': 'application/json' },
+                              body:    JSON.stringify({ itemId: tool.id, usedInRdo: !tool.usedInRdo, usageNotes: tool.usageNotes }),
+                            })
+                            loadRdoTools(entryId)
+                          }}
+                          className={`flex items-center gap-1.5 px-3 py-2 rounded-lg border-2 text-sm font-semibold transition-all flex-shrink-0 ${
+                            tool.usedInRdo
+                              ? 'border-green-500 bg-green-100 text-green-700'
+                              : 'border-gray-200 bg-transparent text-gray-500 hover:border-gray-300'
+                          }`}
+                        >
+                          <i className={`ti ${tool.usedInRdo ? 'ti-circle-check' : 'ti-circle'} text-base`} />
+                          {tool.usedInRdo ? 'Utilizada' : 'Marcar uso'}
+                        </button>
+                      ) : (
+                        <span className="text-xs text-gray-400 flex-shrink-0">⚙️ Em uso</span>
+                      )}
                     </div>
                   )
                 })}
               </div>
 
-              {/* Link para depósito */}
               <div className="mt-4 text-center">
-                <a
-                  href="/app/deposito"
-                  className="text-sm text-amber-600 hover:underline font-medium"
-                >
+                <a href="/app/deposito" className="text-sm text-amber-600 hover:underline font-medium">
                   Gerenciar ferramentas no depósito →
                 </a>
               </div>
