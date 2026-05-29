@@ -2713,11 +2713,13 @@ ${_basketFooter}
       ? (curQty * curAvg + body.quantity * body.unitCost) / newQty
       : body.unitCost
 
-    // Criar lote de fornecedor
-    const lotData = body.supplierName ? {
+    // Criar lote de fornecedor — sempre que houver qualquer dado de lote/fornecedor
+    const hasLotData = !!(body.supplierId || body.supplierName || body.lot || body.invoiceNumber || body.expiryDate)
+    const lotData = hasLotData ? {
       companyId:     cid,
       stockItemId:   item.id,
       supplierId:    body.supplierId    ?? null,
+      supplierName:  body.supplierName  ?? null,
       lotNumber:     body.lot           ?? null,
       invoiceNumber: body.invoiceNumber ?? null,
       purchaseDate:  new Date(),

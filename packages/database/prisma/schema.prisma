@@ -1326,6 +1326,7 @@ model SupplierLot {
   companyId     String    @map("company_id")
   stockItemId   String    @map("stock_item_id")
   supplierId    String?   @map("supplier_id")
+  supplierName  String?   @map("supplier_name")    // nome livre quando sem FK
   lotNumber     String?   @map("lot_number")       // número do lote
   invoiceNumber String?   @map("invoice_number")   // número da NF
   purchaseDate  DateTime? @map("purchase_date")

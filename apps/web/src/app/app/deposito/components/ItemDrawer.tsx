@@ -13,6 +13,11 @@ import { MovementList } from './MovementList'
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
 function getToken()     { return typeof window !== 'undefined' ? (localStorage.getItem('token')     ?? '') : '' }
 function getCompanyId() { return typeof window !== 'undefined' ? (localStorage.getItem('companyId') ?? '') : '' }
+function getAssetUrl(url: string | null | undefined): string {
+  if (!url) return ''
+  if (url.startsWith('http')) return url
+  return `${API}${url.startsWith('/') ? '' : '/'}${url}`
+}
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -50,9 +55,11 @@ interface SupplierLot {
   id:            string
   lotNumber?:    string | null
   invoiceNumber?: string | null
+  purchaseDate?:  string | null
   quantity:      number
   unitCost?:     number | null
   expiryDate?:   string | null
+  supplierName?:  string | null
   supplier?:     { id: string; name: string } | null
 }
 
@@ -114,9 +121,7 @@ const DRAWER_TABS = [
 
 export function ItemDrawer({ item, onClose, onViewReceipt, onEdit }: Props) {
   const [tab,     setTab]     = useState<'info' | 'entries' | 'exits' | 'all' | 'lots'>('info')
-  const imgUrl = item.imageUrl
-    ? (item.imageUrl.startsWith('http') ? item.imageUrl : `${API}/${item.imageUrl}`)
-    : null
+  const imgUrl = getAssetUrl(item.imageUrl) || null
 
   const totalValue = (item.averageCost || item.unitCost || 0) * item.quantity
   const isLow      = item.quantity <= item.minQuantity
@@ -395,37 +400,74 @@ export function ItemDrawer({ item, onClose, onViewReceipt, onEdit }: Props) {
             <div className="p-4">
               {!item.supplierLots || item.supplierLots.length === 0 ? (
                 <div className="py-12 text-center text-sm text-gray-400">
-                  Nenhum lote de fornecedor registrado
+                  <Package size={28} className="mx-auto mb-2 opacity-30" />
+                  Nenhum lote registrado
                 </div>
               ) : (
                 <div className="space-y-2">
-                  {item.supplierLots.map((lot, i) => (
-                    <div key={lot.id} className="border border-gray-100 rounded-xl overflow-hidden">
-                      <div className="px-4 py-3 bg-gray-50 flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs font-mono text-gray-500">#{i + 1}</span>
-                          {lot.lotNumber && (
-                            <span className="text-xs bg-white border border-gray-200 rounded px-1.5 py-0.5 font-mono">
-                              Lote {lot.lotNumber}
-                            </span>
+                  {item.supplierLots.map((lot, i) => {
+                    const expired = lot.expiryDate ? new Date(lot.expiryDate) < new Date() : false
+                    const supplierLabel = lot.supplier?.name || lot.supplierName || null
+                    return (
+                      <div key={lot.id} className="border border-gray-100 rounded-xl overflow-hidden">
+                        {/* Header do lote */}
+                        <div className="px-4 py-3 bg-gray-50 flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-mono text-gray-400">#{i + 1}</span>
+                            {lot.lotNumber && (
+                              <span className="text-xs bg-blue-50 border border-blue-200 text-blue-700 rounded-full px-2 py-0.5 font-mono font-medium">
+                                Lote {lot.lotNumber}
+                              </span>
+                            )}
+                            {lot.invoiceNumber && (
+                              <span className="text-xs text-gray-500">NF {lot.invoiceNumber}</span>
+                            )}
+                          </div>
+                          <span className="text-sm font-bold text-gray-800">
+                            {Number(lot.quantity).toLocaleString('pt-BR')} {item.unit}
+                          </span>
+                        </div>
+                        {/* Detalhes */}
+                        <div className="px-4 py-3 space-y-1.5 text-xs text-gray-600">
+                          {/* Fornecedor */}
+                          <div className="flex items-center gap-1.5">
+                            <span>🏭</span>
+                            <span>Fornecedor:</span>
+                            <strong className="text-gray-800">{supplierLabel ?? <span className="text-gray-400 font-normal">Não informado</span>}</strong>
+                          </div>
+                          {/* Data de compra */}
+                          {lot.purchaseDate && (
+                            <div className="flex items-center gap-1.5">
+                              <span>📅</span>
+                              <span>Comprado em:</span>
+                              <strong className="text-gray-800">{formatDateBR(lot.purchaseDate)}</strong>
+                            </div>
+                          )}
+                          {/* Custo unitário */}
+                          {lot.unitCost && Number(lot.unitCost) > 0 && (
+                            <div className="flex items-center gap-1.5">
+                              <span>💰</span>
+                              <span>Custo unit.:</span>
+                              <strong className="text-gray-800">{formatCurrency(lot.unitCost)}/un</strong>
+                            </div>
+                          )}
+                          {/* Validade */}
+                          {lot.expiryDate && (
+                            <div className={cn('flex items-center gap-1.5', expired ? 'text-red-600' : '')}>
+                              <span>⏱️</span>
+                              <span>Validade:</span>
+                              <strong>{formatDateBR(lot.expiryDate)}</strong>
+                              {expired && (
+                                <span className="ml-1 text-[10px] font-bold bg-red-100 text-red-700 px-1.5 py-0.5 rounded-full">
+                                  VENCIDO
+                                </span>
+                              )}
+                            </div>
                           )}
                         </div>
-                        <span className="text-sm font-bold text-gray-800">{lot.quantity} {item.unit}</span>
                       </div>
-                      <div className="px-4 py-2.5 grid grid-cols-2 gap-2 text-xs text-gray-600">
-                        {lot.supplier     && <span>📦 {lot.supplier.name}</span>}
-                        {lot.invoiceNumber && <span>🧾 NF {lot.invoiceNumber}</span>}
-                        {lot.unitCost      && <span>💰 {formatCurrency(lot.unitCost)}/un</span>}
-                        {lot.expiryDate    && (
-                          <span className={cn(
-                            new Date(lot.expiryDate) < new Date() ? 'text-red-600 font-medium' : '',
-                          )}>
-                            ⏱️ Val.: {formatDateBR(lot.expiryDate)}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  ))}
+                    )
+                  })}
                 </div>
               )}
             </div>

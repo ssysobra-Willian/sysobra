@@ -79,6 +79,8 @@ export function QuickEntryModal({ isOpen, onClose, onSuccess, locations, default
   const [supplierName,      setSupplierName]      = useState('')
   const [supplierSearch,    setSupplierSearch]    = useState('')
   const [supplierResults,   setSupplierResults]   = useState<{ id: string; name: string; cpfCnpj?: string | null }[]>([])
+  const [supplierFocused,   setSupplierFocused]   = useState(false)
+  const [allSuppliers,      setAllSuppliers]      = useState<{ id: string; name: string; cpfCnpj?: string | null }[]>([])
 
   // ─ Step 2: Itens ─
   const [itemSearch,   setItemSearch]   = useState('')
@@ -100,27 +102,47 @@ export function QuickEntryModal({ isOpen, onClose, onSuccess, locations, default
     else if (locations[0]) setLocationId(locations[0].id)
   }, [isOpen, locations, locationId])
 
+  // ─── Pré-carregar fornecedores ao abrir o modal ───────────────────────────
+  useEffect(() => {
+    if (!isOpen) return
+    apiFetch('/api/v1/suppliers?limit=200')
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d) { setAllSuppliers(d.suppliers ?? []) } })
+      .catch(() => {})
+  }, [isOpen])
+
   // ─── Reset ao fechar ──────────────────────────────────────────────────────
   useEffect(() => {
     if (!isOpen) {
       setStep(1)
       setSupplierInputMode('select')
-      setSupplierId(''); setSupplierName(''); setSupplierSearch(''); setSupplierResults([])
+      setSupplierId(''); setSupplierName(''); setSupplierSearch(''); setSupplierResults([]); setSupplierFocused(false)
       setItemSearch(''); setItemResults([]); setEntries([])
       setError(''); setSuccess(false)
     }
   }, [isOpen])
 
-  // ─── Busca fornecedores ───────────────────────────────────────────────────
+  // ─── Busca fornecedores — filtra cache local ou API ──────────────────────
   const searchSuppliers = useCallback(async (q: string) => {
     setSupplierSearch(q)
-    if (q.length < 2) { setSupplierResults([]); return }
-    try {
-      const res  = await apiFetch(`/api/v1/suppliers?search=${encodeURIComponent(q)}&limit=8`)
-      const data = await res.json()
-      setSupplierResults(data.suppliers ?? data ?? [])
-    } catch { setSupplierResults([]) }
-  }, [])
+    if (!q.trim()) {
+      // Mostrar todos do cache local
+      setSupplierResults(allSuppliers.slice(0, 10))
+      return
+    }
+    const lower = q.toLowerCase()
+    // Primeiro filtra local instantaneamente
+    const local = allSuppliers.filter(s => s.name.toLowerCase().includes(lower))
+    setSupplierResults(local.slice(0, 10))
+    // Se não houver cache ou query longa, busca na API
+    if (allSuppliers.length === 0 || q.length >= 3) {
+      try {
+        const res  = await apiFetch(`/api/v1/suppliers?search=${encodeURIComponent(q)}&limit=10`)
+        const data = await res.json()
+        setSupplierResults(data.suppliers ?? [])
+      } catch { /* usa resultado local */ }
+    }
+  }, [allSuppliers])
 
   // ─── Busca itens ──────────────────────────────────────────────────────────
   const doSearchItems = useCallback(async (q: string) => {
@@ -262,7 +284,7 @@ export function QuickEntryModal({ isOpen, onClose, onSuccess, locations, default
                   <div className="flex gap-1 mb-2">
                     <button
                       type="button"
-                      onClick={() => { setSupplierInputMode('select'); setSupplierId(''); setSupplierName(''); setSupplierSearch(''); setSupplierResults([]) }}
+                      onClick={() => { setSupplierInputMode('select'); setSupplierId(''); setSupplierName(''); setSupplierSearch(''); setSupplierResults(allSuppliers.slice(0, 10)) }}
                       className={cn(
                         'flex-1 text-xs font-medium py-1.5 px-2 rounded-lg border transition-colors',
                         supplierInputMode === 'select' ? 'bg-[#F5A623] text-white border-[#F5A623]' : 'bg-white text-gray-500 border-gray-200 hover:border-gray-300'
@@ -286,14 +308,16 @@ export function QuickEntryModal({ isOpen, onClose, onSuccess, locations, default
                           <input
                             value={supplierSearch}
                             onChange={e => searchSuppliers(e.target.value)}
-                            placeholder="Buscar fornecedor cadastrado..."
+                            onFocus={() => { setSupplierFocused(true); if (!supplierSearch) setSupplierResults(allSuppliers.slice(0, 10)) }}
+                            onBlur={() => setTimeout(() => setSupplierFocused(false), 150)}
+                            placeholder="Clique para ver fornecedores..."
                             className={cn(inp, 'pl-8')}
                           />
-                          {supplierResults.length > 0 && (
+                          {supplierFocused && supplierResults.length > 0 && (
                             <div className="absolute left-0 right-0 top-full z-50 bg-white border border-gray-200 rounded-xl mt-1 shadow-lg max-h-48 overflow-y-auto">
                               {supplierResults.map(s => (
                                 <button key={s.id} type="button"
-                                  onClick={() => { setSupplierId(s.id); setSupplierName(s.name); setSupplierSearch(''); setSupplierResults([]) }}
+                                  onClick={() => { setSupplierId(s.id); setSupplierName(s.name); setSupplierSearch(''); setSupplierResults([]); setSupplierFocused(false) }}
                                   className="w-full flex items-center gap-2 px-3 py-2 hover:bg-gray-50 text-left border-b border-gray-50 last:border-0">
                                   <div className="flex-1 min-w-0">
                                     <div className="text-xs font-medium text-gray-800 truncate">{s.name}</div>
