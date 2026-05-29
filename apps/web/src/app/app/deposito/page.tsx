@@ -32,6 +32,11 @@ import DepositoOnboarding     from './components/DepositoOnboarding'
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
 function token()     { return typeof window !== 'undefined' ? (localStorage.getItem('token')     ?? '') : '' }
 function companyH()  { return typeof window !== 'undefined' ? (localStorage.getItem('companyId') ?? '') : '' }
+function getAssetUrl(url: string | null | undefined): string {
+  if (!url) return ''
+  if (url.startsWith('http')) return url
+  return `${API}${url.startsWith('/') ? '' : '/'}${url}`
+}
 
 async function apiFetch(path: string, opts: RequestInit = {}) {
   return fetch(`${API}${path}`, {
@@ -219,12 +224,12 @@ function MetricCard({ label, value, sub, icon, color, alert }: {
 
 // ─── Action Menu ─────────────────────────────────────────────────────────────
 
-function ActionMenu({ onView, onEdit, onDelete, onCustody, onBasket }: {
-  onView?:    () => void
-  onEdit?:    () => void
-  onDelete?:  () => void
-  onCustody?: () => void
-  onBasket?:  () => void
+function ActionMenu({ onView, onEdit, onDelete, onCustody, onRequestDelete }: {
+  onView?:          () => void
+  onEdit?:          () => void
+  onDelete?:        () => void
+  onCustody?:       () => void
+  onRequestDelete?: () => void
 }) {
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
@@ -242,12 +247,12 @@ function ActionMenu({ onView, onEdit, onDelete, onCustody, onBasket }: {
         <MoreHorizontal size={15} className="text-gray-500" />
       </button>
       {open && (
-        <div className="absolute right-0 top-8 z-30 bg-white border border-gray-200 rounded-xl shadow-lg min-w-[140px] py-1 overflow-hidden">
-          {onView    && <button onClick={() => { onView();    setOpen(false) }} className="w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-gray-50 text-gray-700"><Eye size={13}/>Detalhes</button>}
-          {onEdit    && <button onClick={() => { onEdit();    setOpen(false) }} className="w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-gray-50 text-gray-700"><Edit2 size={13}/>Editar</button>}
-          {onCustody && <button onClick={() => { onCustody();setOpen(false) }} className="w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-gray-50 text-orange-600"><Package size={13}/>Saída via romaneio</button>}
-          {onBasket  && <button onClick={() => { onBasket(); setOpen(false) }} className="w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-gray-50 text-blue-600"><FileText size={13}/>Cesta de saída</button>}
-          {onDelete  && <button onClick={() => { onDelete(); setOpen(false) }} className="w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-red-50 text-red-600"><Trash2 size={13}/>Remover</button>}
+        <div className="absolute right-0 top-8 z-30 bg-white border border-gray-200 rounded-xl shadow-lg min-w-[160px] py-1 overflow-hidden">
+          {onView          && <button onClick={() => { onView();          setOpen(false) }} className="w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-gray-50 text-gray-700"><Eye size={13}/>Detalhes</button>}
+          {onEdit          && <button onClick={() => { onEdit();          setOpen(false) }} className="w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-gray-50 text-gray-700"><Edit2 size={13}/>Editar</button>}
+          {onCustody       && <button onClick={() => { onCustody();       setOpen(false) }} className="w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-gray-50 text-orange-600"><Package size={13}/>Saída via romaneio</button>}
+          {onRequestDelete && <button onClick={() => { onRequestDelete(); setOpen(false) }} className="w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-red-50 text-red-600"><Trash2 size={13}/>Solicitar exclusão</button>}
+          {onDelete        && <button onClick={() => { onDelete();        setOpen(false) }} className="w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-red-50 text-red-600"><Trash2 size={13}/>Remover</button>}
         </div>
       )}
     </div>
@@ -256,12 +261,13 @@ function ActionMenu({ onView, onEdit, onDelete, onCustody, onBasket }: {
 
 // ─── Materials Table ──────────────────────────────────────────────────────────
 
-function MaterialsTable({ items, onView, onEdit, onCustody, onBasket }: {
-  items:     StockItem[]
-  onView:    (item: StockItem) => void
-  onEdit?:   (item: StockItem) => void
-  onCustody: (item: StockItem) => void
-  onBasket:  (item: StockItem) => void
+function MaterialsTable({ items, onView, onEdit, onCustody, onRequestDelete, onExpandPhoto }: {
+  items:             StockItem[]
+  onView:            (item: StockItem) => void
+  onEdit?:           (item: StockItem) => void
+  onCustody:         (item: StockItem) => void
+  onRequestDelete?:  (item: StockItem) => void
+  onExpandPhoto?:    (url: string) => void
 }) {
   const [sort,  setSort]  = useState<{ col: string; dir: 'asc' | 'desc' }>({ col: 'name', dir: 'asc' })
   const [query, setQuery] = useState('')
@@ -353,9 +359,7 @@ function MaterialsTable({ items, onView, onEdit, onCustody, onBasket }: {
               const cost      = item.averageCost || item.unitCost || 0
               const totalVal  = cost * item.quantity
               const isLow     = item.quantity <= item.minQuantity
-              const imgSrc    = item.imageUrl
-                ? (item.imageUrl.startsWith('http') ? item.imageUrl : `${API}/${item.imageUrl}`)
-                : null
+              const imgSrc    = item.imageUrl ? getAssetUrl(item.imageUrl) : null
               return (
                 <tr
                   key={item.id}
@@ -368,7 +372,12 @@ function MaterialsTable({ items, onView, onEdit, onCustody, onBasket }: {
                   <td className="px-3 py-2.5">
                     <div className="flex items-center gap-2.5 min-w-0">
                       {imgSrc ? (
-                        <img src={imgSrc} alt="" className="w-7 h-7 rounded-lg object-cover flex-shrink-0" />
+                        <img
+                          src={imgSrc} alt=""
+                          className={cn('w-7 h-7 rounded-lg object-cover flex-shrink-0 transition-opacity', onExpandPhoto ? 'cursor-zoom-in hover:opacity-80' : '')}
+                          onClick={onExpandPhoto ? (e => { e.stopPropagation(); onExpandPhoto(imgSrc) }) : undefined}
+                          onError={e => { (e.currentTarget as HTMLImageElement).style.display = 'none' }}
+                        />
                       ) : (
                         <div className="w-7 h-7 rounded-lg bg-gray-100 flex items-center justify-center flex-shrink-0">
                           <Package size={13} className="text-gray-400" />
@@ -408,7 +417,7 @@ function MaterialsTable({ items, onView, onEdit, onCustody, onBasket }: {
                       onView={() => onView(item)}
                       onEdit={onEdit ? () => onEdit(item) : undefined}
                       onCustody={item.requiresCustody ? () => onCustody(item) : undefined}
-                      onBasket={() => onBasket(item)}
+                      onRequestDelete={onRequestDelete ? () => onRequestDelete(item) : undefined}
                     />
                   </td>
                 </tr>
@@ -423,9 +432,7 @@ function MaterialsTable({ items, onView, onEdit, onCustody, onBasket }: {
         {filtered.map(item => {
           const cost     = item.averageCost || item.unitCost || 0
           const isLow    = item.quantity <= item.minQuantity
-          const imgSrc   = item.imageUrl
-            ? (item.imageUrl.startsWith('http') ? item.imageUrl : `${API}/${item.imageUrl}`)
-            : null
+          const imgSrc   = item.imageUrl ? getAssetUrl(item.imageUrl) : null
           return (
             <div
               key={item.id}
@@ -1454,6 +1461,15 @@ export default function DepositoPage() {
   const [epiDeliveryItemId,   setEpiDeliveryItemId]   = useState<string | undefined>(undefined)
   const [createLocationOpen,  setCreateLocationOpen]  = useState(false)
 
+  // Lightbox foto
+  const [expandedPhoto, setExpandedPhoto] = useState<string | null>(null)
+
+  // Solicitar exclusão (material / EPI / uniforme)
+  const [deleteTargetItem,    setDeleteTargetItem]    = useState<StockItem | null>(null)
+  const [deleteReason,        setDeleteReason]        = useState('')
+  const [showReqDeleteModal,  setShowReqDeleteModal]  = useState(false)
+  const [requestingDelete,    setRequestingDelete]    = useState(false)
+
   // ── Verificar se Depósito Central existe ─────────────────────────────────
   const checkSetup = useCallback(async () => {
     setCheckingSetup(true)
@@ -2066,7 +2082,8 @@ export default function DepositoPage() {
                     onView={handleViewItem}
                     onEdit={item => { setEditingMaterial(item); setMaterialFormOpen(true) }}
                     onCustody={item => setCustodyItem(item)}
-                    onBasket={() => setBasketOpen(true)}
+                    onRequestDelete={item => { setDeleteTargetItem(item); setDeleteReason(''); setShowReqDeleteModal(true) }}
+                    onExpandPhoto={url => setExpandedPhoto(url)}
                   />
                 )}
                 {tab === 'tools' && (
@@ -2098,7 +2115,8 @@ export default function DepositoPage() {
                       onView={handleViewItem}
                       onEdit={item => { setEditingMaterial(item); setEpiFormOpen(true) }}
                       onCustody={item => setCustodyItem(item)}
-                      onBasket={() => setBasketOpen(true)}
+                      onRequestDelete={item => { setDeleteTargetItem(item); setDeleteReason(''); setShowReqDeleteModal(true) }}
+                      onExpandPhoto={url => setExpandedPhoto(url)}
                     />
                   </div>
                 )}
@@ -2108,7 +2126,8 @@ export default function DepositoPage() {
                     onView={handleViewItem}
                     onEdit={item => { setEditingMaterial(item); setUniformFormOpen(true) }}
                     onCustody={item => setCustodyItem(item)}
-                    onBasket={() => setBasketOpen(true)}
+                    onRequestDelete={item => { setDeleteTargetItem(item); setDeleteReason(''); setShowReqDeleteModal(true) }}
+                    onExpandPhoto={url => setExpandedPhoto(url)}
                   />
                 )}
                 {tab === 'movements' && (
@@ -2370,6 +2389,96 @@ export default function DepositoPage() {
                 {returnMaintLoading
                   ? <><Loader2 size={14} className="animate-spin" /> Salvando...</>
                   : <><CheckCircle2 size={14} /> Confirmar retorno</>}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Lightbox foto ───────────────────────────────────────────────── */}
+      {expandedPhoto && (
+        <div
+          onClick={() => setExpandedPhoto(null)}
+          className="fixed inset-0 z-[2000] bg-black/85 flex items-center justify-center cursor-zoom-out p-4"
+        >
+          <div onClick={e => e.stopPropagation()} className="relative">
+            <img
+              src={expandedPhoto}
+              alt=""
+              className="max-w-[90vw] max-h-[85vh] object-contain rounded-lg"
+            />
+            <button
+              onClick={() => setExpandedPhoto(null)}
+              className="absolute top-2 right-2 w-8 h-8 bg-white rounded-full flex items-center justify-center shadow-lg hover:bg-gray-100 transition"
+            >
+              <X size={16} className="text-gray-700" />
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Modal solicitar exclusão (material / EPI / uniforme) ─────────── */}
+      {showReqDeleteModal && deleteTargetItem && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/50">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+              <h3 className="text-sm font-bold text-gray-900">Solicitar exclusão</h3>
+              <button onClick={() => setShowReqDeleteModal(false)} className="p-1.5 rounded-lg hover:bg-gray-100">
+                <X size={16} className="text-gray-400" />
+              </button>
+            </div>
+            <div className="p-5 space-y-4">
+              <p className="text-sm text-gray-700">
+                Item: <strong>{deleteTargetItem.name}</strong>
+              </p>
+              <div className="bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 text-xs text-amber-800">
+                ⚠️ O item ficará aguardando aprovação do gestor antes de ser excluído.
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Motivo da exclusão *</label>
+                <textarea
+                  value={deleteReason}
+                  onChange={e => setDeleteReason(e.target.value)}
+                  placeholder="Descreva o motivo..."
+                  rows={3}
+                  className={cn('w-full px-3 py-2 text-sm border rounded-xl focus:outline-none focus:border-[#F5A623] resize-none',
+                    deleteReason.trim() ? 'border-gray-200' : 'border-red-200')}
+                />
+              </div>
+            </div>
+            <div className="flex gap-2 px-5 pb-5">
+              <button
+                onClick={() => { setShowReqDeleteModal(false); setDeleteReason('') }}
+                className="flex-1 py-2.5 rounded-xl border border-gray-200 text-sm font-medium text-gray-600 hover:bg-gray-50 transition"
+              >Cancelar</button>
+              <button
+                disabled={!deleteReason.trim() || requestingDelete}
+                onClick={async () => {
+                  if (!deleteReason.trim()) return
+                  setRequestingDelete(true)
+                  try {
+                    const res = await apiFetch(`/api/v1/deposit/items/${deleteTargetItem.id}/request-delete`, {
+                      method: 'POST',
+                      body: JSON.stringify({ reason: deleteReason.trim() }),
+                    })
+                    if (!res.ok) {
+                      const d = await res.json().catch(() => ({}))
+                      throw new Error(d.error ?? `Erro ${res.status}`)
+                    }
+                    setShowReqDeleteModal(false)
+                    setDeleteReason('')
+                    setDeleteTargetItem(null)
+                    await loadAll()
+                  } catch (err: any) {
+                    alert(err.message ?? 'Erro ao solicitar exclusão')
+                  } finally { setRequestingDelete(false) }
+                }}
+                className={cn(
+                  'flex-[2] py-2.5 rounded-xl text-sm font-bold text-white transition flex items-center justify-center gap-2',
+                  deleteReason.trim() && !requestingDelete ? 'bg-red-600 hover:bg-red-700' : 'bg-gray-300',
+                )}
+              >
+                {requestingDelete ? <><Loader2 size={14} className="animate-spin" />Enviando...</> : '📨 Enviar solicitação'}
               </button>
             </div>
           </div>

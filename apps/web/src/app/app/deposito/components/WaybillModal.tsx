@@ -6,6 +6,12 @@ const API     = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
 const token   = () => typeof window !== 'undefined' ? (localStorage.getItem('token')     ?? '') : ''
 const company = () => typeof window !== 'undefined' ? (localStorage.getItem('companyId') ?? '') : ''
 
+function getAssetUrl(url: string | null | undefined): string {
+  if (!url) return ''
+  if (url.startsWith('http')) return url
+  return `${API}${url.startsWith('/') ? '' : '/'}${url}`
+}
+
 function apiFetch(path: string, opts: RequestInit = {}) {
   return fetch(`${API}${path}`, {
     ...opts,
@@ -706,6 +712,7 @@ export default function WaybillModal({
                 {filteredItems.map(item => {
                   const isSelected = !!selectedItems.find(s => s.itemId === item.id)
                   const available  = Number(item.availableQty ?? item.currentStock ?? 0)
+                  const imgSrc     = getAssetUrl(item.imageUrl)
                   return (
                     <div
                       key={item.id}
@@ -718,6 +725,20 @@ export default function WaybillModal({
                         opacity: available === 0 ? 0.5 : 1,
                       }}
                     >
+                      {/* Miniatura */}
+                      {imgSrc ? (
+                        <img
+                          src={imgSrc} alt=""
+                          style={{ width: 36, height: 36, objectFit: 'cover', borderRadius: 6,
+                                   border: '1px solid #E5E7EB', flexShrink: 0 }}
+                          onError={e => { (e.currentTarget as HTMLImageElement).style.display = 'none' }}
+                        />
+                      ) : (
+                        <div style={{ width: 36, height: 36, borderRadius: 6, background: '#F3F4F6',
+                                      flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                          <i className="ti ti-package" style={{ fontSize: 16, color: '#D1D5DB' }} />
+                        </div>
+                      )}
                       <div style={{ flex: 1 }}>
                         <div style={{ fontWeight: 500, fontSize: 13 }}>{item.name}</div>
                         <div style={{ fontSize: 11, color: '#6B7280' }}>

@@ -3734,6 +3734,61 @@ ${getPdfFooter(company?.name ?? '')}
 
     return reply.send({ success: true })
   })
+
+  // POST /api/v1/deposit/items/:id/request-delete  (generalizado: material, EPI, uniforme, ferramenta)
+  app.post('/items/:id/request-delete', { preHandler }, async (request, reply) => {
+    const req = request as RequestWithMember
+    const cid = companyId(req)
+    const uid = userId(req)
+    const { id } = request.params as { id: string }
+    const body = request.body as { reason?: string }
+
+    if (!body?.reason?.trim()) {
+      return reply.status(400).send({ error: 'Motivo obrigatório para solicitar exclusão.' })
+    }
+
+    const item = await p().stockItem.findFirst({
+      where: { id, companyId: cid, isActive: true },
+    })
+    if (!item) return reply.status(404).send({ error: 'Item não encontrado.' })
+
+    const existing = await p().toolDeleteRequest.findFirst({
+      where: { itemId: id, companyId: cid, status: 'PENDING' },
+    })
+    if (existing) {
+      return reply.status(400).send({ error: 'Já existe uma solicitação de exclusão pendente para este item.' })
+    }
+
+    const deleteReq = await p().toolDeleteRequest.create({
+      data: {
+        companyId:   cid,
+        itemId:      id,
+        requestedBy: uid!,
+        reason:      body.reason.trim(),
+        status:      'PENDING',
+      },
+    })
+
+    if (item.requiresCustody) {
+      await p().stockItem.update({ where: { id }, data: { toolStatus: 'PENDING_DELETE' } })
+    }
+
+    const categoryLabel = item.isEpi ? 'EPI'
+      : item.isUniform ? 'Uniforme'
+      : item.requiresCustody ? 'Ferramenta'
+      : 'Material'
+
+    await notifyManagers({
+      companyId: cid,
+      title:     `Solicitação de exclusão — ${categoryLabel}`,
+      message:   `"${item.name}" aguarda aprovação para exclusão. Motivo: ${body.reason.trim()}`,
+      type:      'ACTION_REQUIRED',
+      link:      '/app/deposito/pendencias',
+      excludeUserId: uid ?? undefined,
+    })
+
+    return reply.status(201).send({ deleteRequest: deleteReq })
+  })
 }
 
 // ─── Helper: construir data de StockItem a partir do body ─────────────────────
