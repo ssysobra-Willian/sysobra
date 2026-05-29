@@ -648,7 +648,7 @@ function progressBarColor(pct: number, status: string) {
 
 // ─── Abas ─────────────────────────────────────────────────────────────────────
 
-const TABS = ['Resumo', 'Apropriações', 'Pluviometria', 'Compras', 'Medições', 'Equipe', 'Documentos', 'Pasta de Projetos', 'Histórico'] as const
+const TABS = ['Resumo', 'Apropriações', 'Pluviometria', 'Compras', 'Medições', 'Equipe', 'Documentos', 'Ferramentas', 'Pasta de Projetos', 'Histórico'] as const
 type Tab = typeof TABS[number]
 
 // ─── Componente principal ─────────────────────────────────────────────────────
@@ -681,6 +681,11 @@ export default function ObraDetailPage() {
   const [ifcViewerUrl,     setIfcViewerUrl]     = useState<string | null>(null)
   const [pdfViewerUrl,     setPdfViewerUrl]     = useState<string | null>(null)
   const [uploadingFile,    setUploadingFile]    = useState(false)
+
+  // ── Aba Ferramentas ──────────────────────────────────────────────────────
+  const [projectTools,  setProjectTools]  = useState<any[]>([])
+  const [toolsLoading,  setToolsLoading]  = useState(false)
+  const [toolsCount,    setToolsCount]    = useState(0)
 
   // ── Aba Apropriações ──────────────────────────────────────────────────────
   const [allocTxs,      setAllocTxs]      = useState<AllocTx[]>([])
@@ -724,6 +729,63 @@ export default function ObraDetailPage() {
   }, [id, router])
 
   useEffect(() => { loadProject() }, [loadProject])
+
+  // ── Ferramentas: load count ao abrir projeto ──────────────────────────────
+  useEffect(() => {
+    if (!id) return
+    const token = localStorage.getItem('token') || ''
+    fetch(`${API}/api/v1/deposit/tools/by-project/${id}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then(r => r.json())
+      .then(d => setToolsCount(d.activeCount ?? 0))
+      .catch(() => {})
+  }, [id])
+
+  // ── Ferramentas: load detalhado ao entrar na aba ──────────────────────────
+  useEffect(() => {
+    if (tab !== 'Ferramentas' || !id) return
+    const token = localStorage.getItem('token') || ''
+    setToolsLoading(true)
+    fetch(`${API}/api/v1/deposit/tools/by-project/${id}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then(r => r.json())
+      .then(d => { setProjectTools(d.tools ?? []); setToolsCount(d.activeCount ?? 0) })
+      .catch(() => {})
+      .finally(() => setToolsLoading(false))
+  }, [tab, id])
+
+  // ── Encerrar obra com verificação de ferramentas ──────────────────────────
+  const handleCloseProject = async () => {
+    if (toolsCount > 0) {
+      const ok = window.confirm(
+        `⚠️ Esta obra tem ${toolsCount} ferramenta(s) ainda alocada(s).\n\n` +
+        `Ao encerrar, será criada uma pendência para o almoxarife recolher as ferramentas.\n\nDeseja continuar?`
+      )
+      if (!ok) return
+    }
+    const token     = localStorage.getItem('token') || ''
+    const companyId = localStorage.getItem('companyId') || ''
+    await fetch(`${API}/api/v1/projects/${id}`, {
+      method:  'PATCH',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}`, 'x-company-id': companyId },
+      body:    JSON.stringify({ status: 'COMPLETED' }),
+    })
+    if (toolsCount > 0 && project) {
+      await fetch(`${API}/api/v1/notifications/create-for-managers`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}`, 'x-company-id': companyId },
+        body: JSON.stringify({
+          type:    'TOOLS_PENDING_RETURN',
+          title:   '⚠️ Ferramentas pendentes de retorno',
+          message: `A obra "${project.name}" foi encerrada com ${toolsCount} ferramenta(s) ainda alocada(s). Verificar recolhimento.`,
+          link:    `/app/deposito?tab=ferramentas`,
+        }),
+      })
+    }
+    loadProject()
+  }
 
   // Carrega lançamentos + summary da aba Apropriações
   useEffect(() => {
@@ -892,6 +954,14 @@ export default function ObraDetailPage() {
             >
               <ExternalLink size={15} /> Ver no financeiro
             </Link>
+            {project.status !== 'COMPLETED' && project.status !== 'CANCELLED' && (
+              <button
+                onClick={handleCloseProject}
+                className="flex items-center gap-2 text-sm font-medium text-gray-700 border border-gray-200 px-4 py-2 rounded-lg hover:bg-gray-50 transition-colors"
+              >
+                <CheckCircle2 size={15} /> Encerrar obra
+              </button>
+            )}
             <Link
               href={`/app/centro-de-custo/${id}/editar`}
               className="flex items-center gap-2 bg-[#F5A623] hover:bg-[#e09610] text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
@@ -1044,11 +1114,16 @@ export default function ObraDetailPage() {
                 <button
                   key={t}
                   onClick={() => setTab(t)}
-                  className={`px-4 py-3 text-sm font-medium whitespace-nowrap transition-colors border-b-2 -mb-px ${
+                  className={`px-4 py-3 text-sm font-medium whitespace-nowrap transition-colors border-b-2 -mb-px flex items-center gap-1.5 ${
                     tab === t ? 'border-[#F5A623] text-[#F5A623]' : 'border-transparent text-gray-500 hover:text-gray-700'
                   }`}
                 >
                   {t}
+                  {t === 'Ferramentas' && toolsCount > 0 && (
+                    <span className="text-[10px] font-bold bg-amber-400 text-white px-1.5 py-0.5 rounded-full leading-none">
+                      {toolsCount}
+                    </span>
+                  )}
                 </button>
               ))}
             </div>
@@ -1462,6 +1537,123 @@ export default function ObraDetailPage() {
               {(tab === 'Compras' || tab === 'Medições' || tab === 'Documentos') && (
                 <div className="py-8 text-center">
                   <p className="text-sm text-gray-400">Em desenvolvimento</p>
+                </div>
+              )}
+
+              {/* ── Aba Ferramentas ────────────────────────────────────────── */}
+              {tab === 'Ferramentas' && (
+                <div className="pb-6">
+                  {/* Header */}
+                  <div className="flex items-center justify-between mb-4">
+                    <div>
+                      <h3 className="text-base font-bold text-gray-900">Ferramentas alocadas nesta obra</h3>
+                      <p className="text-sm text-gray-500 mt-0.5">
+                        {toolsCount > 0 ? `${toolsCount} ferramenta(s) em uso` : 'Nenhuma ferramenta alocada'}
+                      </p>
+                    </div>
+                    <a
+                      href="/app/deposito?tab=ferramentas"
+                      className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-amber-600 border border-amber-400 rounded-lg hover:bg-amber-50 transition-colors"
+                    >
+                      <i className="ti ti-tool text-sm" />
+                      Ir ao depósito
+                    </a>
+                  </div>
+
+                  {toolsLoading ? (
+                    <div className="text-center py-8 text-gray-400 text-sm">Carregando ferramentas...</div>
+                  ) : projectTools.length === 0 ? (
+                    <div className="text-center py-12 text-gray-400 text-sm">
+                      <i className="ti ti-tool text-4xl block mb-3 text-gray-300" />
+                      Nenhuma ferramenta alocada nesta obra
+                    </div>
+                  ) : (
+                    <div className="space-y-5">
+                      {/* Em uso */}
+                      {projectTools.filter(t => !t.returnedAt).length > 0 && (
+                        <div>
+                          <div className="text-xs font-bold text-amber-600 uppercase tracking-wide mb-2">
+                            ⚙️ Em uso ({projectTools.filter(t => !t.returnedAt).length})
+                          </div>
+                          <div className="border border-gray-200 rounded-xl overflow-hidden">
+                            <table className="w-full text-sm">
+                              <thead>
+                                <tr className="bg-gray-50 border-b border-gray-200">
+                                  {['Ferramenta', 'Série', 'Responsável', 'Romaneio', 'Alocado em', 'Status'].map(h => (
+                                    <th key={h} className="px-3 py-2.5 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wide">{h}</th>
+                                  ))}
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {projectTools.filter(t => !t.returnedAt).map(tool => {
+                                  const imgUrl = tool.imageUrl
+                                    ? tool.imageUrl.startsWith('http') ? tool.imageUrl : `${API}${tool.imageUrl.startsWith('/') ? '' : '/'}${tool.imageUrl}`
+                                    : null
+                                  return (
+                                    <tr key={tool.id} className="border-t border-gray-100 hover:bg-gray-50 transition-colors">
+                                      <td className="px-3 py-2.5">
+                                        <div className="flex items-center gap-2">
+                                          {imgUrl ? (
+                                            <img src={imgUrl} className="w-8 h-8 rounded object-cover border border-gray-200 flex-shrink-0" onError={e => { e.currentTarget.style.display = 'none' }} />
+                                          ) : (
+                                            <div className="w-8 h-8 rounded bg-gray-100 flex items-center justify-center flex-shrink-0">
+                                              <i className="ti ti-tool text-sm text-gray-300" />
+                                            </div>
+                                          )}
+                                          <div>
+                                            <div className="font-medium text-gray-900">{tool.name}</div>
+                                            {(tool.brand || tool.model) && (
+                                              <div className="text-xs text-gray-400">{[tool.brand, tool.model].filter(Boolean).join(' ')}</div>
+                                            )}
+                                          </div>
+                                        </div>
+                                      </td>
+                                      <td className="px-3 py-2.5 text-xs text-gray-500">{tool.serialNumber || '—'}</td>
+                                      <td className="px-3 py-2.5 text-sm">{tool.responsavel}</td>
+                                      <td className="px-3 py-2.5">
+                                        {tool.docNumber ? (
+                                          <a href="/app/deposito/romaneios" className="text-xs text-blue-600 hover:underline">{tool.docNumber}</a>
+                                        ) : '—'}
+                                      </td>
+                                      <td className="px-3 py-2.5 text-xs text-gray-500">
+                                        {tool.allocatedAt ? new Date(tool.allocatedAt).toLocaleDateString('pt-BR') : '—'}
+                                      </td>
+                                      <td className="px-3 py-2.5">
+                                        <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-blue-100 text-blue-700">⚙️ Em uso</span>
+                                      </td>
+                                    </tr>
+                                  )
+                                })}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Devolvidas */}
+                      {projectTools.filter(t => t.returnedAt).length > 0 && (
+                        <div>
+                          <div className="text-xs font-bold text-green-600 uppercase tracking-wide mb-2">
+                            ✅ Devolvidas ({projectTools.filter(t => t.returnedAt).length})
+                          </div>
+                          <div className="space-y-1.5">
+                            {projectTools.filter(t => t.returnedAt).map(tool => (
+                              <div key={tool.id} className="flex items-center justify-between px-3 py-2.5 rounded-xl border border-green-200 bg-green-50 text-sm">
+                                <div className="flex items-center gap-2">
+                                  <i className="ti ti-circle-check text-green-600" />
+                                  <span className="font-medium">{tool.name}</span>
+                                  {tool.serialNumber && <span className="text-xs text-gray-400">({tool.serialNumber})</span>}
+                                </div>
+                                <span className="text-xs text-gray-500">
+                                  Devolvida em {new Date(tool.returnedAt).toLocaleDateString('pt-BR')}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
 

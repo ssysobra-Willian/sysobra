@@ -143,7 +143,7 @@ function fmtDate(iso: string) {
   return `${dd}/${m}/${y}`
 }
 
-type TabId    = 'reports' | 'stages' | 'rain' | 'photos' | 'files' | 'occurrences'
+type TabId    = 'reports' | 'stages' | 'rain' | 'photos' | 'files' | 'occurrences' | 'equipments'
 type ViewMode = 'lista' | 'card' | 'compacto'
 
 const LS_VIEW_KEY = 'sysobra:rdo-view-mode'
@@ -172,6 +172,10 @@ export default function DiarioProjectPage() {
   const [viewMode,      setViewMode]      = useState<ViewMode>('lista')
   const [carouselOpen,  setCarouselOpen]  = useState(false)
   const [carouselIndex, setCarouselIndex] = useState(0)
+
+  // ── Aba Ferramentas ──────────────────────────────────────────────────────
+  const [rdoTools,       setRdoTools]       = useState<any[]>([])
+  const [rdoToolsLoading, setRdoToolsLoading] = useState(false)
 
   const LIMIT    = 20
   const canCreate = can('diario_obra', 'create')
@@ -216,6 +220,34 @@ export default function DiarioProjectPage() {
       .finally(() => setRainLoading(false))
   }, [tab, projectId, rainRecords.length])
 
+  // ── Carrega ferramentas da obra quando a aba abre ─────────────────────────
+  const loadRdoTools = async () => {
+    const token = localStorage.getItem('token') || ''
+    setRdoToolsLoading(true)
+    try {
+      const res  = await fetch(`${API}/api/v1/diary/entries/${projectId}/equipments`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      const data = await res.json()
+      setRdoTools(data.tools ?? [])
+    } catch {} finally { setRdoToolsLoading(false) }
+  }
+
+  useEffect(() => {
+    if (tab === 'equipments') loadRdoTools()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab])
+
+  const handleConfirmTool = async (itemId: string, confirmed: boolean, notes?: string) => {
+    const token = localStorage.getItem('token') || ''
+    await fetch(`${API}/api/v1/diary/entries/${projectId}/equipments/confirm`, {
+      method:  'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ itemId, confirmed, notes }),
+    })
+    loadRdoTools()
+  }
+
   // ── Restaura modo de visualização do localStorage ─────────────────────────
   useEffect(() => {
     const saved = localStorage.getItem(LS_VIEW_KEY) as ViewMode | null
@@ -256,6 +288,7 @@ export default function DiarioProjectPage() {
     { id: 'photos',      label: `Fotos${allPhotos.length > 0 ? ` (${allPhotos.length})` : ''}` },
     { id: 'files',       label: '📁 Pasta de Projetos' },
     { id: 'occurrences', label: `Ocorrências${allOccurrences.length > 0 ? ` (${allOccurrences.length})` : ''}` },
+    { id: 'equipments',  label: '🔧 Ferramentas' },
   ]
 
   return (
@@ -691,6 +724,130 @@ export default function DiarioProjectPage() {
                 })}
               </tbody>
             </table>
+          )}
+        </div>
+      )}
+
+      {/* ── Tab: Ferramentas ────────────────────────────────────────────── */}
+      {tab === 'equipments' && (
+        <div className="pb-6">
+          <div className="mb-4">
+            <h3 className="text-base font-bold text-gray-900">Ferramentas alocadas nesta obra</h3>
+            <p className="text-sm text-gray-500 mt-0.5">
+              Confirme a presença de cada ferramenta. Ausências geram alerta para o almoxarife.
+            </p>
+          </div>
+
+          {rdoToolsLoading ? (
+            <div className="text-center py-10 text-gray-400 text-sm">Carregando...</div>
+          ) : rdoTools.length === 0 ? (
+            <div className="text-center py-14 text-gray-400 text-sm">
+              <i className="ti ti-tool text-4xl block mb-3 text-gray-300" />
+              Nenhuma ferramenta alocada nesta obra
+            </div>
+          ) : (
+            <div>
+              {/* Resumo */}
+              <div className="grid grid-cols-2 gap-3 mb-5">
+                <div className="text-center p-3 rounded-xl bg-green-50 border border-green-200">
+                  <div className="text-2xl font-bold text-green-700">
+                    {rdoTools.filter(t => t.confirmed).length}
+                  </div>
+                  <div className="text-xs text-green-600 mt-0.5">Confirmadas</div>
+                </div>
+                <div className="text-center p-3 rounded-xl bg-amber-50 border border-amber-200">
+                  <div className="text-2xl font-bold text-amber-700">
+                    {rdoTools.filter(t => !t.confirmed).length}
+                  </div>
+                  <div className="text-xs text-amber-600 mt-0.5">Pendentes</div>
+                </div>
+              </div>
+
+              {/* Lista */}
+              <div className="space-y-2">
+                {rdoTools.map(tool => {
+                  const imgUrl = tool.imageUrl
+                    ? tool.imageUrl.startsWith('http') ? tool.imageUrl
+                      : `${API}${tool.imageUrl.startsWith('/') ? '' : '/'}${tool.imageUrl}`
+                    : null
+                  const isAbsent = !tool.confirmed && tool.confirmedAt
+                  return (
+                    <div
+                      key={tool.id}
+                      className={`flex items-center gap-3 p-3 rounded-xl border transition-colors ${
+                        tool.confirmed ? 'border-green-200 bg-green-50'
+                        : isAbsent    ? 'border-red-200 bg-red-50'
+                        : 'border-amber-200 bg-amber-50'
+                      }`}
+                    >
+                      {/* Foto */}
+                      {imgUrl ? (
+                        <img
+                          src={imgUrl}
+                          className="w-11 h-11 rounded-lg object-cover border border-gray-200 flex-shrink-0"
+                          onError={e => { e.currentTarget.style.display = 'none' }}
+                        />
+                      ) : (
+                        <div className="w-11 h-11 rounded-lg bg-gray-100 flex items-center justify-center flex-shrink-0">
+                          <i className="ti ti-tool text-xl text-gray-300" />
+                        </div>
+                      )}
+
+                      {/* Info */}
+                      <div className="flex-1 min-w-0">
+                        <div className="font-semibold text-sm text-gray-900">{tool.name}</div>
+                        <div className="text-xs text-gray-500">
+                          {[tool.brand, tool.serialNumber ? `Série: ${tool.serialNumber}` : null].filter(Boolean).join(' · ')}
+                        </div>
+                        {tool.confirmedAt && (
+                          <div className={`text-[11px] mt-0.5 ${tool.confirmed ? 'text-green-600' : 'text-red-500'}`}>
+                            {tool.confirmed ? '✓ Confirmada' : '✗ Ausente'} em {new Date(tool.confirmedAt).toLocaleString('pt-BR')}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Botões */}
+                      <div className="flex gap-1.5 flex-shrink-0">
+                        <button
+                          onClick={() => handleConfirmTool(tool.id, true)}
+                          className={`flex items-center gap-1 px-3 py-1.5 text-xs font-semibold rounded-lg border-2 transition-colors ${
+                            tool.confirmed
+                              ? 'border-green-500 bg-green-100 text-green-700'
+                              : 'border-gray-200 bg-white text-gray-500 hover:border-green-400 hover:text-green-600'
+                          }`}
+                        >
+                          <i className="ti ti-circle-check" />
+                          Presente
+                        </button>
+                        <button
+                          onClick={() => handleConfirmTool(tool.id, false, 'Não localizada no RDO')}
+                          className={`flex items-center gap-1 px-3 py-1.5 text-xs font-semibold rounded-lg border-2 transition-colors ${
+                            isAbsent
+                              ? 'border-red-500 bg-red-100 text-red-700'
+                              : 'border-gray-200 bg-white text-gray-500 hover:border-red-400 hover:text-red-600'
+                          }`}
+                        >
+                          <i className="ti ti-circle-x" />
+                          Ausente
+                        </button>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+
+              {/* Rodapé */}
+              <div className={`mt-4 p-3 rounded-xl text-sm text-center ${
+                rdoTools.every(t => t.confirmed)
+                  ? 'bg-green-50 text-green-700 border border-green-200'
+                  : 'bg-gray-50 text-gray-500 border border-gray-200'
+              }`}>
+                {rdoTools.every(t => t.confirmed)
+                  ? '✅ Todas as ferramentas confirmadas!'
+                  : `⏳ ${rdoTools.filter(t => !t.confirmed).length} ferramenta(s) ainda pendente(s)`
+                }
+              </div>
+            </div>
           )}
         </div>
       )}

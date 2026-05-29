@@ -10,6 +10,7 @@ import {
 import { generatePdf } from '../../utils/pdf'
 import { PDF_COLORS, getPdfHeader, getPdfFooter, buildPdfDocument } from '../../utils/pdfTemplate'
 import { createAuditLog } from '../../utils/audit'
+import { notifyManagers }  from '../../utils/notifications'
 
 const p = prisma as any
 
@@ -1634,6 +1635,115 @@ export async function diaryRoutes(app: FastifyInstance) {
 
     // Soft delete — desativa
     await p.ddsTheme.update({ where: { id }, data: { isActive: false } })
+    return reply.send({ success: true })
+  })
+
+  // ── GET /api/v1/diary/entries/:entryId/equipments ───────────────────────
+  app.get('/entries/:entryId/equipments', { preHandler: [requirePermission('diario_obra', 'view')] }, async (request, reply) => {
+    const req        = request as RequestWithMember
+    const companyId  = req.companyId!
+    const { entryId } = request.params as { entryId: string }
+
+    const entry = await p.diaryEntry.findFirst({
+      where:  { id: entryId, project: { companyId } },
+      select: { id: true, projectId: true, date: true },
+    })
+    if (!entry) return reply.status(404).send({ error: 'RDO não encontrado' })
+
+    // Ferramentas alocadas na obra (via currentProjectId)
+    const tools = await p.stockItem.findMany({
+      where: {
+        companyId,
+        isActive:        true,
+        requiresCustody: true,
+        currentProjectId: entry.projectId,
+        toolStatus: 'IN_USE',
+      },
+      select: {
+        id: true, name: true, code: true,
+        serialNumber: true, brand: true, model: true,
+        imageUrl: true,
+      },
+    })
+
+    // Confirmações já feitas para este RDO
+    const confirmations = await p.diaryEquipment.findMany({
+      where: { diaryEntryId: entryId, isActive: true },
+    })
+
+    const toolsWithConfirmation = tools.map((tool: any) => {
+      const conf = confirmations.find((c: any) => c.itemId === tool.id)
+      return {
+        ...tool,
+        confirmed:   conf?.confirmed   ?? false,
+        confirmedAt: conf?.confirmedAt ?? null,
+        notes:       conf?.notes       ?? null,
+      }
+    })
+
+    return reply.send({
+      tools:          toolsWithConfirmation,
+      totalTools:     tools.length,
+      confirmedCount: confirmations.filter((c: any) => c.confirmed).length,
+    })
+  })
+
+  // ── POST /api/v1/diary/entries/:entryId/equipments/confirm ───────────────
+  app.post('/entries/:entryId/equipments/confirm', { preHandler: [requirePermission('diario_obra', 'edit')] }, async (request, reply) => {
+    const req        = request as RequestWithMember
+    const companyId  = req.companyId!
+    const payload    = request.user as JwtPayload
+    const userId     = payload.sub
+    const { entryId } = request.params as { entryId: string }
+    const body        = request.body as { itemId: string; confirmed: boolean; notes?: string }
+
+    const existing = await p.diaryEquipment.findFirst({
+      where: { diaryEntryId: entryId, itemId: body.itemId, isActive: true },
+    })
+
+    if (existing) {
+      await p.diaryEquipment.update({
+        where: { id: existing.id },
+        data: {
+          confirmed:   body.confirmed,
+          confirmedAt: body.confirmed ? new Date() : null,
+          confirmedBy: body.confirmed ? userId : null,
+          notes:       body.notes ?? existing.notes,
+        },
+      })
+    } else {
+      await p.diaryEquipment.create({
+        data: {
+          companyId,
+          diaryEntryId: entryId,
+          itemId:       body.itemId,
+          confirmed:    body.confirmed,
+          confirmedAt:  body.confirmed ? new Date() : null,
+          confirmedBy:  body.confirmed ? userId : null,
+          notes:        body.notes ?? null,
+          isActive:     true,
+        },
+      })
+    }
+
+    // Se marcada como ausente e alerta ainda não foi enviado: notificar
+    if (!body.confirmed && !existing?.alertSent) {
+      const [tool, entry] = await Promise.all([
+        p.stockItem.findFirst({ where: { id: body.itemId }, select: { name: true } }),
+        p.diaryEntry.findFirst({ where: { id: entryId }, include: { project: { select: { name: true } } } }),
+      ])
+      await notifyManagers({
+        companyId,
+        type:    'ACTION_REQUIRED',
+        title:   '⚠️ Ferramenta não confirmada no RDO',
+        message: `A ferramenta "${tool?.name}" não foi confirmada no RDO de ${entry?.project?.name}. Verificar localização.`,
+        link:    '/app/deposito?tab=ferramentas',
+      })
+      if (existing) {
+        await p.diaryEquipment.update({ where: { id: existing.id }, data: { alertSent: true } })
+      }
+    }
+
     return reply.send({ success: true })
   })
 

@@ -1274,6 +1274,7 @@ model StockItem {
   transferItems    StockTransferItem[]
   waybillItems     WaybillItem[]
   deleteRequests   ToolDeleteRequest[]
+  diaryEquipments  DiaryEquipment[]
 
   @@map("stock_items")
 }
@@ -1924,6 +1925,7 @@ model DiaryEntry {
   stageEntries  DiaryStageEntry[]
   occurrences   DiaryOccurrence[]
   rainRecord    DiaryRainRecord?
+  equipments    DiaryEquipment[]
 
   @@map("diary_entries")
 }
@@ -1989,6 +1991,28 @@ model DiaryRainRecord {
 
   @@index([projectId, date])
   @@map("diary_rain_records")
+}
+
+/// Confirmação de presença de equipamentos/ferramentas no RDO
+model DiaryEquipment {
+  id           String    @id @default(cuid())
+  companyId    String    @map("company_id")
+  diaryEntryId String    @map("diary_entry_id")
+  itemId       String    @map("item_id")          // StockItem (ferramenta)
+  confirmed    Boolean   @default(false)
+  confirmedAt  DateTime? @map("confirmed_at")
+  confirmedBy  String?   @map("confirmed_by")     // userId
+  notes        String?
+  alertSent    Boolean   @default(false) @map("alert_sent")
+  isActive     Boolean   @default(true) @map("is_active")
+  createdAt    DateTime  @default(now()) @map("created_at")
+
+  diaryEntry   DiaryEntry @relation(fields: [diaryEntryId], references: [id], onDelete: Cascade)
+  item         StockItem  @relation(fields: [itemId], references: [id], onDelete: Cascade)
+
+  @@index([diaryEntryId])
+  @@index([companyId])
+  @@map("diary_equipments")
 }
 
 /// Comentários em registros do diário (internos e externos/clientes)

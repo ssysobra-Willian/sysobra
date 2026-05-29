@@ -3791,6 +3791,103 @@ ${getPdfFooter(company?.name ?? '')}
 
     return reply.status(201).send({ deleteRequest: deleteReq })
   })
+
+  // ── GET /api/v1/deposit/tools/by-project/:projectId ─────────────────────────
+  app.get('/tools/by-project/:projectId', { preHandler }, async (request, reply) => {
+    const cid       = companyId(request as RequestWithMember)
+    const { projectId } = request.params as any
+
+    // Ferramentas via romaneio (destinationProjectId)
+    const waybillTools = await p().waybillItem.findMany({
+      where: {
+        isActive: true,
+        waybill: {
+          companyId:            cid,
+          destinationProjectId: projectId,
+          status:               { in: ['IN_TRANSIT', 'COMPLETED'] },
+          category:             'TOOL',
+        },
+      },
+      include: {
+        item: {
+          select: {
+            id: true, name: true, code: true,
+            serialNumber: true, brand: true, model: true,
+            toolType: true, toolStatus: true,
+            imageUrl: true, unitCost: true,
+          },
+        },
+        waybill: {
+          select: {
+            id: true, docNumber: true, status: true,
+            emittedAt: true, receivedAt: true,
+            receiverEmployee: { select: { id: true, name: true } },
+            receiverName: true,
+            senderName:   true,
+          },
+        },
+      },
+    })
+
+    // Ferramentas via currentProjectId (custódia direta)
+    const directTools = await p().stockItem.findMany({
+      where: {
+        companyId:        cid,
+        isActive:         true,
+        requiresCustody:  true,
+        currentProjectId: projectId,
+        toolStatus:       'IN_USE',
+      },
+      select: {
+        id: true, name: true, code: true,
+        serialNumber: true, brand: true, model: true,
+        toolType: true, toolStatus: true,
+        imageUrl: true, unitCost: true,
+        currentLocation: true,
+      },
+    })
+
+    // Consolidar sem duplicatas
+    const toolsMap = new Map<string, any>()
+
+    waybillTools.forEach((wi: any) => {
+      if (!toolsMap.has(wi.item.id)) {
+        toolsMap.set(wi.item.id, {
+          ...wi.item,
+          allocatedAt:   wi.waybill.emittedAt,
+          returnedAt:    wi.waybill.receivedAt,
+          responsavel:   wi.waybill.receiverEmployee?.name ?? wi.waybill.receiverName ?? '—',
+          docNumber:     wi.waybill.docNumber,
+          waybillId:     wi.waybill.id,
+          waybillStatus: wi.waybill.status,
+          source:        'WAYBILL',
+        })
+      }
+    })
+
+    directTools.forEach((tool: any) => {
+      if (!toolsMap.has(tool.id)) {
+        toolsMap.set(tool.id, {
+          ...tool,
+          allocatedAt: null,
+          returnedAt:  null,
+          responsavel: '—',
+          source:      'DIRECT',
+        })
+      }
+    })
+
+    const tools        = Array.from(toolsMap.values())
+    const activeTools  = tools.filter((t: any) => !t.returnedAt)
+    const returnedTools = tools.filter((t: any) => t.returnedAt)
+
+    return reply.send({
+      tools,
+      activeCount:   activeTools.length,
+      returnedCount: returnedTools.length,
+      totalValue:    activeTools.reduce((s: number, t: any) => s + Number(t.unitCost || 0), 0),
+    })
+  })
 }
 
 // ─── Helper: construir data de StockItem a partir do body ─────────────────────
