@@ -768,18 +768,17 @@ export default function DiarioProjectPage() {
                 </div>
               </div>
 
-              {/* Lista */}
+              {/* Lista — somente leitura (uso registrado no formulário do RDO) */}
               <div className="space-y-2">
                 {rdoTools.map((tool: any) => {
                   const imgUrl = tool.imageUrl
                     ? tool.imageUrl.startsWith('http') ? tool.imageUrl
                       : `${API}${tool.imageUrl.startsWith('/') ? '' : '/'}${tool.imageUrl}`
                     : null
-                  const entryId = reports[0]?.id ?? null
                   return (
                     <div
                       key={tool.id}
-                      className={`flex items-center gap-3 p-3 rounded-xl border transition-all ${
+                      className={`flex items-center gap-3 p-3 rounded-xl border ${
                         tool.usedInRdo ? 'border-green-200 bg-green-50' : 'border-gray-200 bg-white'
                       }`}
                     >
@@ -807,30 +806,15 @@ export default function DiarioProjectPage() {
                         )}
                       </div>
 
-                      {/* Toggle */}
-                      {entryId ? (
-                        <button
-                          onClick={async () => {
-                            const token     = localStorage.getItem('token') || ''
-                            const companyId = localStorage.getItem('companyId') || ''
-                            await fetch(`${API}/api/v1/diary/entries/${entryId}/tools/usage`, {
-                              method:  'POST',
-                              headers: { Authorization: `Bearer ${token}`, 'x-company-id': companyId, 'Content-Type': 'application/json' },
-                              body:    JSON.stringify({ itemId: tool.id, usedInRdo: !tool.usedInRdo, usageNotes: tool.usageNotes }),
-                            })
-                            loadRdoTools(entryId)
-                          }}
-                          className={`flex items-center gap-1.5 px-3 py-2 rounded-lg border-2 text-sm font-semibold transition-all flex-shrink-0 ${
-                            tool.usedInRdo
-                              ? 'border-green-500 bg-green-100 text-green-700'
-                              : 'border-gray-200 bg-transparent text-gray-500 hover:border-gray-300'
-                          }`}
-                        >
-                          <i className={`ti ${tool.usedInRdo ? 'ti-circle-check' : 'ti-circle'} text-base`} />
-                          {tool.usedInRdo ? 'Utilizada' : 'Marcar uso'}
-                        </button>
+                      {/* Badge somente leitura */}
+                      {tool.usedInRdo ? (
+                        <span className="flex-shrink-0 px-3 py-1 rounded-full bg-green-100 text-green-700 text-xs font-semibold">
+                          ✅ Utilizada
+                        </span>
                       ) : (
-                        <span className="text-xs text-gray-400 flex-shrink-0">⚙️ Em uso</span>
+                        <span className="flex-shrink-0 px-3 py-1 rounded-full bg-gray-100 text-gray-400 text-xs">
+                          — Não utilizada
+                        </span>
                       )}
                     </div>
                   )

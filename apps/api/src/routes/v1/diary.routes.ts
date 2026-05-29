@@ -333,6 +333,12 @@ export async function diaryRoutes(app: FastifyInstance) {
         photos?:          string[]
         notifyManager?:   boolean
       }[]
+      // Equipamentos utilizados no RDO
+      equipments?: {
+        itemId:     string
+        usedInRdo:  boolean
+        usageNotes?: string | null
+      }[]
     }
 
     if (!body.projectId) return reply.status(400).send({ error: 'projectId é obrigatório' })
@@ -480,6 +486,23 @@ export async function diaryRoutes(app: FastifyInstance) {
         unworkableReason: isUnworkable ? body.unworkableConfirmedBy : null,
       },
     })
+
+    // Salvar equipamentos utilizados (se informados no formulário)
+    if (Array.isArray(body.equipments) && body.equipments.length > 0) {
+      await p.diaryEquipment.createMany({
+        data: (body.equipments as any[]).map((eq: any) => ({
+          companyId,
+          diaryEntryId: entry.id,
+          itemId:       eq.itemId,
+          usedInRdo:    true,
+          usedAt:       new Date(),
+          usedBy:       userId,
+          usageNotes:   eq.usageNotes ?? null,
+          isActive:     true,
+        })),
+        skipDuplicates: true,
+      })
+    }
 
     // Audit log
     await createAuditLog({

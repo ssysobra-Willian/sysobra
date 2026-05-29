@@ -147,6 +147,14 @@ export default function NovoRdoPage() {
   const [workersLoading, setWorkersLoading] = useState(false)
   const [showOtherWorkers, setShowOtherWorkers] = useState(false)
 
+  // ── Seção Ferramentas ────────────────────────────────────────────────────
+  const [rdoTools, setRdoTools] = useState<{
+    id: string; name: string; serialNumber?: string
+    brand?: string; model?: string; toolType?: string
+    imageUrl?: string; usedInRdo: boolean; usageNotes: string
+  }[]>([])
+  const [loadingRdoTools, setLoadingRdoTools] = useState(false)
+
   // ── Seção 8: Fotos ────────────────────────────────────────────────────────
   const [photos, setPhotos] = useState<PhotoItem[]>([])
 
@@ -204,6 +212,30 @@ export default function NovoRdoPage() {
       })
       .catch(() => {})
       .finally(() => setWorkersLoading(false))
+  }, [projectId])
+
+  // ── Carrega ferramentas IN_USE da obra ───────────────────────────────────
+  useEffect(() => {
+    const token     = localStorage.getItem('token') || ''
+    const companyId = localStorage.getItem('companyId') || ''
+    if (!token || !projectId) return
+    setLoadingRdoTools(true)
+    fetch(`${API}/api/v1/deposit/tools/by-project/${projectId}`, {
+      headers: { Authorization: `Bearer ${token}`, 'x-company-id': companyId },
+    })
+      .then(r => r.ok ? r.json() : null)
+      .then(d => {
+        if (!d) return
+        const active = (d.tools ?? []).filter((t: any) => !t.returnedAt)
+        setRdoTools(active.map((t: any) => ({
+          id: t.id, name: t.name,
+          serialNumber: t.serialNumber, brand: t.brand, model: t.model,
+          toolType: t.toolType, imageUrl: t.imageUrl,
+          usedInRdo: false, usageNotes: '',
+        })))
+      })
+      .catch(() => {})
+      .finally(() => setLoadingRdoTools(false))
   }, [projectId])
 
   // ── Verifica duplicata de data ao mudar a data ────────────────────────────
@@ -325,6 +357,9 @@ export default function NovoRdoPage() {
         workers: workers
           .filter(w => w.selected)
           .map(w => ({ employeeId: w.employeeId, hours: w.hours })),
+        equipments: rdoTools
+          .filter(t => t.usedInRdo)
+          .map(t => ({ itemId: t.id, usedInRdo: true, usageNotes: t.usageNotes || null })),
       }
 
       const res = await fetch(`${API}/api/v1/diary/reports`, {
@@ -707,8 +742,89 @@ export default function NovoRdoPage() {
           })()}
         </Section>
 
-        {/* ── Seção 6: Ocorrências ───────────────────────────────────────── */}
-        <Section number={6} title="Ocorrências">
+        {/* ── Seção 6: Equipamentos e Ferramentas ────────────────────────── */}
+        <Section number={6} title="Equipamentos e Ferramentas">
+          {loadingRdoTools ? (
+            <div className="text-center py-5 text-gray-400 text-sm">Carregando ferramentas da obra...</div>
+          ) : rdoTools.length === 0 ? (
+            <div className="flex flex-col items-center py-6 text-gray-400 text-sm bg-gray-50 rounded-xl">
+              <i className="ti ti-tool text-3xl text-gray-300 mb-2" />
+              Nenhuma ferramenta alocada nesta obra
+            </div>
+          ) : (
+            <div>
+              <p className="text-sm text-gray-500 mb-4">Marque as ferramentas utilizadas hoje.</p>
+              <div className="flex gap-2 mb-4">
+                <span className="px-3 py-1.5 rounded-lg bg-green-100 text-green-700 text-xs font-semibold">
+                  ✅ {rdoTools.filter(t => t.usedInRdo).length} utilizadas
+                </span>
+                <span className="px-3 py-1.5 rounded-lg bg-gray-100 text-gray-500 text-xs">
+                  {rdoTools.filter(t => !t.usedInRdo).length} não utilizadas
+                </span>
+              </div>
+              <div className="space-y-2">
+                {rdoTools.map(tool => {
+                  const imgUrl = tool.imageUrl
+                    ? tool.imageUrl.startsWith('http') ? tool.imageUrl : `${API}${tool.imageUrl.startsWith('/') ? '' : '/'}${tool.imageUrl}`
+                    : null
+                  return (
+                    <div key={tool.id}
+                      className={`flex items-center gap-3 p-3 rounded-xl border-2 transition-all ${
+                        tool.usedInRdo ? 'border-green-300 bg-green-50' : 'border-gray-200 bg-white'
+                      }`}
+                    >
+                      {/* Foto */}
+                      {imgUrl ? (
+                        <img src={imgUrl} className="w-11 h-11 rounded-lg object-cover border border-gray-200 flex-shrink-0"
+                          onError={e => { e.currentTarget.style.display = 'none' }} />
+                      ) : (
+                        <div className="w-11 h-11 rounded-lg bg-gray-100 flex items-center justify-center flex-shrink-0">
+                          <i className="ti ti-tool text-xl text-gray-300" />
+                        </div>
+                      )}
+                      {/* Info */}
+                      <div className="flex-1 min-w-0">
+                        <div className="font-semibold text-sm text-gray-900">{tool.name}</div>
+                        <div className="text-xs text-gray-500">
+                          {[tool.brand, tool.model, tool.serialNumber ? `Série: ${tool.serialNumber}` : null].filter(Boolean).join(' · ')}
+                        </div>
+                        {tool.usedInRdo && (
+                          <input
+                            value={tool.usageNotes}
+                            onChange={e => setRdoTools(prev => prev.map(t =>
+                              t.id === tool.id ? { ...t, usageNotes: e.target.value } : t
+                            ))}
+                            placeholder="Observações sobre o uso (opcional)"
+                            onClick={e => e.stopPropagation()}
+                            className="mt-1.5 w-full px-2 py-1 text-xs border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-orange-300 bg-white"
+                          />
+                        )}
+                      </div>
+                      {/* Toggle */}
+                      <button
+                        type="button"
+                        onClick={() => setRdoTools(prev => prev.map(t =>
+                          t.id === tool.id ? { ...t, usedInRdo: !t.usedInRdo, usageNotes: '' } : t
+                        ))}
+                        className={`flex items-center gap-1.5 px-3 py-2 rounded-lg border-2 text-xs font-semibold flex-shrink-0 transition-all ${
+                          tool.usedInRdo
+                            ? 'border-green-500 bg-green-100 text-green-700'
+                            : 'border-gray-200 bg-transparent text-gray-500 hover:border-gray-300'
+                        }`}
+                      >
+                        <i className={`ti ${tool.usedInRdo ? 'ti-circle-check' : 'ti-circle'} text-base`} />
+                        {tool.usedInRdo ? 'Utilizada' : 'Marcar uso'}
+                      </button>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+        </Section>
+
+        {/* ── Seção 7: Ocorrências ───────────────────────────────────────── */}
+        <Section number={7} title="Ocorrências">
           {occurrences.length === 0 ? (
             <p className="text-sm text-gray-400 mb-3">Nenhuma ocorrência adicionada.</p>
           ) : (
@@ -798,8 +914,8 @@ export default function NovoRdoPage() {
           </Button>
         </Section>
 
-        {/* ── Seção 6: DDS ──────────────────────────────────────────────── */}
-        <Section number={7} title="DDS — Diálogo Diário de Segurança">
+        {/* ── Seção 8: DDS ──────────────────────────────────────────────── */}
+        <Section number={8} title="DDS — Diálogo Diário de Segurança">
           <div className="flex flex-wrap items-center gap-4 mb-4">
             <label className="flex items-center gap-3 cursor-pointer">
               <input
@@ -866,8 +982,8 @@ export default function NovoRdoPage() {
           )}
         </Section>
 
-        {/* ── Seção 7: Observações gerais ────────────────────────────────── */}
-        <Section number={8} title="Observações Gerais">
+        {/* ── Seção 9: Observações gerais ────────────────────────────────── */}
+        <Section number={9} title="Observações Gerais">
           <Textarea
             label="Observações e anotações gerais"
             rows={3}
@@ -886,8 +1002,8 @@ export default function NovoRdoPage() {
           </label>
         </Section>
 
-        {/* ── Seção 8: Fotos ─────────────────────────────────────────────── */}
-        <Section number={9} title="Fotos">
+        {/* ── Seção 10: Fotos ────────────────────────────────────────────── */}
+        <Section number={10} title="Fotos">
           <PhotoUpload
             photos={photos}
             onChange={setPhotos}
