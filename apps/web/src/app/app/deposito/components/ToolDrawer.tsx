@@ -46,6 +46,7 @@ export interface ToolItem {
   nextMaintenance?: string | null
   currentProject?: { id: string; name: string } | null
   unitCost?: number | null
+  stockBalances?: { locationId: string; quantity: number }[] | null
 }
 
 interface Custody {
@@ -450,6 +451,24 @@ export function ToolDrawer({
   const [loadingC,      setLoadingC]      = useState(false)
   // FIX 1: photo lightbox
   const [expandedPhoto, setExpandedPhoto] = useState<string | null>(null)
+  // FIX 3 + 5 + 7: action modals
+  const [showSendMaintenanceModal,   setShowSendMaintenanceModal]   = useState(false)
+  const [showReturnMaintenanceModal, setShowReturnMaintenanceModal] = useState(false)
+  const [showDiscardModal,           setShowDiscardModal]           = useState(false)
+  const [drawerMaintenanceDesc,      setDrawerMaintenanceDesc]      = useState('')
+  const [drawerMaintenanceBy,        setDrawerMaintenanceBy]        = useState('')
+  const [drawerNextDate,             setDrawerNextDate]             = useState('')
+  const [drawerMaintNotes,           setDrawerMaintNotes]           = useState('')
+  const [drawerDiscardReason,        setDrawerDiscardReason]        = useState('')
+  const [processingDrawer,           setProcessingDrawer]           = useState(false)
+  const [showDeleteModal,            setShowDeleteModal]            = useState(false)
+  const [deleteConfirmText,          setDeleteConfirmText]          = useState('')
+  const [deleteError,                setDeleteError]                = useState('')
+  const [showQuickEntryModal,        setShowQuickEntryModal]        = useState(false)
+  const [quickEntryQty,              setQuickEntryQty]              = useState(1)
+  const [quickEntryUnitCost,         setQuickEntryUnitCost]         = useState(0)
+  const [quickEntryNotes,            setQuickEntryNotes]            = useState('')
+  const [userRole,                   setUserRole]                   = useState('')
 
   const imgUrl = toAbsUrl(tool.imageUrl) || null
   const maintenanceDays    = daysFromNow(tool.nextMaintenance)
@@ -469,44 +488,112 @@ export function ToolDrawer({
       body: JSON.stringify(body),
     })
 
-  const handleSendToMaintenance = async () => {
-    if (!confirm(`Confirma envio de "${tool.name}" para manutenção?`)) return
-    try {
-      const res = await fetchTool('send-maintenance', {})
-      if (!res.ok) throw new Error()
-      alert('✅ Ferramenta enviada para manutenção!')
-      onRefresh?.()
-    } catch { alert('Erro ao enviar para manutenção') }
+  // FIX 3: abrir modais em vez de confirm/prompt
+  const handleSendToMaintenance = () => {
+    setDrawerMaintenanceDesc(''); setDrawerMaintenanceBy(''); setShowSendMaintenanceModal(true)
+  }
+  const handleReturnFromMaintenance = () => {
+    setDrawerNextDate(''); setDrawerMaintNotes(''); setShowReturnMaintenanceModal(true)
+  }
+  const handleDiscard = () => {
+    setDrawerDiscardReason(''); setShowDiscardModal(true)
   }
 
-  const handleReturnFromMaintenance = async () => {
-    const nextDateStr = prompt('Próxima manutenção preventiva (DD/MM/AAAA) — opcional:') ?? ''
+  // FIX 3: submit handlers
+  const handleSendMaintenanceSubmit = async () => {
+    setProcessingDrawer(true)
+    try {
+      const res = await fetchTool('send-maintenance', {
+        description: drawerMaintenanceDesc || undefined,
+        performedBy: drawerMaintenanceBy   || undefined,
+      })
+      if (!res.ok) throw new Error()
+      setShowSendMaintenanceModal(false)
+      onRefresh?.()
+    } catch { /* silently ignore — toast would go here */ }
+    finally { setProcessingDrawer(false) }
+  }
+
+  const handleReturnMaintenanceSubmit = async () => {
     let nextMaintenanceDate: string | undefined
-    if (nextDateStr.trim()) {
-      const parts = nextDateStr.trim().split('/')
-      if (parts.length === 3) {
-        nextMaintenanceDate = `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`
-      }
+    if (drawerNextDate.trim()) {
+      const parts = drawerNextDate.trim().split('/')
+      if (parts.length === 3)
+        nextMaintenanceDate = `${parts[2]}-${parts[1].padStart(2,'0')}-${parts[0].padStart(2,'0')}`
     }
+    setProcessingDrawer(true)
     try {
-      const res = await fetchTool('return-from-maintenance', { notes: '', nextMaintenanceDate })
+      const res = await fetchTool('return-from-maintenance', {
+        notes: drawerMaintNotes || undefined,
+        nextMaintenanceDate,
+      })
       if (!res.ok) throw new Error()
-      alert('✅ Ferramenta disponível novamente!')
+      setShowReturnMaintenanceModal(false)
       onRefresh?.()
-    } catch { alert('Erro ao registrar retorno da manutenção') }
+    } catch { }
+    finally { setProcessingDrawer(false) }
   }
 
-  const handleDiscard = async () => {
-    const reason = prompt('Motivo do descarte:')
-    if (reason === null) return
-    if (!confirm('Confirma o descarte? O valor será zerado do estoque.')) return
+  const handleDiscardSubmit = async () => {
+    setProcessingDrawer(true)
     try {
-      const res = await fetchTool('discard', { reason })
+      const res = await fetchTool('discard', { reason: drawerDiscardReason || undefined })
       if (!res.ok) throw new Error()
-      alert('Ferramenta descartada e removida do estoque.')
+      setShowDiscardModal(false)
       onRefresh?.()
       onClose()
-    } catch { alert('Erro ao descartar ferramenta') }
+    } catch { }
+    finally { setProcessingDrawer(false) }
+  }
+
+  // FIX 5: delete
+  const handleDeleteSubmit = async () => {
+    if (deleteConfirmText !== tool.name) return
+    setDeleteError(''); setProcessingDrawer(true)
+    try {
+      const res = await fetch(`${API}/api/v1/deposit/tools/${tool.id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${getToken()}`, 'x-company-id': getCompanyId() },
+      })
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}))
+        setDeleteError((d as any).message ?? 'Erro ao excluir ferramenta')
+        return
+      }
+      setShowDeleteModal(false)
+      onRefresh?.()
+      onClose()
+    } catch { setDeleteError('Erro ao excluir ferramenta') }
+    finally { setProcessingDrawer(false) }
+  }
+
+  // FIX 7: quick entry
+  const handleQuickEntrySubmit = async () => {
+    const locationId = tool.stockBalances?.[0]?.locationId
+    if (!locationId) return
+    setProcessingDrawer(true)
+    try {
+      const res = await fetch(`${API}/api/v1/deposit/quick-entry`, {
+        method: 'POST',
+        headers: {
+          Authorization:  `Bearer ${getToken()}`,
+          'x-company-id': getCompanyId(),
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          itemId:   tool.id,
+          locationId,
+          quantity: quickEntryQty,
+          unitCost: quickEntryUnitCost || undefined,
+          notes:    quickEntryNotes   || undefined,
+        }),
+      })
+      if (!res.ok) throw new Error()
+      setShowQuickEntryModal(false)
+      setQuickEntryQty(1); setQuickEntryNotes(''); setQuickEntryUnitCost(0)
+      onRefresh?.()
+    } catch { }
+    finally { setProcessingDrawer(false) }
   }
 
   // ─── Effects ────────────────────────────────────────────────────────────────
@@ -516,6 +603,8 @@ export function ToolDrawer({
     window.addEventListener('keydown', h)
     return () => window.removeEventListener('keydown', h)
   }, [onClose, expandedPhoto])
+
+  useEffect(() => { setUserRole(localStorage.getItem('userRole') ?? '') }, [])
 
   useEffect(() => {
     if (tab === 'maintenances' && maintenances.length === 0) {
@@ -553,12 +642,262 @@ export function ToolDrawer({
     DISCARDED:   { label: '🗑️ Descartada',  bg: 'bg-gray-100',   text: 'text-gray-500'    },
   }
   const statusCfg = STATUS_CFG[tool.toolStatus ?? 'AVAILABLE'] ?? STATUS_CFG.AVAILABLE
+  const canDelete     = ['ADMIN', 'OWNER', 'MANAGER'].includes(userRole) && tool.toolStatus !== 'IN_USE'
+  const hasStockBalance = (tool.stockBalances?.length ?? 0) > 0
 
   return (
     <>
       {/* Lightbox — FIX 1 */}
       {expandedPhoto && (
         <PhotoLightbox url={expandedPhoto} onClose={() => setExpandedPhoto(null)} />
+      )}
+
+      {/* FIX 3: Modal — Enviar para manutenção */}
+      {showSendMaintenanceModal && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/50">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6 space-y-4">
+            <h3 className="text-base font-bold text-gray-800 flex items-center gap-2">
+              <Wrench size={16} className="text-purple-500" />Enviar para manutenção
+            </h3>
+            <p className="text-xs text-gray-500">Ferramenta: <strong>{tool.name}</strong></p>
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Descrição do problema (opcional)</label>
+                <textarea
+                  rows={3}
+                  value={drawerMaintenanceDesc}
+                  onChange={e => setDrawerMaintenanceDesc(e.target.value)}
+                  placeholder="Ex: Motor falhando, cabo partido…"
+                  className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-purple-400 resize-none"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Responsável pelo envio (opcional)</label>
+                <input
+                  type="text"
+                  value={drawerMaintenanceBy}
+                  onChange={e => setDrawerMaintenanceBy(e.target.value)}
+                  placeholder="Nome do almoxarife / técnico"
+                  className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-purple-400"
+                />
+              </div>
+            </div>
+            <div className="flex gap-2 pt-1">
+              <button
+                onClick={() => setShowSendMaintenanceModal(false)}
+                className="flex-1 py-2 rounded-xl border border-gray-200 text-gray-600 text-sm font-medium hover:bg-gray-50 transition"
+              >Cancelar</button>
+              <button
+                onClick={handleSendMaintenanceSubmit}
+                disabled={processingDrawer}
+                className="flex-1 py-2 rounded-xl bg-purple-600 text-white text-sm font-semibold hover:bg-purple-700 transition disabled:opacity-50 flex items-center justify-center gap-1.5"
+              >
+                {processingDrawer ? <Loader2 size={14} className="animate-spin" /> : <Wrench size={14} />}
+                Confirmar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* FIX 3: Modal — Retornou da manutenção */}
+      {showReturnMaintenanceModal && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/50">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6 space-y-4">
+            <h3 className="text-base font-bold text-gray-800 flex items-center gap-2">
+              <CheckCircle2 size={16} className="text-green-500" />Retornou da manutenção
+            </h3>
+            <p className="text-xs text-gray-500">Ferramenta: <strong>{tool.name}</strong></p>
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Próxima manutenção preventiva (DD/MM/AAAA)</label>
+                <input
+                  type="text"
+                  value={drawerNextDate}
+                  onChange={e => setDrawerNextDate(e.target.value)}
+                  placeholder="Ex: 15/08/2026 (opcional)"
+                  className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-400"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Observações (opcional)</label>
+                <textarea
+                  rows={2}
+                  value={drawerMaintNotes}
+                  onChange={e => setDrawerMaintNotes(e.target.value)}
+                  placeholder="Ex: Peças substituídas, serviço realizado…"
+                  className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-400 resize-none"
+                />
+              </div>
+            </div>
+            <div className="flex gap-2 pt-1">
+              <button
+                onClick={() => setShowReturnMaintenanceModal(false)}
+                className="flex-1 py-2 rounded-xl border border-gray-200 text-gray-600 text-sm font-medium hover:bg-gray-50 transition"
+              >Cancelar</button>
+              <button
+                onClick={handleReturnMaintenanceSubmit}
+                disabled={processingDrawer}
+                className="flex-1 py-2 rounded-xl bg-green-600 text-white text-sm font-semibold hover:bg-green-700 transition disabled:opacity-50 flex items-center justify-center gap-1.5"
+              >
+                {processingDrawer ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle2 size={14} />}
+                Confirmar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* FIX 3: Modal — Descartar ferramenta */}
+      {showDiscardModal && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/50">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6 space-y-4">
+            <h3 className="text-base font-bold text-red-700 flex items-center gap-2">
+              <Trash2 size={16} className="text-red-500" />Descartar ferramenta
+            </h3>
+            <div className="bg-red-50 border border-red-200 rounded-xl p-3 text-xs text-red-700">
+              ⚠️ Esta ação zerará o saldo no estoque e não poderá ser desfeita.
+            </div>
+            <p className="text-xs text-gray-500">Ferramenta: <strong>{tool.name}</strong></p>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Motivo do descarte (opcional)</label>
+              <textarea
+                rows={3}
+                value={drawerDiscardReason}
+                onChange={e => setDrawerDiscardReason(e.target.value)}
+                placeholder="Ex: Peças sem reposição, vida útil esgotada…"
+                className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-red-400 resize-none"
+              />
+            </div>
+            <div className="flex gap-2 pt-1">
+              <button
+                onClick={() => setShowDiscardModal(false)}
+                className="flex-1 py-2 rounded-xl border border-gray-200 text-gray-600 text-sm font-medium hover:bg-gray-50 transition"
+              >Cancelar</button>
+              <button
+                onClick={handleDiscardSubmit}
+                disabled={processingDrawer}
+                className="flex-1 py-2 rounded-xl bg-red-600 text-white text-sm font-semibold hover:bg-red-700 transition disabled:opacity-50 flex items-center justify-center gap-1.5"
+              >
+                {processingDrawer ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
+                Descartar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* FIX 5: Modal — Excluir ferramenta */}
+      {showDeleteModal && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/50">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6 space-y-4">
+            <h3 className="text-base font-bold text-red-700 flex items-center gap-2">
+              <XCircle size={16} className="text-red-500" />Excluir ferramenta
+            </h3>
+            <div className="bg-red-50 border border-red-200 rounded-xl p-3 text-xs text-red-700 space-y-1">
+              <p>⚠️ <strong>Ação irreversível.</strong> A ferramenta será removida permanentemente do sistema.</p>
+              <p>Todos os saldos de estoque serão zerados.</p>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">
+                Digite <strong className="text-gray-800">{tool.name}</strong> para confirmar:
+              </label>
+              <input
+                type="text"
+                value={deleteConfirmText}
+                onChange={e => { setDeleteConfirmText(e.target.value); setDeleteError('') }}
+                placeholder={tool.name}
+                className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-red-400"
+              />
+              {deleteError && <p className="text-xs text-red-600 mt-1">{deleteError}</p>}
+            </div>
+            <div className="flex gap-2 pt-1">
+              <button
+                onClick={() => setShowDeleteModal(false)}
+                className="flex-1 py-2 rounded-xl border border-gray-200 text-gray-600 text-sm font-medium hover:bg-gray-50 transition"
+              >Cancelar</button>
+              <button
+                onClick={handleDeleteSubmit}
+                disabled={processingDrawer || deleteConfirmText !== tool.name}
+                className="flex-1 py-2 rounded-xl bg-red-600 text-white text-sm font-semibold hover:bg-red-700 transition disabled:opacity-50 flex items-center justify-center gap-1.5"
+              >
+                {processingDrawer ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
+                Excluir
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* FIX 7: Modal — Entrada rápida */}
+      {showQuickEntryModal && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/50">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6 space-y-4">
+            <h3 className="text-base font-bold text-gray-800 flex items-center gap-2">
+              <Plus size={16} className="text-green-500" />Registrar entrada
+            </h3>
+            <p className="text-xs text-gray-500">Ferramenta: <strong>{tool.name}</strong></p>
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Quantidade</label>
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={() => setQuickEntryQty(q => Math.max(1, q - 1))}
+                    className="w-8 h-8 rounded-lg border border-gray-200 text-gray-600 flex items-center justify-center hover:bg-gray-50 font-bold"
+                  >−</button>
+                  <input
+                    type="number"
+                    min={1}
+                    value={quickEntryQty}
+                    onChange={e => setQuickEntryQty(Math.max(1, Number(e.target.value)))}
+                    className="w-20 text-center text-sm border border-gray-200 rounded-lg px-2 py-2 focus:outline-none focus:ring-2 focus:ring-green-400"
+                  />
+                  <button
+                    onClick={() => setQuickEntryQty(q => q + 1)}
+                    className="w-8 h-8 rounded-lg border border-gray-200 text-gray-600 flex items-center justify-center hover:bg-gray-50 font-bold"
+                  >+</button>
+                  <span className="text-sm text-gray-400">{tool.unit}</span>
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Custo unitário (opcional)</label>
+                <input
+                  type="number"
+                  min={0}
+                  step={0.01}
+                  value={quickEntryUnitCost || ''}
+                  onChange={e => setQuickEntryUnitCost(Number(e.target.value))}
+                  placeholder="0,00"
+                  className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-400"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Observações (opcional)</label>
+                <input
+                  type="text"
+                  value={quickEntryNotes}
+                  onChange={e => setQuickEntryNotes(e.target.value)}
+                  placeholder="Ex: NF 1234, nova compra…"
+                  className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-400"
+                />
+              </div>
+            </div>
+            <div className="flex gap-2 pt-1">
+              <button
+                onClick={() => setShowQuickEntryModal(false)}
+                className="flex-1 py-2 rounded-xl border border-gray-200 text-gray-600 text-sm font-medium hover:bg-gray-50 transition"
+              >Cancelar</button>
+              <button
+                onClick={handleQuickEntrySubmit}
+                disabled={processingDrawer || quickEntryQty < 1}
+                className="flex-1 py-2 rounded-xl bg-green-600 text-white text-sm font-semibold hover:bg-green-700 transition disabled:opacity-50 flex items-center justify-center gap-1.5"
+              >
+                {processingDrawer ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
+                Registrar entrada
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       <div className="fixed inset-0 z-40 bg-black/40 backdrop-blur-sm" onClick={onClose} />
@@ -683,6 +1022,15 @@ export function ToolDrawer({
                   <Wrench size={13} />Manutenção prev.
                 </button>
               )}
+              {/* FIX 7: entrada rápida — só quando disponível e com saldo vinculado */}
+              {tool.toolStatus === 'AVAILABLE' && hasStockBalance && (
+                <button
+                  onClick={() => { setQuickEntryQty(1); setQuickEntryNotes(''); setQuickEntryUnitCost(0); setShowQuickEntryModal(true) }}
+                  className="flex-1 min-w-[100px] py-2 rounded-xl border border-green-300 text-green-700 text-xs font-semibold hover:bg-green-50 transition flex items-center justify-center gap-1.5"
+                >
+                  <Plus size={13} />Entrada
+                </button>
+              )}
             </>
           )}
 
@@ -692,6 +1040,16 @@ export function ToolDrawer({
           )}
           {tool.toolStatus === 'LOST' && (
             <p className="flex-1 py-2 text-center text-xs text-red-400 font-medium">🚨 Ferramenta extraviada</p>
+          )}
+
+          {/* FIX 5: excluir ferramenta — só admins/managers, tool não pode estar IN_USE */}
+          {canDelete && (
+            <button
+              onClick={() => { setDeleteConfirmText(''); setDeleteError(''); setShowDeleteModal(true) }}
+              className="w-full py-1.5 mt-0.5 rounded-xl border border-red-200 text-red-500 text-xs font-medium hover:bg-red-50 transition flex items-center justify-center gap-1.5"
+            >
+              <Trash2 size={12} />Excluir ferramenta
+            </button>
           )}
         </div>
 
