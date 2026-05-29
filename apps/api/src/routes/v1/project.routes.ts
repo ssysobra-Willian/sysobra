@@ -1585,6 +1585,107 @@ export async function projectRoutes(app: FastifyInstance) {
 
     return reply.send({ success: true })
   })
+
+  // ── GET /:id/costs — listar custos da obra ────────────────────────────────
+  app.get('/:id/costs', { preHandler: [requireCompany] }, async (request, reply) => {
+    const req       = request as RequestWithMember
+    const companyId = req.companyId!
+    const { id }    = request.params as { id: string }
+    const q         = request.query as { category?: string; pending?: string }
+
+    const where: any = { projectId: id, companyId }
+    if (q.category) where.category = q.category
+    if (q.pending === 'true') where.needsAppropriation = true
+
+    const [costs, totals] = await Promise.all([
+      p.projectCostEntry.findMany({
+        where,
+        include: {
+          stage:         { select: { id: true, name: true } },
+          stockMovement: { select: { id: true, type: true } },
+        },
+        orderBy: { date: 'desc' },
+      }),
+      p.projectCostEntry.groupBy({
+        by:    ['category'],
+        where: { projectId: id, companyId },
+        _sum:  { totalCost: true },
+        _count: { _all: true },
+      }),
+    ])
+
+    const pendingCount = await p.projectCostEntry.count({
+      where: { projectId: id, companyId, needsAppropriation: true },
+    })
+
+    return reply.send({
+      costs: costs.map((c: any) => ({
+        ...c,
+        quantity:  Number(c.quantity),
+        unitCost:  Number(c.unitCost),
+        totalCost: Number(c.totalCost),
+      })),
+      totals: totals.map((t: any) => ({
+        category:  t.category,
+        total:     Number(t._sum.totalCost ?? 0),
+        count:     t._count._all,
+      })),
+      pendingCount,
+    })
+  })
+
+  // ── PATCH /:id/costs/:costId/appropriate — apropriar custo a etapa ─────────
+  app.patch('/:id/costs/:costId/appropriate', { preHandler: [requireCompany] }, async (request, reply) => {
+    const req       = request as RequestWithMember
+    const payload   = request.user as JwtPayload
+    const companyId = req.companyId!
+    const { id, costId } = request.params as { id: string; costId: string }
+    const body      = request.body as { stageId: string; notes?: string }
+
+    if (!body.stageId) return reply.status(400).send({ error: 'stageId é obrigatório' })
+
+    const cost = await p.projectCostEntry.findFirst({
+      where: { id: costId, projectId: id, companyId },
+    })
+    if (!cost) return reply.status(404).send({ error: 'Custo não encontrado' })
+
+    await p.projectCostEntry.update({
+      where: { id: costId },
+      data: {
+        stageId:            body.stageId,
+        needsAppropriation: false,
+        appropriatedBy:     payload.sub,
+        appropriatedAt:     new Date(),
+        ...(body.notes !== undefined && { notes: body.notes }),
+      },
+    })
+
+    return reply.send({ success: true })
+  })
+
+  // ── PATCH /:id/costs/appropriate-bulk — apropriar vários de uma vez ─────────
+  app.patch('/:id/costs/appropriate-bulk', { preHandler: [requireCompany] }, async (request, reply) => {
+    const req       = request as RequestWithMember
+    const payload   = request.user as JwtPayload
+    const companyId = req.companyId!
+    const { id }    = request.params as { id: string }
+    const body      = request.body as { costIds: string[]; stageId: string }
+
+    if (!body.stageId)                   return reply.status(400).send({ error: 'stageId é obrigatório' })
+    if (!body.costIds?.length)           return reply.status(400).send({ error: 'costIds é obrigatório' })
+
+    await p.projectCostEntry.updateMany({
+      where: { id: { in: body.costIds }, projectId: id, companyId },
+      data: {
+        stageId:            body.stageId,
+        needsAppropriation: false,
+        appropriatedBy:     payload.sub,
+        appropriatedAt:     new Date(),
+      },
+    })
+
+    return reply.send({ success: true })
+  })
 }
 
 // buildPlacaHtml migrado para apps/api/src/utils/placaTemplate.ts

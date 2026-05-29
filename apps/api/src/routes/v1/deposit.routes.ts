@@ -704,17 +704,23 @@ export async function depositRoutes(app: FastifyInstance) {
       }),
     ])
 
-    if (body.registerCostEntry && body.type === 'OUT' && body.projectId && totalCost > 0) {
+    // ── Custo automático: saída de material/EPI vinculada a obra ────────────
+    if (body.projectId && ['OUT', 'EPI_DELIVERY'].includes(body.type) && totalCost > 0) {
+      const costCategory = item.isEpi || item.isUniform ? 'EPI'
+        : item.requiresCustody ? 'EQUIPMENT'
+        : 'MATERIAL'
       await p().projectCostEntry.create({
         data: {
-          companyId:       cid,
-          projectId:       body.projectId,
-          stockMovementId: movement.id,
-          description:     `Saída: ${item.name}`,
-          category:        item.category ?? 'Material',
-          quantity:        body.quantity,
-          unitCost:        unitCost > 0 ? unitCost : currentAvg,
+          companyId:         cid,
+          projectId:         body.projectId,
+          stockMovementId:   movement.id,
+          description:       `Saída: ${item.name}`,
+          category:          costCategory,
+          quantity:          body.quantity,
+          unitCost:          unitCost > 0 ? unitCost : currentAvg,
           totalCost,
+          needsAppropriation: true,
+          origin:            'DEPOSIT',
         },
       })
     }
@@ -1343,6 +1349,37 @@ export async function depositRoutes(app: FastifyInstance) {
 
     if (operations.length > 0) {
       await p().$transaction(operations)
+    }
+
+    // ── Custo automático: itens OUT do romaneio vinculados a obra ─────────────
+    if (body.projectId && movementType === 'OUT') {
+      for (const entry of body.items) {
+        const itemData = await p().stockItem.findFirst({
+          where:  { id: entry.stockItemId, companyId: cid },
+          select: { name: true, isEpi: true, isUniform: true, requiresCustody: true, averageCost: true, unitCost: true },
+        })
+        if (!itemData) continue
+        const currentAvg = Number(itemData.averageCost ?? itemData.unitCost ?? 0)
+        const unit       = entry.unitCost ?? currentAvg
+        const total      = entry.quantity * (unit > 0 ? unit : currentAvg)
+        if (total <= 0) continue
+        const costCategory = itemData.isEpi || itemData.isUniform ? 'EPI'
+          : itemData.requiresCustody ? 'EQUIPMENT'
+          : 'MATERIAL'
+        await p().projectCostEntry.create({
+          data: {
+            companyId:         cid,
+            projectId:         body.projectId,
+            description:       `Romaneio: ${itemData.name}`,
+            category:          costCategory,
+            quantity:          entry.quantity,
+            unitCost:          unit > 0 ? unit : currentAvg,
+            totalCost:         total,
+            needsAppropriation: true,
+            origin:            'DEPOSIT',
+          },
+        })
+      }
     }
 
     const result = await p().stockBasket.findFirst({

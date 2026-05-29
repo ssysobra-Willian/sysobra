@@ -650,8 +650,18 @@ function progressBarColor(pct: number, status: string) {
 
 // ─── Abas ─────────────────────────────────────────────────────────────────────
 
-const TABS = ['Resumo', 'Apropriações', 'Pluviometria', 'Compras', 'Medições', 'Equipe', 'Documentos', 'Ferramentas', 'Pasta de Projetos', 'Histórico'] as const
+const TABS = ['Resumo', 'Apropriações', 'Custos', 'Pluviometria', 'Compras', 'Medições', 'Equipe', 'Documentos', 'Ferramentas', 'Pasta de Projetos', 'Histórico'] as const
 type Tab = typeof TABS[number]
+
+// ─── Mapa de categorias de custo ──────────────────────────────────────────────
+const COST_CATEGORY: Record<string, { label: string; color: string; bg: string }> = {
+  MATERIAL:  { label: 'Material',     color: '#2563EB', bg: '#DBEAFE' },
+  EQUIPMENT: { label: 'Equipamento',  color: '#7C3AED', bg: '#EDE9FE' },
+  LABOR:     { label: 'Mão de obra',  color: '#D97706', bg: '#FEF3C7' },
+  EPI:       { label: 'EPI/Uniforme', color: '#16A34A', bg: '#DCFCE7' },
+  SERVICE:   { label: 'Serviço',      color: '#0891B2', bg: '#CFFAFE' },
+  OTHER:     { label: 'Outros',       color: '#6B7280', bg: '#F3F4F6' },
+}
 
 // ─── Componente principal ─────────────────────────────────────────────────────
 
@@ -702,6 +712,18 @@ export default function ObraDetailPage() {
 
   // ── Solicitação de encerramento pendente ──────────────────────────────────
   const [closeRequest, setCloseRequest] = useState<any>(null)
+
+  // ── Aba Custos ───────────────────────────────────────────────────────────
+  const [costs,              setCosts]              = useState<any[]>([])
+  const [costTotals,         setCostTotals]         = useState<any[]>([])
+  const [costsLoading,       setCostsLoading]       = useState(false)
+  const [pendingCostsCount,  setPendingCostsCount]  = useState(0)
+  const [costFilter,         setCostFilter]         = useState('all')
+  const [selectedCostIds,    setSelectedCostIds]    = useState<string[]>([])
+  const [showAppropModal,    setShowAppropModal]    = useState(false)
+  const [appropCostId,       setAppropCostId]       = useState<string | null>(null)
+  const [appropStageId,      setAppropStageId]      = useState('')
+  const [savingApprop,       setSavingApprop]       = useState(false)
 
   // ── Aba Apropriações ──────────────────────────────────────────────────────
   const [allocTxs,      setAllocTxs]      = useState<AllocTx[]>([])
@@ -842,6 +864,30 @@ export default function ObraDetailPage() {
       setCloseRequest(null)
     } catch { alert('Erro ao recusar') }
   }
+
+  // ── Carrega custos da obra ───────────────────────────────────────────────
+  const loadCosts = async () => {
+    if (!id) return
+    setCostsLoading(true)
+    try {
+      const token     = localStorage.getItem('token') || ''
+      const companyId = localStorage.getItem('companyId') || ''
+      const res  = await fetch(`${API}/api/v1/projects/${id}/costs`, {
+        headers: { Authorization: `Bearer ${token}`, 'x-company-id': companyId },
+      })
+      if (!res.ok) return
+      const data = await res.json()
+      setCosts(data.costs ?? [])
+      setCostTotals(data.totals ?? [])
+      setPendingCostsCount(data.pendingCount ?? 0)
+    } catch { /* silencioso */ } finally { setCostsLoading(false) }
+  }
+
+  useEffect(() => {
+    if (tab !== 'Custos') return
+    loadCosts()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, id])
 
   // Carrega lançamentos + summary da aba Apropriações
   useEffect(() => {
@@ -1215,6 +1261,11 @@ export default function ObraDetailPage() {
                       {toolsCount}
                     </span>
                   )}
+                  {t === 'Custos' && pendingCostsCount > 0 && (
+                    <span className="text-[10px] font-bold bg-red-500 text-white px-1.5 py-0.5 rounded-full leading-none">
+                      {pendingCostsCount}
+                    </span>
+                  )}
                 </button>
               ))}
             </div>
@@ -1432,6 +1483,223 @@ export default function ObraDetailPage() {
                       />
                     </>
                   )}
+                </div>
+              )}
+
+              {/* ─── Aba Custos ──────────────────────────────────────────────── */}
+              {tab === 'Custos' && (
+                <div className="space-y-4">
+
+                  {/* Header */}
+                  <div className="flex items-center justify-between flex-wrap gap-3">
+                    <div>
+                      <h3 className="text-sm font-semibold text-gray-800">Custos da obra</h3>
+                      <p className="text-xs text-gray-500 mt-0.5">Materiais, equipamentos e EPI consumidos — gerado automaticamente via saídas do depósito</p>
+                    </div>
+                    {selectedCostIds.length > 0 && (
+                      <button
+                        onClick={() => { setAppropCostId(null); setShowAppropModal(true) }}
+                        className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-[#F5A623] text-white hover:bg-[#d4891a] transition-colors"
+                      >
+                        Apropriar {selectedCostIds.length} selecionado(s)
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Totais por categoria */}
+                  {costTotals.length > 0 && (
+                    <div className="flex flex-wrap gap-2">
+                      {costTotals.map((t: any) => {
+                        const cat = COST_CATEGORY[t.category] ?? COST_CATEGORY.OTHER
+                        const active = costFilter === t.category
+                        return (
+                          <button key={t.category}
+                            onClick={() => setCostFilter(active ? 'all' : t.category)}
+                            className="px-3 py-2 rounded-lg text-left transition-all"
+                            style={{ background: cat.bg, border: `1.5px solid ${active ? cat.color : 'transparent'}`, outline: 'none' }}
+                          >
+                            <div className="text-[10px] font-bold uppercase tracking-wide" style={{ color: cat.color }}>{cat.label}</div>
+                            <div className="text-sm font-bold text-gray-800">{t.total.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</div>
+                            <div className="text-[10px] text-gray-500">{t.count} item(s)</div>
+                          </button>
+                        )
+                      })}
+                      <div className="px-3 py-2 rounded-lg bg-gray-900 ml-auto">
+                        <div className="text-[10px] font-bold uppercase tracking-wide text-gray-400">Total</div>
+                        <div className="text-sm font-bold text-white">
+                          {costTotals.reduce((s: number, t: any) => s + t.total, 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Filtros rápidos */}
+                  <div className="flex gap-2 flex-wrap">
+                    {[
+                      { v: 'all',     l: 'Todos' },
+                      { v: 'pending', l: `⚠️ Pendentes${pendingCostsCount > 0 ? ` (${pendingCostsCount})` : ''}` },
+                    ].map(f => (
+                      <button key={f.v}
+                        onClick={() => setCostFilter(f.v)}
+                        className={`px-3 py-1 rounded-lg text-xs font-medium border transition-colors ${
+                          costFilter === f.v
+                            ? 'bg-amber-50 border-[#F5A623] text-amber-800'
+                            : 'border-gray-200 text-gray-600 hover:border-gray-300'
+                        }`}
+                      >
+                        {f.l}
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Tabela */}
+                  {costsLoading ? (
+                    <div className="flex justify-center py-10">
+                      <div className="h-6 w-6 rounded-full border-2 border-[#F5A623] border-t-transparent animate-spin" />
+                    </div>
+                  ) : (() => {
+                    const filtered = costs.filter(c => {
+                      if (costFilter === 'pending') return c.needsAppropriation
+                      if (costFilter === 'all') return true
+                      return c.category === costFilter
+                    })
+                    return (
+                      <div className="border border-gray-200 rounded-xl overflow-hidden">
+                        <table className="w-full text-sm">
+                          <thead className="bg-gray-50">
+                            <tr>
+                              <th className="px-3 py-2.5 w-8">
+                                <input type="checkbox"
+                                  onChange={e => setSelectedCostIds(
+                                    e.target.checked
+                                      ? filtered.filter((c: any) => c.needsAppropriation).map((c: any) => c.id)
+                                      : []
+                                  )}
+                                />
+                              </th>
+                              {['Descrição', 'Categoria', 'Qtd', 'Unit.', 'Total', 'Etapa', 'Status', ''].map(h => (
+                                <th key={h} className="px-3 py-2.5 text-left text-[10px] font-semibold text-gray-500 uppercase tracking-wide">{h}</th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-gray-100">
+                            {filtered.map((cost: any) => {
+                              const cat = COST_CATEGORY[cost.category] ?? COST_CATEGORY.OTHER
+                              return (
+                                <tr key={cost.id} className={cost.needsAppropriation ? 'bg-amber-50/40' : 'bg-white'}>
+                                  <td className="px-3 py-2.5">
+                                    {cost.needsAppropriation && (
+                                      <input type="checkbox"
+                                        checked={selectedCostIds.includes(cost.id)}
+                                        onChange={e => setSelectedCostIds(prev =>
+                                          e.target.checked ? [...prev, cost.id] : prev.filter(x => x !== cost.id)
+                                        )}
+                                      />
+                                    )}
+                                  </td>
+                                  <td className="px-3 py-2.5">
+                                    <div className="font-medium text-gray-800">{cost.description}</div>
+                                    {cost.stockMovement && <div className="text-[10px] text-blue-500">Via depósito</div>}
+                                    <div className="text-[10px] text-gray-400">{new Date(cost.date).toLocaleDateString('pt-BR')}</div>
+                                  </td>
+                                  <td className="px-3 py-2.5">
+                                    <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full" style={{ color: cat.color, background: cat.bg }}>
+                                      {cat.label}
+                                    </span>
+                                  </td>
+                                  <td className="px-3 py-2.5 text-right text-gray-700">{Number(cost.quantity).toLocaleString('pt-BR')}</td>
+                                  <td className="px-3 py-2.5 text-right text-gray-500 text-xs">{Number(cost.unitCost).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</td>
+                                  <td className="px-3 py-2.5 text-right font-semibold text-gray-800">{Number(cost.totalCost).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</td>
+                                  <td className="px-3 py-2.5 text-xs text-gray-600">{cost.stage?.name ?? <span className="text-gray-400">—</span>}</td>
+                                  <td className="px-3 py-2.5">
+                                    {cost.needsAppropriation ? (
+                                      <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">⚠️ Pendente</span>
+                                    ) : (
+                                      <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-green-100 text-green-700">✅ Apropriado</span>
+                                    )}
+                                  </td>
+                                  <td className="px-3 py-2.5">
+                                    {cost.needsAppropriation && (
+                                      <button
+                                        onClick={() => { setAppropCostId(cost.id); setShowAppropModal(true) }}
+                                        className="text-[11px] font-semibold px-2 py-1 rounded-md border border-[#F5A623] text-[#F5A623] bg-amber-50 hover:bg-amber-100 transition-colors"
+                                      >
+                                        Apropriar
+                                      </button>
+                                    )}
+                                  </td>
+                                </tr>
+                              )
+                            })}
+                          </tbody>
+                        </table>
+                        {filtered.length === 0 && (
+                          <div className="text-center py-10 text-gray-500 text-sm">
+                            {costFilter === 'pending' ? '✅ Nenhum custo pendente de apropriação' : 'Nenhum custo registrado nesta obra'}
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })()}
+                </div>
+              )}
+
+              {/* ─── Modal de apropriação ───────────────────────────────────── */}
+              {showAppropModal && (
+                <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
+                  <div className="bg-white rounded-2xl p-6 max-w-md w-full shadow-xl">
+                    <h3 className="text-base font-bold mb-1">Apropriar à etapa</h3>
+                    <p className="text-sm text-gray-500 mb-4">
+                      {appropCostId
+                        ? 'Selecione a etapa para este custo:'
+                        : `Apropriar ${selectedCostIds.length} custo(s) selecionado(s) à etapa:`}
+                    </p>
+                    <select
+                      value={appropStageId}
+                      onChange={e => setAppropStageId(e.target.value)}
+                      className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm mb-4 focus:outline-none focus:ring-1 focus:ring-[#F5A623]"
+                    >
+                      <option value="">Selecione a etapa...</option>
+                      {(project?.stages ?? []).map((s: any) => (
+                        <option key={s.id} value={s.id}>{s.name}</option>
+                      ))}
+                    </select>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => { setShowAppropModal(false); setAppropCostId(null); setAppropStageId('') }}
+                        className="flex-1 py-2.5 rounded-lg border border-gray-200 text-sm text-gray-600 hover:bg-gray-50 transition-colors"
+                      >
+                        Cancelar
+                      </button>
+                      <button
+                        disabled={!appropStageId || savingApprop}
+                        onClick={async () => {
+                          if (!appropStageId) return
+                          setSavingApprop(true)
+                          try {
+                            const token     = localStorage.getItem('token') || ''
+                            const companyId = localStorage.getItem('companyId') || ''
+                            const headers   = { Authorization: `Bearer ${token}`, 'x-company-id': companyId, 'Content-Type': 'application/json' }
+                            if (appropCostId) {
+                              await fetch(`${API}/api/v1/projects/${id}/costs/${appropCostId}/appropriate`, {
+                                method: 'PATCH', headers, body: JSON.stringify({ stageId: appropStageId }),
+                              })
+                            } else {
+                              await fetch(`${API}/api/v1/projects/${id}/costs/appropriate-bulk`, {
+                                method: 'PATCH', headers, body: JSON.stringify({ costIds: selectedCostIds, stageId: appropStageId }),
+                              })
+                            }
+                            setShowAppropModal(false); setAppropCostId(null); setSelectedCostIds([]); setAppropStageId('')
+                            loadCosts()
+                          } catch { /* silencioso */ } finally { setSavingApprop(false) }
+                        }}
+                        className="flex-2 flex-1 py-2.5 rounded-lg text-sm font-semibold text-white transition-colors"
+                        style={{ background: appropStageId && !savingApprop ? '#F5A623' : '#D1D5DB', cursor: appropStageId ? 'pointer' : 'not-allowed' }}
+                      >
+                        {savingApprop ? 'Salvando...' : '✅ Confirmar'}
+                      </button>
+                    </div>
+                  </div>
                 </div>
               )}
 

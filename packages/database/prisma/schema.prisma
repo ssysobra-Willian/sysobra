@@ -703,6 +703,7 @@ model ProjectStage {
   project               Project                @relation(fields: [projectId], references: [id], onDelete: Cascade)
   costCenterAllocations CostCenterAllocation[]
   diaryStageEntries     DiaryStageEntry[]
+  costEntries           ProjectCostEntry[]
 
   @@map("project_stages")
 }
@@ -1659,6 +1660,7 @@ model ProjectCostEntry {
   companyId       String    @map("company_id")
   projectId       String    @map("project_id")
   stockMovementId String?   @map("stock_movement_id")
+  stageId         String?   @map("stage_id")
   description     String
   category        String?
   quantity        Decimal   @db.Decimal(10, 3)
@@ -1666,10 +1668,15 @@ model ProjectCostEntry {
   totalCost       Decimal   @db.Decimal(10, 2) @map("total_cost")
   date            DateTime  @default(now())
   notes           String?
+  needsAppropriation Boolean  @default(false) @map("needs_appropriation")
+  appropriatedBy  String?   @map("appropriated_by")
+  appropriatedAt  DateTime? @map("appropriated_at")
+  origin          String?   @default("MANUAL")
   createdAt       DateTime  @default(now()) @map("created_at")
 
   company       Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
   project       Project        @relation(fields: [projectId], references: [id])
+  stage         ProjectStage?  @relation(fields: [stageId], references: [id])
   stockMovement StockMovement? @relation(fields: [stockMovementId], references: [id])
 
   @@map("project_cost_entries")
