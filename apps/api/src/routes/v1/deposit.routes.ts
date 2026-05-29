@@ -2624,7 +2624,7 @@ ${_basketFooter}
     const uid = userId(request)!
 
     const body = z.object({
-      locationId:    z.string(),
+      locationId:    z.string().optional(),   // opcional — se omitido usa Depósito Central
       itemId:        z.string().optional(),
       newItem:       z.object({
         name:        z.string(),
@@ -2650,9 +2650,19 @@ ${_basketFooter}
       return reply.status(400).send({ error: 'Informe itemId ou newItem' })
     }
 
+    // Resolver locationId — se não fornecido, usa o Depósito Central
+    let effectiveLocationId = body.locationId
+    if (!effectiveLocationId) {
+      const central = await p().stockLocation.findFirst({
+        where: { companyId: cid, type: 'CENTRAL', isActive: true },
+      })
+      if (!central) return reply.status(400).send({ error: 'CENTRAL_REQUIRED', message: 'Nenhum Depósito Central encontrado. Crie um local do tipo Central primeiro.' })
+      effectiveLocationId = central.id
+    }
+
     // Verificar se o local existe
     const location = await p().stockLocation.findFirst({
-      where: { id: body.locationId, companyId: cid, isActive: true },
+      where: { id: effectiveLocationId, companyId: cid, isActive: true },
     })
     if (!location) return reply.status(404).send({ error: 'Local não encontrado' })
 
@@ -2679,11 +2689,11 @@ ${_basketFooter}
 
     // Garantir saldo existente
     await p().stockBalance.upsert({
-      where:  { itemId_locationId: { itemId: item.id, locationId: body.locationId } },
+      where:  { itemId_locationId: { itemId: item.id, locationId: effectiveLocationId } },
       create: {
         companyId:   cid,
         itemId:      item.id,
-        locationId:  body.locationId,
+        locationId:  effectiveLocationId,
         quantity:    0,
         reservedQty: 0,
         averageCost: 0,
@@ -2694,7 +2704,7 @@ ${_basketFooter}
 
     // Ler saldo atual
     const bal = await p().stockBalance.findFirst({
-      where: { itemId: item.id, locationId: body.locationId },
+      where: { itemId: item.id, locationId: effectiveLocationId },
     })
     const curQty  = Number(bal?.quantity  ?? 0)
     const curAvg  = Number(bal?.averageCost ?? 0)
@@ -2720,7 +2730,7 @@ ${_basketFooter}
     await p().$transaction([
       // Atualizar saldo do local
       p().stockBalance.update({
-        where: { itemId_locationId: { itemId: item.id, locationId: body.locationId } },
+        where: { itemId_locationId: { itemId: item.id, locationId: effectiveLocationId } },
         data: {
           quantity:    newQty,
           averageCost: newAvg,
@@ -2737,7 +2747,7 @@ ${_basketFooter}
         data: {
           companyId:     cid,
           stockItemId:   item.id,
-          locationId:    body.locationId,
+          locationId:    effectiveLocationId,
           responsibleId: uid,
           type:          'IN',
           quantity:      body.quantity,
@@ -2753,7 +2763,7 @@ ${_basketFooter}
       ...(lotData ? [p().supplierLot.create({ data: lotData })] : []),
     ])
 
-    return reply.status(201).send({ item, locationId: body.locationId, addedQty: body.quantity, newBalance: newQty })
+    return reply.status(201).send({ item, locationId: effectiveLocationId, addedQty: body.quantity, newBalance: newQty })
   })
 
   // ── TRANSFERÊNCIAS ────────────────────────────────────────────────────────

@@ -86,9 +86,20 @@ export function QuickEntryModal({ isOpen, onClose, onSuccess, locations, default
   const [expiryDate,   setExpiryDate]   = useState('')
   const [notes,        setNotes]        = useState('')
 
+  const [supplierInputMode, setSupplierInputMode] = useState<'select' | 'manual'>('select')
+
   const [saving,  setSaving]  = useState(false)
   const [error,   setError]   = useState('')
   const [success, setSuccess] = useState(false)
+
+  // Auto-selecionar CENTRAL quando locationId vazio e locations disponíveis
+  useEffect(() => {
+    if (!isOpen) return
+    if (locationId) return
+    const central = locations.find(l => l.type === 'CENTRAL')
+    if (central) setLocationId(central.id)
+    else if (locations[0]) setLocationId(locations[0].id)
+  }, [isOpen, locations, locationId])
 
   // Reset quando fechar
   useEffect(() => {
@@ -97,6 +108,7 @@ export function QuickEntryModal({ isOpen, onClose, onSuccess, locations, default
       setCreatingNew(false); setNewItemName(''); setNewItemUnit('un'); setNewItemCat('')
       setQuantity(''); setUnitCost('')
       setSupplierId(''); setSupplierName(''); setSupplierSearch(''); setSupplierResults([])
+      setSupplierInputMode('select')
       setBrand(''); setLot(''); setInvoiceNo(''); setExpiryDate(''); setNotes('')
       setError(''); setSuccess(false)
     }
@@ -344,7 +356,7 @@ export function QuickEntryModal({ isOpen, onClose, onSuccess, locations, default
                   <div className="flex items-center gap-3 px-3 py-2.5 bg-gray-50 rounded-xl">
                     <div className="w-10 h-10 rounded-lg bg-gray-200 overflow-hidden flex-shrink-0 flex items-center justify-center">
                       {selectedItem.imageUrl
-                        ? <img src={selectedItem.imageUrl.startsWith('http') ? selectedItem.imageUrl : `${API}/${selectedItem.imageUrl}`} alt="" className="w-full h-full object-cover" />
+                        ? <img src={selectedItem.imageUrl.startsWith('http') ? selectedItem.imageUrl : `${API}${selectedItem.imageUrl.startsWith('/') ? '' : '/'}${selectedItem.imageUrl}`} alt="" className="w-full h-full object-cover" />
                         : <Package size={16} className="text-gray-400" />}
                     </div>
                     <div className="flex-1 min-w-0">
@@ -442,40 +454,79 @@ export function QuickEntryModal({ isOpen, onClose, onSuccess, locations, default
                 {/* Fornecedor + marca */}
                 <div className="grid grid-cols-2 gap-3">
                   <Field label="Fornecedor">
-                    <div className="relative">
-                      {!supplierId ? (
-                        <>
-                          <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 z-10" />
-                          <input
-                            value={supplierSearch}
-                            onChange={e => searchSuppliers(e.target.value)}
-                            placeholder="Buscar fornecedor..."
-                            className={cn(inp, 'pl-8')}
-                          />
-                          {supplierResults.length > 0 && (
-                            <div className="absolute left-0 right-0 top-full z-50 bg-white border border-gray-200 rounded-xl mt-1 shadow-lg max-h-48 overflow-y-auto">
-                              {supplierResults.map(s => (
-                                <button key={s.id} type="button"
-                                  onClick={() => { setSupplierId(s.id); setSupplierName(s.name); setSupplierSearch(''); setSupplierResults([]) }}
-                                  className="w-full flex items-center gap-2 px-3 py-2 hover:bg-gray-50 text-left border-b border-gray-50 last:border-0">
-                                  <div className="flex-1 min-w-0">
-                                    <div className="text-xs font-medium text-gray-800 truncate">{s.name}</div>
-                                    <div className="text-[10px] text-gray-400">{s.cpfCnpj || s.cnpj || '—'}</div>
-                                  </div>
-                                </button>
-                              ))}
-                            </div>
-                          )}
-                        </>
-                      ) : (
-                        <div className="flex items-center gap-2 px-3 py-2 bg-green-50 border border-green-200 rounded-xl">
-                          <CheckCircle2 size={12} className="text-green-600 flex-shrink-0" />
-                          <span className="flex-1 text-xs font-medium text-green-800 truncate">{supplierName}</span>
-                          <button type="button" onClick={() => { setSupplierId(''); setSupplierName('') }}
-                            className="text-gray-400 hover:text-red-500"><X size={12} /></button>
-                        </div>
-                      )}
+                    {/* Toggle modo */}
+                    <div className="flex gap-1 mb-1.5">
+                      <button
+                        type="button"
+                        onClick={() => { setSupplierInputMode('select'); setSupplierId(''); setSupplierName(''); setSupplierSearch(''); setSupplierResults([]) }}
+                        className={cn(
+                          'flex-1 text-[10px] font-medium py-1 px-1.5 rounded-lg border transition-colors',
+                          supplierInputMode === 'select'
+                            ? 'bg-[#F5A623] text-white border-[#F5A623]'
+                            : 'bg-white text-gray-500 border-gray-200 hover:border-gray-300'
+                        )}
+                      >
+                        📋 Cadastrado
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => { setSupplierInputMode('manual'); setSupplierId(''); setSupplierSearch(''); setSupplierResults([]) }}
+                        className={cn(
+                          'flex-1 text-[10px] font-medium py-1 px-1.5 rounded-lg border transition-colors',
+                          supplierInputMode === 'manual'
+                            ? 'bg-[#F5A623] text-white border-[#F5A623]'
+                            : 'bg-white text-gray-500 border-gray-200 hover:border-gray-300'
+                        )}
+                      >
+                        ✏️ Manual
+                      </button>
                     </div>
+
+                    {supplierInputMode === 'select' ? (
+                      /* Modo seleção por busca */
+                      <div className="relative">
+                        {!supplierId ? (
+                          <>
+                            <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 z-10" />
+                            <input
+                              value={supplierSearch}
+                              onChange={e => searchSuppliers(e.target.value)}
+                              placeholder="Buscar fornecedor..."
+                              className={cn(inp, 'pl-8')}
+                            />
+                            {supplierResults.length > 0 && (
+                              <div className="absolute left-0 right-0 top-full z-50 bg-white border border-gray-200 rounded-xl mt-1 shadow-lg max-h-48 overflow-y-auto">
+                                {supplierResults.map(s => (
+                                  <button key={s.id} type="button"
+                                    onClick={() => { setSupplierId(s.id); setSupplierName(s.name); setSupplierSearch(''); setSupplierResults([]) }}
+                                    className="w-full flex items-center gap-2 px-3 py-2 hover:bg-gray-50 text-left border-b border-gray-50 last:border-0">
+                                    <div className="flex-1 min-w-0">
+                                      <div className="text-xs font-medium text-gray-800 truncate">{s.name}</div>
+                                      <div className="text-[10px] text-gray-400">{s.cpfCnpj || s.cnpj || '—'}</div>
+                                    </div>
+                                  </button>
+                                ))}
+                              </div>
+                            )}
+                          </>
+                        ) : (
+                          <div className="flex items-center gap-2 px-3 py-2 bg-green-50 border border-green-200 rounded-xl">
+                            <CheckCircle2 size={12} className="text-green-600 flex-shrink-0" />
+                            <span className="flex-1 text-xs font-medium text-green-800 truncate">{supplierName}</span>
+                            <button type="button" onClick={() => { setSupplierId(''); setSupplierName('') }}
+                              className="text-gray-400 hover:text-red-500"><X size={12} /></button>
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      /* Modo digitação manual */
+                      <input
+                        value={supplierName}
+                        onChange={e => { setSupplierName(e.target.value); setSupplierId('') }}
+                        placeholder="Nome do fornecedor..."
+                        className={inp}
+                      />
+                    )}
                   </Field>
                   <Field label="Marca">
                     <BrandInput value={brand} onChange={setBrand} placeholder="Ex: Gerdau" className={inp} />

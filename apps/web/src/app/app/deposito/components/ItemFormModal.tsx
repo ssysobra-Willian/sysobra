@@ -175,7 +175,11 @@ function PhotoUpload({ value, onChange }: { value: string; onChange: (url: strin
     finally { setUploading(false) }
   }
 
-  const src = value ? (value.startsWith('http') ? value : `${API}/${value}`) : null
+  const src = value
+    ? value.startsWith('http')
+      ? value
+      : `${API}${value.startsWith('/') ? '' : '/'}${value}`
+    : null
 
   return (
     <div>

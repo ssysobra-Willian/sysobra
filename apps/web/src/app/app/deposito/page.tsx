@@ -245,8 +245,8 @@ function ActionMenu({ onView, onEdit, onDelete, onCustody, onBasket }: {
         <div className="absolute right-0 top-8 z-30 bg-white border border-gray-200 rounded-xl shadow-lg min-w-[140px] py-1 overflow-hidden">
           {onView    && <button onClick={() => { onView();    setOpen(false) }} className="w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-gray-50 text-gray-700"><Eye size={13}/>Detalhes</button>}
           {onEdit    && <button onClick={() => { onEdit();    setOpen(false) }} className="w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-gray-50 text-gray-700"><Edit2 size={13}/>Editar</button>}
-          {onCustody && <button onClick={() => { onCustody();setOpen(false) }} className="w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-gray-50 text-orange-600"><Package size={13}/>Romaneio</button>}
-          {onBasket  && <button onClick={() => { onBasket(); setOpen(false) }} className="w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-gray-50 text-blue-600"><FileText size={13}/>Romaneio</button>}
+          {onCustody && <button onClick={() => { onCustody();setOpen(false) }} className="w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-gray-50 text-orange-600"><Package size={13}/>Saída via romaneio</button>}
+          {onBasket  && <button onClick={() => { onBasket(); setOpen(false) }} className="w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-gray-50 text-blue-600"><FileText size={13}/>Cesta de saída</button>}
           {onDelete  && <button onClick={() => { onDelete(); setOpen(false) }} className="w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-red-50 text-red-600"><Trash2 size={13}/>Remover</button>}
         </div>
       )}
@@ -2201,6 +2201,7 @@ export default function DepositoPage() {
       {/* ── Form Modals ──────────────────────────────────────────────── */}
 
       <ItemFormModal
+        key={materialFormOpen ? `material-${editingMaterial?.id ?? 'new'}` : 'material-closed'}
         mode="material"
         isOpen={materialFormOpen}
         onClose={() => { setMaterialFormOpen(false); setEditingMaterial(null) }}
@@ -2209,6 +2210,7 @@ export default function DepositoPage() {
       />
 
       <ItemFormModal
+        key={epiFormOpen ? `epi-${editingMaterial?.id ?? 'new'}` : 'epi-closed'}
         mode="epi"
         isOpen={epiFormOpen}
         onClose={() => { setEpiFormOpen(false); setEditingMaterial(null) }}
@@ -2217,6 +2219,7 @@ export default function DepositoPage() {
       />
 
       <ItemFormModal
+        key={uniformFormOpen ? `uniform-${editingMaterial?.id ?? 'new'}` : 'uniform-closed'}
         mode="uniform"
         isOpen={uniformFormOpen}
         onClose={() => { setUniformFormOpen(false); setEditingMaterial(null) }}
@@ -2225,6 +2228,7 @@ export default function DepositoPage() {
       />
 
       <ToolFormModal
+        key={toolFormOpen ? `tool-${editingTool?.id ?? 'new'}` : 'tool-closed'}
         isOpen={toolFormOpen}
         onClose={() => { setToolFormOpen(false); setEditingTool(null) }}
         onSuccess={() => { setToolFormOpen(false); setEditingTool(null); loadAll() }}
