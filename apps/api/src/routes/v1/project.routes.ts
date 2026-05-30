@@ -499,7 +499,11 @@ export async function projectRoutes(app: FastifyInstance) {
           type: 'EXPENSE', stageId: { not: null },
           costCenterAllocations: { none: {} },
         },
-        select: { stageId: true, netAmount: true, isPaid: true },
+        select: {
+          id: true, stageId: true, netAmount: true, isPaid: true,
+          description: true, referenceDate: true, createdAt: true,
+          category: { select: { name: true, color: true, icon: true } },
+        },
       })
       for (const tx of directTxs) {
         if (!tx.stageId) continue
@@ -561,13 +565,13 @@ export async function projectRoutes(app: FastifyInstance) {
         if (!tx.stageId) continue
         if (!stageFinancialMap[tx.stageId]) stageFinancialMap[tx.stageId] = []
         stageFinancialMap[tx.stageId].push({
-          id:          tx.stageId + '-direct',
-          description: '—',
+          id:          tx.id,
+          description: tx.description || '—',
           type:        'EXPENSE',
           isPaid:      tx.isPaid,
-          date:        null,
+          date:        tx.referenceDate ?? tx.createdAt ?? null,
           amount:      Math.abs(Number(tx.netAmount)),
-          category:    null,
+          category:    tx.category?.name ?? null,
           origin:      'FINANCIAL_DIRECT',
         })
       }
