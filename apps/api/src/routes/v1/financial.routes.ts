@@ -96,6 +96,44 @@ async function updateBalance(
   })
 }
 
+// ─── Helper: sincronizar ProjectCostEntry LABOR com alocações financeiras ────────
+
+async function syncLaborCostEntries(
+  prismaClient: any,
+  companyId:     string,
+  transactionId: string,
+  description:   string,
+  refDate:       Date,
+  allocations:   { projectId: string; amount: number; costType?: string | null }[],
+) {
+  // Cancelar entries LABOR existentes para esta transação
+  await prismaClient.projectCostEntry.updateMany({
+    where: { companyId, transactionId, isCancelled: false },
+    data:  { isCancelled: true, cancelledAt: new Date() },
+  })
+
+  // Criar novos a partir das alocações com costType LABOR
+  const laborAllocs = allocations.filter(a => a.costType === 'LABOR' && a.amount > 0)
+  for (const alloc of laborAllocs) {
+    await prismaClient.projectCostEntry.create({
+      data: {
+        companyId,
+        projectId:          alloc.projectId,
+        transactionId,
+        description:        `[Mão de obra] ${description}`,
+        category:           'LABOR',
+        quantity:           1,
+        unitCost:           alloc.amount,
+        totalCost:          alloc.amount,
+        date:               refDate,
+        origin:             'FINANCIAL',
+        needsAppropriation: false,
+        isCancelled:        false,
+      },
+    })
+  }
+}
+
 // ─── Schemas de validação ─────────────────────────────────────────────────────
 
 const createTxSchema = z.object({
@@ -602,6 +640,11 @@ export async function financialRoutes(app: FastifyInstance) {
 
     let totalReceitas = 0, totalDespesas = 0, totalPago = 0, totalPendente = 0
     let countTotal    = 0, countPago    = 0, countPendente = 0, countVencido = 0
+    // Pendências separadas por tipo
+    let pendingIncome = 0, pendingExpense = 0
+    let countPendingIncome = 0, countPendingExpense = 0
+    let overdueIncome = 0, overdueExpense = 0
+    let countOverdueIncome = 0, countOverdueExpense = 0
     const now = new Date()
 
     for (const tx of transactions as any[]) {
@@ -621,19 +664,35 @@ export async function financialRoutes(app: FastifyInstance) {
         totalPago += value; countPago++
       } else {
         totalPendente += value; countPendente++
-        if (tx.dueDate && new Date(tx.dueDate) < now) countVencido++
+        const isOverdue = tx.dueDate && new Date(tx.dueDate) < now
+        if (isOverdue) countVencido++
+        if (tx.type === 'INCOME') {
+          pendingIncome += value; countPendingIncome++
+          if (isOverdue) { overdueIncome += value; countOverdueIncome++ }
+        } else {
+          pendingExpense += value; countPendingExpense++
+          if (isOverdue) { overdueExpense += value; countOverdueExpense++ }
+        }
       }
     }
 
     return reply.send({
-      totalReceitas: Math.round(totalReceitas * 100) / 100,
-      totalDespesas: Math.round(totalDespesas * 100) / 100,
-      totalPago:     Math.round(totalPago     * 100) / 100,
-      totalPendente: Math.round(totalPendente * 100) / 100,
+      totalReceitas:      Math.round(totalReceitas  * 100) / 100,
+      totalDespesas:      Math.round(totalDespesas  * 100) / 100,
+      totalPago:          Math.round(totalPago       * 100) / 100,
+      totalPendente:      Math.round(totalPendente  * 100) / 100,
+      pendingIncome:      Math.round(pendingIncome  * 100) / 100,
+      pendingExpense:     Math.round(pendingExpense * 100) / 100,
+      overdueIncome:      Math.round(overdueIncome  * 100) / 100,
+      overdueExpense:     Math.round(overdueExpense * 100) / 100,
       countTotal,
       countPago,
       countPendente,
       countVencido,
+      countPendingIncome,
+      countPendingExpense,
+      countOverdueIncome,
+      countOverdueExpense,
     })
   })
 
@@ -757,6 +816,16 @@ export async function financialRoutes(app: FastifyInstance) {
     // também recalcular obras de eventuais alocações de rateio
     for (const alloc of d.costCenterAllocations) {
       if (alloc.projectId !== d.projectId) await recalcProjectAlerts(alloc.projectId, companyId)
+    }
+
+    // Sync ProjectCostEntry LABOR via alocações
+    const hasLaborAlloc = d.costCenterAllocations.some(a => a.costType === 'LABOR')
+    if (hasLaborAlloc) {
+      const refD = d.isPaid && d.paidAt ? new Date(d.paidAt) : d.dueDate ? new Date(d.dueDate) : new Date()
+      await syncLaborCostEntries(
+        prisma, companyId, tx.id, d.description, refD,
+        d.costCenterAllocations.map(a => ({ projectId: a.projectId, amount: a.amount, costType: a.costType ?? null })),
+      )
     }
 
     return reply.status(201).send({ transaction: tx })
@@ -950,6 +1019,24 @@ export async function financialRoutes(app: FastifyInstance) {
     if (newProjectId) await recalcProjectAlerts(newProjectId, companyId)
     if (oldProjectId && oldProjectId !== newProjectId) await recalcProjectAlerts(oldProjectId, companyId)
 
+    // Sync ProjectCostEntry LABOR via alocações (PUT substitui tudo)
+    const allocsAfterPut = d.costCenterAllocations ?? []
+    const hasLaborAllocPut = allocsAfterPut.some((a: any) => a.costType === 'LABOR')
+    const hadLaborBefore   = await (prisma as any).projectCostEntry.findFirst({
+      where: { transactionId: id, isCancelled: false },
+    })
+    if (hasLaborAllocPut || hadLaborBefore) {
+      const refD2 = existing.isPaid && existing.paidAt
+        ? new Date(existing.paidAt as any)
+        : existing.dueDate ? new Date(existing.dueDate as any) : new Date()
+      await syncLaborCostEntries(
+        prisma, companyId, id,
+        (d.description ?? (existing as any).description) as string,
+        refD2,
+        allocsAfterPut.map((a: any) => ({ projectId: a.projectId, amount: a.amount, costType: a.costType ?? null })),
+      )
+    }
+
     return reply.send({ transaction: updated })
   })
 
@@ -1100,6 +1187,12 @@ export async function financialRoutes(app: FastifyInstance) {
       entityName:  existing.description,
       description: `Lançamento "${existing.description}" cancelado`,
       metadata:    { netAmount: toNum(existing.netAmount), type: existing.type, wasPaid: existing.isPaid },
+    })
+
+    // Cancelar ProjectCostEntry LABOR vinculadas a esta transação
+    await (prisma as any).projectCostEntry.updateMany({
+      where: { transactionId: id, isCancelled: false },
+      data:  { isCancelled: true, cancelledAt: new Date(), cancelledBy: payload.sub },
     })
 
     return reply.send({ success: true })

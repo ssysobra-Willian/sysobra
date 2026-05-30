@@ -495,7 +495,7 @@ export async function projectRoutes(app: FastifyInstance) {
     // ── Custo de mão de obra (ProjectCostEntry LABOR) ───────────────────────
     try {
       const laborEntries = await p.projectCostEntry.findMany({
-        where:   { companyId, projectId: id, category: 'LABOR' },
+        where:   { companyId, projectId: id, category: 'LABOR', isCancelled: false },
         orderBy: { date: 'desc' },
         take:    50,
       })
@@ -507,6 +507,30 @@ export async function projectRoutes(app: FastifyInstance) {
           description: c.description,
           totalCost:   Number(c.totalCost),
           date:        c.date,
+        })),
+      }
+    } catch { /* silencioso */ }
+
+    // ── Custos de material/EPI/equipamento (ProjectCostEntry não-LABOR) ──────
+    try {
+      const [materialAgg, byCategory] = await Promise.all([
+        p.projectCostEntry.aggregate({
+          where: { companyId, projectId: id, category: { not: 'LABOR' }, isCancelled: false },
+          _sum:  { totalCost: true },
+        }),
+        p.projectCostEntry.groupBy({
+          by:    ['category'],
+          where: { companyId, projectId: id, isCancelled: false },
+          _sum:  { totalCost: true },
+          _count: { _all: true },
+        }),
+      ])
+      serialised.materialCosts = {
+        total:      Math.round(Number(materialAgg._sum.totalCost ?? 0) * 100) / 100,
+        byCategory: byCategory.map((r: any) => ({
+          category:  r.category,
+          total:     Math.round(Number(r._sum.totalCost ?? 0) * 100) / 100,
+          count:     r._count._all,
         })),
       }
     } catch { /* silencioso */ }

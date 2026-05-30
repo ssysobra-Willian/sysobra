@@ -929,6 +929,7 @@ model FinancialTransaction {
   recurringTransaction   RecurringTransaction? @relation(fields: [recurringId], references: [id])
   costCenterAllocations  CostCenterAllocation[]
   auditLogs              FinancialAuditLog[]
+  projectCostEntries     ProjectCostEntry[]
 
   @@index([companyId, referenceDate])
   @@index([companyId, isPaid, type])
@@ -1676,12 +1677,14 @@ model ProjectCostEntry {
   cancelledAt     DateTime? @map("cancelled_at")
   cancelledBy     String?   @map("cancelled_by")
   waybillId       String?   @map("waybill_id")
+  transactionId   String?   @map("transaction_id")
   createdAt       DateTime  @default(now()) @map("created_at")
 
-  company       Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  project       Project        @relation(fields: [projectId], references: [id])
-  stage         ProjectStage?  @relation(fields: [stageId], references: [id])
-  stockMovement StockMovement? @relation(fields: [stockMovementId], references: [id])
+  company       Company               @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  project       Project               @relation(fields: [projectId], references: [id])
+  stage         ProjectStage?         @relation(fields: [stageId], references: [id])
+  stockMovement StockMovement?        @relation(fields: [stockMovementId], references: [id])
+  transaction   FinancialTransaction? @relation(fields: [transactionId], references: [id])
 
   @@map("project_cost_entries")
 }

@@ -178,14 +178,22 @@ interface AllocTx {
 }
 
 interface AllocSummary {
-  totalReceitas: number
-  totalDespesas: number
-  totalPago:     number
-  totalPendente: number
-  countTotal:    number
-  countPago:     number
-  countPendente: number
-  countVencido:  number
+  totalReceitas:      number
+  totalDespesas:      number
+  totalPago:          number
+  totalPendente:      number
+  pendingIncome:      number
+  pendingExpense:     number
+  overdueIncome:      number
+  overdueExpense:     number
+  countTotal:         number
+  countPago:          number
+  countPendente:      number
+  countVencido:       number
+  countPendingIncome: number
+  countPendingExpense:number
+  countOverdueIncome: number
+  countOverdueExpense:number
 }
 
 interface ProjectDiaryEntry {
@@ -1343,7 +1351,7 @@ export default function ObraDetailPage() {
               {tab === 'Apropriações' && userIsManager && (
                 <div className="space-y-4">
                   {/* Cards de resumo — usa totais do backend (allocatedValue correto) */}
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
                     <div className="bg-green-50 border border-green-100 rounded-xl p-3 text-center">
                       <p className="text-[10px] font-semibold text-green-500 uppercase tracking-wide mb-1">Receitas</p>
                       <p className="text-sm font-bold text-green-700">
@@ -1362,13 +1370,31 @@ export default function ObraDetailPage() {
                         {allocSummary ? formatCurrency(allocSummary.totalReceitas - allocSummary.totalDespesas) : <span className="text-gray-300 animate-pulse">—</span>}
                       </p>
                     </div>
-                    <div className={`rounded-xl p-3 text-center border ${allocSummary && allocSummary.countVencido > 0 ? 'bg-red-50 border-red-100' : 'bg-amber-50 border-amber-100'}`}>
-                      <p className={`text-[10px] font-semibold uppercase tracking-wide mb-1 ${allocSummary && allocSummary.countVencido > 0 ? 'text-red-500' : 'text-amber-500'}`}>
-                        Pendente{allocSummary && allocSummary.countVencido > 0 ? ` · ${allocSummary.countVencido} venc.` : ''}
+                    {/* A receber */}
+                    <div className="rounded-xl p-3 text-center border bg-green-50 border-green-100">
+                      <p className="text-[10px] font-semibold text-green-600 uppercase tracking-wide mb-1 flex items-center justify-center gap-1">
+                        A receber
+                        {allocSummary && allocSummary.countOverdueIncome > 0 && (
+                          <span className="text-[9px] font-bold bg-red-500 text-white px-1.5 py-0.5 rounded-full">{allocSummary.countOverdueIncome} venc.</span>
+                        )}
                       </p>
-                      <p className={`text-sm font-bold ${allocSummary && allocSummary.countVencido > 0 ? 'text-red-700' : 'text-amber-700'}`}>
-                        {allocSummary ? formatCurrency(allocSummary.totalPendente) : <span className="text-gray-300 animate-pulse">—</span>}
+                      <p className={`text-sm font-bold ${allocSummary && allocSummary.overdueIncome > 0 ? 'text-red-600' : 'text-green-700'}`}>
+                        {allocSummary ? formatCurrency(allocSummary.pendingIncome ?? 0) : <span className="text-gray-300 animate-pulse">—</span>}
                       </p>
+                      <p className="text-[9px] text-gray-400 mt-0.5">{allocSummary?.countPendingIncome ?? 0} título(s)</p>
+                    </div>
+                    {/* A pagar */}
+                    <div className={`rounded-xl p-3 text-center border ${allocSummary && allocSummary.overdueExpense > 0 ? 'bg-red-50 border-red-100' : 'bg-amber-50 border-amber-100'}`}>
+                      <p className={`text-[10px] font-semibold uppercase tracking-wide mb-1 flex items-center justify-center gap-1 ${allocSummary && allocSummary.overdueExpense > 0 ? 'text-red-500' : 'text-amber-600'}`}>
+                        A pagar
+                        {allocSummary && allocSummary.countOverdueExpense > 0 && (
+                          <span className="text-[9px] font-bold bg-red-500 text-white px-1.5 py-0.5 rounded-full">{allocSummary.countOverdueExpense} venc.</span>
+                        )}
+                      </p>
+                      <p className={`text-sm font-bold ${allocSummary && allocSummary.overdueExpense > 0 ? 'text-red-700' : 'text-amber-700'}`}>
+                        {allocSummary ? formatCurrency(allocSummary.pendingExpense ?? 0) : <span className="text-gray-300 animate-pulse">—</span>}
+                      </p>
+                      <p className="text-[9px] text-gray-400 mt-0.5">{allocSummary?.countPendingExpense ?? 0} título(s)</p>
                     </div>
                   </div>
 
