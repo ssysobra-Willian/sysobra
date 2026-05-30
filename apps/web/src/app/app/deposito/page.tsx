@@ -262,13 +262,14 @@ function ActionMenu({ onView, onEdit, onDelete, onCustody, onRequestDelete }: {
 
 // ─── Materials Table ──────────────────────────────────────────────────────────
 
-function MaterialsTable({ items, onView, onEdit, onCustody, onRequestDelete, onExpandPhoto }: {
+function MaterialsTable({ items, onView, onEdit, onCustody, onRequestDelete, onExpandPhoto, selectedLocationId }: {
   items:             StockItem[]
   onView:            (item: StockItem) => void
   onEdit?:           (item: StockItem) => void
   onCustody:         (item: StockItem) => void
   onRequestDelete?:  (item: StockItem) => void
   onExpandPhoto?:    (url: string) => void
+  selectedLocationId?: string
 }) {
   const [sort,  setSort]  = useState<{ col: string; dir: 'asc' | 'desc' }>({ col: 'name', dir: 'asc' })
   const [query, setQuery] = useState('')
@@ -357,9 +358,12 @@ function MaterialsTable({ items, onView, onEdit, onCustody, onRequestDelete, onE
                 </td>
               </tr>
             ) : filtered.map(item => {
+              const displayQty = selectedLocationId
+                ? (item.stockBalances?.find(b => b.locationId === selectedLocationId)?.quantity ?? 0)
+                : item.quantity
               const cost      = item.averageCost || item.unitCost || 0
-              const totalVal  = cost * item.quantity
-              const isLow     = item.quantity <= item.minQuantity
+              const totalVal  = cost * displayQty
+              const isLow     = displayQty <= item.minQuantity
               const imgSrc    = item.imageUrl ? getAssetUrl(item.imageUrl) : null
               return (
                 <tr
@@ -398,7 +402,7 @@ function MaterialsTable({ items, onView, onEdit, onCustody, onRequestDelete, onE
                     <span className="text-xs text-gray-500">{item.unit}</span>
                   </td>
                   <td className="px-3 py-2.5">
-                    <StockProgress qty={item.quantity} min={item.minQuantity} max={item.maxQuantity} />
+                    <StockProgress qty={displayQty} min={item.minQuantity} max={item.maxQuantity} />
                   </td>
                   <td className="px-3 py-2.5">
                     <span className="text-xs text-gray-500 truncate block max-w-[100px]">
@@ -431,8 +435,11 @@ function MaterialsTable({ items, onView, onEdit, onCustody, onRequestDelete, onE
       {/* Cards — mobile */}
       <div className="md:hidden space-y-2">
         {filtered.map(item => {
+          const mobileQty = selectedLocationId
+            ? (item.stockBalances?.find(b => b.locationId === selectedLocationId)?.quantity ?? 0)
+            : item.quantity
           const cost     = item.averageCost || item.unitCost || 0
-          const isLow    = item.quantity <= item.minQuantity
+          const isLow    = mobileQty <= item.minQuantity
           const imgSrc   = item.imageUrl ? getAssetUrl(item.imageUrl) : null
           return (
             <div
@@ -454,10 +461,10 @@ function MaterialsTable({ items, onView, onEdit, onCustody, onRequestDelete, onE
                 </div>
                 <div className="flex items-center gap-2 mt-1">
                   <span className={cn('text-sm font-bold', isLow ? 'text-red-600' : 'text-gray-700')}>
-                    {item.quantity} {item.unit}
+                    {mobileQty} {item.unit}
                   </span>
                   {cost > 0 && (
-                    <span className="text-xs text-gray-400">· {formatCurrency(cost * item.quantity)}</span>
+                    <span className="text-xs text-gray-400">· {formatCurrency(cost * mobileQty)}</span>
                   )}
                 </div>
                 {item.location && (
@@ -1555,15 +1562,23 @@ export default function DepositoPage() {
   }, [locations])
 
   // Contar pendências abertas para exibir badge no header
+  // inclui romaneios pendentes + solicitações de exclusão pendentes
   useEffect(() => {
-    apiFetch('/api/v1/waybill/pendencies?status=OPEN')
-      .then(r => r.ok ? r.json() : { total: 0 })
-      .then(d => setPendenciasCount(d.total ?? 0))
-      .catch(() => {})
+    Promise.all([
+      apiFetch('/api/v1/waybill/pendencies?status=OPEN')
+        .then(r => r.ok ? r.json() : { total: 0 })
+        .then(d => d.total ?? 0)
+        .catch(() => 0),
+      apiFetch('/api/v1/deposit/tools/delete-requests?status=PENDING')
+        .then(r => r.ok ? r.json() : { requests: [] })
+        .then(d => (d.requests ?? []).length)
+        .catch(() => 0),
+    ]).then(([waybill, delReqs]) => setPendenciasCount(waybill + delReqs))
   }, [])
 
-  // ── Derived item lists (respeitam activeFilter) ───────────────────────────
-  const baseItems  = activeFilter ? items.filter(ALERT_FILTERS[activeFilter].filter) : items
+  // ── Derived item lists — mostrar TODOS os itens; qty filtrada por local na tabela ──
+  const locationItems = items  // sempre todos os itens cadastrados
+  const baseItems  = activeFilter ? locationItems.filter(ALERT_FILTERS[activeFilter].filter) : locationItems
   const materials  = baseItems.filter(i => !i.isEpi && !i.isUniform && !i.requiresCustody)
   const tools      = baseItems.filter(i => i.requiresCustody)
   const epis       = baseItems.filter(i => i.isEpi)
@@ -1848,35 +1863,8 @@ export default function DepositoPage() {
           </div>
         ) : summary && (
           <>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            <MetricCard
-              label="Total de itens"
-              value={summary.totalItems}
-              icon={<Package size={18} className="text-blue-600" />}
-              color="bg-blue-50"
-            />
-            <MetricCard
-              label="Valor em estoque"
-              value={formatCurrency(summary.totalValue)}
-              icon={<TrendingUp size={18} className="text-green-600" />}
-              color="bg-green-50"
-            />
-            <MetricCard
-              label="Saídas este mês"
-              value={summary.exitsThisMonth}
-              icon={<ArrowUpFromLine size={18} className="text-red-500" />}
-              color="bg-red-50"
-            />
-            <MetricCard
-              label="Entradas este mês"
-              value={summary.entriesThisMonth}
-              icon={<ArrowDownToLine size={18} className="text-green-600" />}
-              color="bg-green-50"
-            />
-          </div>
-
           {/* ── Alert badges compactos ──────────────────────────────────────── */}
-          <div className="flex flex-wrap items-center gap-2 mt-3 px-3 py-2.5 bg-gray-50 rounded-xl border border-gray-100">
+          <div className="flex flex-wrap items-center gap-2 px-3 py-2.5 bg-gray-50 rounded-xl border border-gray-100">
             <span className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide mr-1 flex-shrink-0">Alertas</span>
 
             {/* Estoque baixo */}
@@ -1968,6 +1956,34 @@ export default function DepositoPage() {
                 <X size={10} /> limpar filtro
               </button>
             )}
+          </div>
+
+          {/* ── Metric cards ─────────────────────────────────────────────────── */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <MetricCard
+              label="Total de itens"
+              value={summary.totalItems}
+              icon={<Package size={18} className="text-blue-600" />}
+              color="bg-blue-50"
+            />
+            <MetricCard
+              label="Valor em estoque"
+              value={formatCurrency(summary.totalValue)}
+              icon={<TrendingUp size={18} className="text-green-600" />}
+              color="bg-green-50"
+            />
+            <MetricCard
+              label="Saídas este mês"
+              value={summary.exitsThisMonth}
+              icon={<ArrowUpFromLine size={18} className="text-red-500" />}
+              color="bg-red-50"
+            />
+            <MetricCard
+              label="Entradas este mês"
+              value={summary.entriesThisMonth}
+              icon={<ArrowDownToLine size={18} className="text-green-600" />}
+              color="bg-green-50"
+            />
           </div>
           </>
         )}
@@ -2125,6 +2141,7 @@ export default function DepositoPage() {
                 {tab === 'materials' && (
                   <MaterialsTable
                     items={materials}
+                    selectedLocationId={selectedLocation !== 'all' ? selectedLocation : undefined}
                     onView={handleViewItem}
                     onEdit={item => { setEditingMaterial(item); setMaterialFormOpen(true) }}
                     onCustody={item => setCustodyItem(item)}
@@ -2163,6 +2180,7 @@ export default function DepositoPage() {
                     </div>
                     <MaterialsTable
                       items={epis}
+                      selectedLocationId={selectedLocation !== 'all' ? selectedLocation : undefined}
                       onView={handleViewItem}
                       onEdit={item => { setEditingMaterial(item); setEpiFormOpen(true) }}
                       onCustody={item => setCustodyItem(item)}
@@ -2174,6 +2192,7 @@ export default function DepositoPage() {
                 {tab === 'uniforms' && (
                   <MaterialsTable
                     items={uniforms}
+                    selectedLocationId={selectedLocation !== 'all' ? selectedLocation : undefined}
                     onView={handleViewItem}
                     onEdit={item => { setEditingMaterial(item); setUniformFormOpen(true) }}
                     onCustody={item => setCustodyItem(item)}
@@ -2277,6 +2296,7 @@ export default function DepositoPage() {
         onClose={() => { setMaterialFormOpen(false); setEditingMaterial(null) }}
         onSuccess={() => { setMaterialFormOpen(false); setEditingMaterial(null); loadAll() }}
         item={editingMaterial as any}
+        locations={locations as any}
       />
 
       <ItemFormModal
@@ -2286,6 +2306,7 @@ export default function DepositoPage() {
         onClose={() => { setEpiFormOpen(false); setEditingMaterial(null) }}
         onSuccess={() => { setEpiFormOpen(false); setEditingMaterial(null); loadAll() }}
         item={editingMaterial as any}
+        locations={locations as any}
       />
 
       <ItemFormModal
@@ -2295,6 +2316,7 @@ export default function DepositoPage() {
         onClose={() => { setUniformFormOpen(false); setEditingMaterial(null) }}
         onSuccess={() => { setUniformFormOpen(false); setEditingMaterial(null); loadAll() }}
         item={editingMaterial as any}
+        locations={locations as any}
       />
 
       <ToolFormModal

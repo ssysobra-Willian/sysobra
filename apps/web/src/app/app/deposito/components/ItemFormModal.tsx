@@ -53,12 +53,15 @@ interface ExistingItem {
   isUniform:      boolean
 }
 
+interface StockLocation { id: string; name: string; type: string }
+
 interface Props {
-  mode:      Mode
-  isOpen:    boolean
-  onClose:   () => void
-  onSuccess: () => void
-  item?:     ExistingItem | null   // null = criação
+  mode:       Mode
+  isOpen:     boolean
+  onClose:    () => void
+  onSuccess:  () => void
+  item?:      ExistingItem | null   // null = criação
+  locations?: StockLocation[]       // lista de locais do depósito
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -376,7 +379,7 @@ function LotsSection({ lots, onChange }: { lots: LotInput[]; onChange: (l: LotIn
 
 // ─── Main Modal ───────────────────────────────────────────────────────────────
 
-export function ItemFormModal({ mode, isOpen, onClose, onSuccess, item }: Props) {
+export function ItemFormModal({ mode, isOpen, onClose, onSuccess, item, locations = [] }: Props) {
   const isEditing = !!item
 
   // ── State ──────────────────────────────────────────────────────────────────
@@ -406,7 +409,8 @@ export function ItemFormModal({ mode, isOpen, onClose, onSuccess, item }: Props)
   // Uniform-specific
   const [uniformType, setUniformType] = useState('')
 
-  const [lots, setLots] = useState<LotInput[]>([])
+  const [lots,              setLots]              = useState<LotInput[]>([])
+  const [initialLocationId, setInitialLocationId] = useState('')
 
   // Sections open/close
   const [secIdent,   setSecIdent]   = useState(true)
@@ -437,7 +441,8 @@ export function ItemFormModal({ mode, isOpen, onClose, onSuccess, item }: Props)
         imageUrl:        imageUrl      || undefined,
         minQuantity:     minQuantity   || 0,
         maxQuantity:     maxQuantity   || undefined,
-        initialQuantity: isEditing ? undefined : initialQty,
+        initialQuantity:   isEditing ? undefined : initialQty,
+        initialLocationId: isEditing ? undefined : (initialLocationId || undefined),
         unitCost:        unitCost      || undefined,
         averageCost:     unitCost      || undefined,
         locationShelf:   locationShelf   || undefined,
@@ -640,6 +645,23 @@ export function ItemFormModal({ mode, isOpen, onClose, onSuccess, item }: Props)
                     placeholder="0" className={inputCls} />
                 </Field>
               )}
+            </div>
+            {!isEditing && initialQty > 0 && locations.length > 0 && (
+              <Field label="Local da quantidade inicial">
+                <select
+                  value={initialLocationId}
+                  onChange={e => setInitialLocationId(e.target.value)}
+                  className={inputCls}
+                >
+                  <option value="">🏦 Depósito Central (padrão)</option>
+                  {locations.filter(l => l.type !== 'CENTRAL').map(l => (
+                    <option key={l.id} value={l.id}>📦 {l.name}</option>
+                  ))}
+                </select>
+                <p className="text-[11px] text-gray-400 mt-1">Se não selecionado, irá para o Depósito Central.</p>
+              </Field>
+            )}
+            <div className="grid grid-cols-3 gap-3">
               <Field label="Mínimo *">
                 <input type="number" min="0" step="0.001" value={minQuantity || ''}
                   onChange={e => setMinQuantity(Number(e.target.value))}

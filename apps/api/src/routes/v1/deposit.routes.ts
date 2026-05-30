@@ -78,6 +78,36 @@ async function getCentral(cid: string) {
   })
 }
 
+// ─── helper: cria ou atualiza StockBalance para um item em um local ───────────
+// quantityDelta > 0 = entrada, < 0 = saída
+async function upsertStockBalance(
+  companyId: string,
+  itemId:    string,
+  locationId: string,
+  quantityDelta: number,
+  averageCost:   number,
+): Promise<void> {
+  const existing = await p().stockBalance.findFirst({ where: { itemId, locationId } })
+  if (existing) {
+    const newQty = Math.max(0, Number(existing.quantity) + quantityDelta)
+    await p().stockBalance.update({
+      where: { id: existing.id },
+      data:  { quantity: newQty, totalValue: newQty * averageCost },
+    })
+  } else if (quantityDelta > 0) {
+    await p().stockBalance.create({
+      data: {
+        companyId,
+        itemId,
+        locationId,
+        quantity:    quantityDelta,
+        averageCost,
+        totalValue:  quantityDelta * averageCost,
+      },
+    })
+  }
+}
+
 // ─── schemas ─────────────────────────────────────────────────────────────────
 
 const itemCreateSchema = z.object({
@@ -95,7 +125,8 @@ const itemCreateSchema = z.object({
   // Custo e estoque inicial
   unitCost:        z.number().optional(),
   averageCost:     z.number().optional(),
-  initialQuantity: z.number().default(0),       // cria movimento IN se > 0
+  initialQuantity:   z.number().default(0),       // cria movimento IN se > 0
+  initialLocationId: z.string().optional(),       // local onde criar StockBalance inicial
   isConsumable:    z.boolean().default(true),
   requiresCustody: z.boolean().default(false),
   isEpi:           z.boolean().default(false),
@@ -432,7 +463,7 @@ export async function depositRoutes(app: FastifyInstance) {
     const body = itemCreateSchema.parse(request.body)
 
     // Extrair campos que não vão direto para StockItem
-    const { initialQuantity = 0, lots, ...itemBody } = body
+    const { initialQuantity = 0, initialLocationId, lots, ...itemBody } = body
 
     // Calcular custo médio a partir dos lotes, se informados
     let avgCost = itemBody.averageCost ?? itemBody.unitCost ?? 0
@@ -491,14 +522,15 @@ export async function depositRoutes(app: FastifyInstance) {
           averageCost: avgCost > 0 ? avgCost : undefined,
         },
       })
-      // FIX 6: criar StockBalance no Depósito Central
+      // Criar StockBalance no local informado (ou Depósito Central por padrão)
+      const targetLocId = initialLocationId ?? central.id
       await p().stockBalance.upsert({
-        where:  { itemId_locationId: { itemId: item.id, locationId: central.id } },
+        where:  { itemId_locationId: { itemId: item.id, locationId: targetLocId } },
         update: { quantity: effectiveQty, totalValue: effectiveQty * (avgCost > 0 ? avgCost : 0) },
         create: {
           companyId:   cid,
           itemId:      item.id,
-          locationId:  central.id,
+          locationId:  targetLocId,
           quantity:    effectiveQty,
           averageCost: avgCost > 0 ? avgCost : 0,
           totalValue:  effectiveQty * (avgCost > 0 ? avgCost : 0),
@@ -1361,6 +1393,20 @@ export async function depositRoutes(app: FastifyInstance) {
 
     if (operations.length > 0) {
       await p().$transaction(operations)
+    }
+
+    // ── StockBalance por local: basket OUT/EPI/RETURN com sourceLocationId ──────
+    if (!isTransfer && body.sourceLocationId) {
+      for (const entry of body.items) {
+        const srcItem = await p().stockItem.findFirst({
+          where:  { id: entry.stockItemId, companyId: cid },
+          select: { averageCost: true, unitCost: true },
+        })
+        if (!srcItem) continue
+        const avgCost = Number(srcItem.averageCost ?? srcItem.unitCost ?? 0)
+        const delta   = movementType === 'RETURN' ? entry.quantity : -entry.quantity
+        await upsertStockBalance(cid, entry.stockItemId, body.sourceLocationId, delta, avgCost)
+      }
     }
 
     // ── Transferência entre almoxarifados: atualiza StockBalance ─────────────

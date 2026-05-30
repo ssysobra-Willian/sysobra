@@ -59,6 +59,10 @@ function serialiseProject(proj: any) {
     contractValue:   toNum(proj.contractValue),
     progressPercent: toNum(proj.progressPercent),
     stages,
+    // normalize responsible: Employee has `photo`, frontend expects `avatarUrl`
+    responsible: proj.responsible
+      ? { ...proj.responsible, avatarUrl: proj.responsible.photo ?? proj.responsible.avatarUrl ?? null }
+      : null,
     // computed
     totalBudget,
     totalRealized,
@@ -243,7 +247,7 @@ export async function projectRoutes(app: FastifyInstance) {
         where,
         include: {
           client:      { select: { id: true, name: true } },
-          responsible: { select: { id: true, name: true, avatarUrl: true } },
+          responsible: { select: { id: true, name: true, photo: true } },
           stages:      true,
           _count: { select: { financialTransactions: true } },
         },
@@ -360,7 +364,7 @@ export async function projectRoutes(app: FastifyInstance) {
       },
       include: {
         client:      { select: { id: true, name: true } },
-        responsible: { select: { id: true, name: true, avatarUrl: true } },
+        responsible: { select: { id: true, name: true, photo: true } },
         stages:      true,
       },
     })
@@ -390,7 +394,7 @@ export async function projectRoutes(app: FastifyInstance) {
       where: { id, companyId, isActive: true },
       include: {
         client:      { select: { id: true, name: true, email: true, phone: true } },
-        responsible: { select: { id: true, name: true, avatarUrl: true } },
+        responsible: { select: { id: true, name: true, photo: true } },
         stages:      { orderBy: { order: 'asc' } },
         financialTransactions: {
           where:   { isActive: true },
@@ -722,7 +726,7 @@ export async function projectRoutes(app: FastifyInstance) {
       data,
       include: {
         client:      { select: { id: true, name: true } },
-        responsible: { select: { id: true, name: true, avatarUrl: true } },
+        responsible: { select: { id: true, name: true, photo: true } },
         stages:      { orderBy: { order: 'asc' } },
       },
     })
@@ -744,7 +748,7 @@ export async function projectRoutes(app: FastifyInstance) {
       where: { id },
       include: {
         client:      { select: { id: true, name: true } },
-        responsible: { select: { id: true, name: true, avatarUrl: true } },
+        responsible: { select: { id: true, name: true, photo: true } },
         stages:      { orderBy: { order: 'asc' } },
       },
     })
@@ -1850,9 +1854,9 @@ export async function projectRoutes(app: FastifyInstance) {
 
     if (!body.stageId) return reply.status(400).send({ error: 'stageId é obrigatório' })
 
-    // Verificar que a alocação pertence à obra/empresa
+    // Verificar que a alocação pertence à empresa (projectId é opcional em alocações antigas)
     const alloc = await p.costCenterAllocation.findFirst({
-      where: { id: allocationId, companyId, projectId: id },
+      where: { id: allocationId, companyId },
     })
     if (!alloc) return reply.status(404).send({ error: 'Alocação não encontrada' })
 

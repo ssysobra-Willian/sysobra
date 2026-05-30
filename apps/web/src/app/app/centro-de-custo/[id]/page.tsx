@@ -1898,16 +1898,14 @@ export default function ObraDetailPage() {
                             const headers   = { Authorization: `Bearer ${token}`, 'x-company-id': companyId, 'Content-Type': 'application/json' }
                             const body      = JSON.stringify({ stageId: stageModalStageId })
 
-                            if (stageModalTx.allocId) {
-                              // Lançamento com alocação: atualizar via alocação
-                              await fetch(`${API}/api/v1/projects/${id}/allocations/${stageModalTx.allocId}/stage`, {
-                                method: 'PATCH', headers, body,
-                              })
-                            } else {
-                              // Lançamento direto (sem alocação): atualizar stageId na transação
-                              await fetch(`${API}/api/v1/projects/${id}/transactions/${stageModalTx.txId}/stage`, {
-                                method: 'PATCH', headers, body,
-                              })
+                            const stageUrl = stageModalTx.allocId
+                              ? `${API}/api/v1/projects/${id}/allocations/${stageModalTx.allocId}/stage`
+                              : `${API}/api/v1/projects/${id}/transactions/${stageModalTx.txId}/stage`
+                            const stageRes = await fetch(stageUrl, { method: 'PATCH', headers, body })
+                            if (!stageRes.ok) {
+                              const errData = await stageRes.json().catch(() => ({}))
+                              alert(errData.error || `Erro ${stageRes.status} ao definir etapa`)
+                              return
                             }
 
                             // ── Update otimista — UI responde imediatamente ──────────
