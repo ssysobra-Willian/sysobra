@@ -1744,6 +1744,29 @@ export async function projectRoutes(app: FastifyInstance) {
 
     return reply.send({ success: true })
   })
+
+  // ── PATCH /:id/allocations/:allocationId/stage — definir etapa na alocação ──
+  app.patch('/:id/allocations/:allocationId/stage', { preHandler: [requireCompany] }, async (request, reply) => {
+    const req          = request as RequestWithMember
+    const companyId    = req.companyId!
+    const { id, allocationId } = request.params as { id: string; allocationId: string }
+    const body         = request.body as { stageId: string }
+
+    if (!body.stageId) return reply.status(400).send({ error: 'stageId é obrigatório' })
+
+    // Verificar que a alocação pertence à obra/empresa
+    const alloc = await p.costCenterAllocation.findFirst({
+      where: { id: allocationId, companyId, projectId: id },
+    })
+    if (!alloc) return reply.status(404).send({ error: 'Alocação não encontrada' })
+
+    await p.costCenterAllocation.update({
+      where: { id: allocationId },
+      data:  { stageId: body.stageId },
+    })
+
+    return reply.send({ success: true })
+  })
 }
 
 // buildPlacaHtml migrado para apps/api/src/utils/placaTemplate.ts

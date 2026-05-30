@@ -139,6 +139,10 @@ interface Project {
     total: number
     entries: { id: string; description: string; totalCost: number; date: string }[]
   }
+  materialCosts?: {
+    total: number
+    byCategory: { category: string; total: number; count: number }[]
+  }
 }
 
 interface FinancialSummary {
@@ -172,6 +176,7 @@ interface AllocTx {
   category:        { id: string; name: string; color: string | null } | null
   bankAccount:     { id: string; name: string } | null
   costCenterAllocations: {
+    id:      string
     project: { id: string; name: string } | null
     stage:   { id: string; name: string } | null
     amount:  number
@@ -195,6 +200,7 @@ interface AllocSummary {
   countPendingExpense:number
   countOverdueIncome: number
   countOverdueExpense:number
+  semEtapaCount:      number
 }
 
 interface ProjectDiaryEntry {
@@ -678,13 +684,13 @@ function progressBarColor(pct: number, status: string) {
 
 // ─── Abas ─────────────────────────────────────────────────────────────────────
 
-const TABS = ['Resumo', 'Apropriações', 'Custos', 'Pluviometria', 'Compras', 'Medições', 'Equipe', 'Documentos', 'Ferramentas', 'Pasta de Projetos', 'Histórico'] as const
+const TABS = ['Resumo', 'Apropriações', 'Pluviometria', 'Compras', 'Medições', 'Equipe', 'Documentos', 'Ferramentas', 'Pasta de Projetos', 'Histórico'] as const
 type Tab = typeof TABS[number]
 
 // Abas restritas a OWNER / ADMIN / MANAGER
 const MANAGER_ONLY_TABS: Tab[] = ['Resumo', 'Apropriações', 'Histórico']
 
-// ─── Mapa de categorias de custo ──────────────────────────────────────────────
+// ─── Mapa de categorias de custo (mantido para referência) ───────────────────
 const COST_CATEGORY: Record<string, { label: string; color: string; bg: string }> = {
   MATERIAL:  { label: 'Material',     color: '#2563EB', bg: '#DBEAFE' },
   EQUIPMENT: { label: 'Equipamento',  color: '#7C3AED', bg: '#EDE9FE' },
@@ -747,18 +753,6 @@ export default function ObraDetailPage() {
   // ── Solicitação de encerramento pendente ──────────────────────────────────
   const [closeRequest, setCloseRequest] = useState<any>(null)
 
-  // ── Aba Custos ───────────────────────────────────────────────────────────
-  const [costs,              setCosts]              = useState<any[]>([])
-  const [costTotals,         setCostTotals]         = useState<any[]>([])
-  const [costsLoading,       setCostsLoading]       = useState(false)
-  const [pendingCostsCount,  setPendingCostsCount]  = useState(0)
-  const [costFilter,         setCostFilter]         = useState('all')
-  const [selectedCostIds,    setSelectedCostIds]    = useState<string[]>([])
-  const [showAppropModal,    setShowAppropModal]    = useState(false)
-  const [appropCostId,       setAppropCostId]       = useState<string | null>(null)
-  const [appropStageId,      setAppropStageId]      = useState('')
-  const [savingApprop,       setSavingApprop]       = useState(false)
-
   // ── Aba Apropriações ──────────────────────────────────────────────────────
   const [allocTxs,      setAllocTxs]      = useState<AllocTx[]>([])
   const [allocTotal,    setAllocTotal]     = useState(0)
@@ -770,6 +764,10 @@ export default function ObraDetailPage() {
   const [allocSearch,       setAllocSearch]       = useState('')
   const [allocPeriod,       setAllocPeriod]       = useState('ALL')
   const [allocLimit,        setAllocLimit]        = useState(10)
+  // Modal de definir etapa em uma alocação
+  const [stageModalTx,      setStageModalTx]      = useState<{ txId: string; allocId: string; description: string; amount: number } | null>(null)
+  const [stageModalStageId, setStageModalStageId] = useState('')
+  const [savingStageModal,  setSavingStageModal]  = useState(false)
 
   const loadProject = useCallback(async () => {
     setLoading(true)
@@ -902,33 +900,9 @@ export default function ObraDetailPage() {
   // ── Redirecionar aba restrita para não-gestores ──────────────────────────
   useEffect(() => {
     if (!userIsManager && MANAGER_ONLY_TABS.includes(tab)) {
-      setTab('Custos')
+      setTab('Pluviometria')
     }
   }, [userIsManager, tab])
-
-  // ── Carrega custos da obra ───────────────────────────────────────────────
-  const loadCosts = async () => {
-    if (!id) return
-    setCostsLoading(true)
-    try {
-      const token     = localStorage.getItem('token') || ''
-      const companyId = localStorage.getItem('companyId') || ''
-      const res  = await fetch(`${API}/api/v1/projects/${id}/costs`, {
-        headers: { Authorization: `Bearer ${token}`, 'x-company-id': companyId },
-      })
-      if (!res.ok) return
-      const data = await res.json()
-      setCosts(data.costs ?? [])
-      setCostTotals(data.totals ?? [])
-      setPendingCostsCount(data.pendingCount ?? 0)
-    } catch { /* silencioso */ } finally { setCostsLoading(false) }
-  }
-
-  useEffect(() => {
-    if (tab !== 'Custos') return
-    loadCosts()
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab, id])
 
   // Carrega lançamentos + summary da aba Apropriações
   useEffect(() => {
@@ -1302,11 +1276,6 @@ export default function ObraDetailPage() {
                       {toolsCount}
                     </span>
                   )}
-                  {t === 'Custos' && pendingCostsCount > 0 && (
-                    <span className="text-[10px] font-bold bg-red-500 text-white px-1.5 py-0.5 rounded-full leading-none">
-                      {pendingCostsCount}
-                    </span>
-                  )}
                 </button>
               ))}
             </div>
@@ -1418,6 +1387,41 @@ export default function ObraDetailPage() {
                     </div>
                   </div>
 
+                  {/* Cards Material + MO */}
+                  {(project?.materialCosts || project?.laborCosts) && (
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="bg-blue-50 border border-blue-100 rounded-xl p-3">
+                        <p className="text-[10px] font-semibold text-blue-500 uppercase tracking-wide mb-1">📦 Materiais consumidos</p>
+                        <p className="text-sm font-bold text-blue-700">
+                          {(project.materialCosts?.total ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                        </p>
+                        <p className="text-[9px] text-gray-400 mt-0.5">Saídas de estoque apropiadas</p>
+                      </div>
+                      <div className="bg-violet-50 border border-violet-100 rounded-xl p-3">
+                        <p className="text-[10px] font-semibold text-violet-500 uppercase tracking-wide mb-1">👷 Mão de obra</p>
+                        <p className="text-sm font-bold text-violet-700">
+                          {(project.laborCosts?.total ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                        </p>
+                        <p className="text-[9px] text-gray-400 mt-0.5">Folhas de pagamento lançadas</p>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Alerta: despesas sem etapa */}
+                  {allocSummary && allocSummary.semEtapaCount > 0 && (
+                    <div className="flex items-start gap-3 px-4 py-3 rounded-xl bg-amber-50 border border-amber-200 border-l-4 border-l-amber-500">
+                      <AlertTriangle size={16} className="text-amber-600 flex-shrink-0 mt-0.5" />
+                      <div>
+                        <p className="text-sm font-semibold text-amber-800">
+                          {allocSummary.semEtapaCount} despesa{allocSummary.semEtapaCount > 1 ? 's' : ''} sem etapa definida
+                        </p>
+                        <p className="text-xs text-amber-700 mt-0.5">
+                          Clique em "Definir etapa" na linha para apropriar corretamente o custo da obra.
+                        </p>
+                      </div>
+                    </div>
+                  )}
+
                   {/* Filtros */}
                   <div className="flex flex-wrap gap-2 items-center">
                     <select value={allocTypeFilter} onChange={e => { setAllocTypeFilter(e.target.value); setAllocPage(1) }}
@@ -1479,10 +1483,15 @@ export default function ObraDetailPage() {
                           </thead>
                           <tbody className="divide-y divide-gray-50">
                             {allocTxs.map(tx => {
-                              const stage = tx.costCenterAllocations.find(a => a.stage)?.stage
+                              const allocWithStage = tx.costCenterAllocations.find(a => a.stage)
+                              const allocWithoutStage = tx.type === 'EXPENSE'
+                                ? tx.costCenterAllocations.find(a => !a.stage)
+                                : undefined
+                              const stage    = allocWithStage?.stage
                               const isOverdue = !tx.isPaid && tx.dueDate && new Date(tx.dueDate) < new Date()
+                              const needsStage = !stage && tx.type === 'EXPENSE'
                               return (
-                                <tr key={tx.id} className="hover:bg-gray-50 transition-colors">
+                                <tr key={tx.id} className={`hover:bg-gray-50 transition-colors ${needsStage ? 'bg-amber-50/30' : ''}`}>
                                   <td className="px-3 py-2.5 text-xs text-gray-500 whitespace-nowrap">
                                     {tx.referenceDate ? formatDateBR(tx.referenceDate) : '—'}
                                   </td>
@@ -1504,7 +1513,19 @@ export default function ObraDetailPage() {
                                   </td>
                                   <td className="px-3 py-2.5">
                                     {stage ? (
-                                      <span className="text-[10px] bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full whitespace-nowrap">{stage.name}</span>
+                                      <span className="text-[10px] bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full whitespace-nowrap border border-blue-100">{stage.name}</span>
+                                    ) : needsStage && allocWithoutStage ? (
+                                      <button
+                                        onClick={() => setStageModalTx({
+                                          txId:        tx.id,
+                                          allocId:     (allocWithoutStage as any).id,
+                                          description: tx.description,
+                                          amount:      (allocWithoutStage as any).amount ?? tx.netAmount,
+                                        })}
+                                        className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 border border-amber-300 hover:bg-amber-200 transition-colors whitespace-nowrap"
+                                      >
+                                        ⚠️ Definir etapa
+                                      </button>
                                     ) : <span className="text-xs text-gray-400">—</span>}
                                   </td>
                                   <td className={`px-3 py-2.5 text-xs font-semibold whitespace-nowrap ${tx.type === 'INCOME' ? 'text-green-600' : 'text-red-600'}`}>
@@ -1545,177 +1566,18 @@ export default function ObraDetailPage() {
                 </div>
               )}
 
-              {/* ─── Aba Custos ──────────────────────────────────────────────── */}
-              {tab === 'Custos' && (
-                <div className="space-y-4">
-
-                  {/* Header */}
-                  <div className="flex items-center justify-between flex-wrap gap-3">
-                    <div>
-                      <h3 className="text-sm font-semibold text-gray-800">Custos da obra</h3>
-                      <p className="text-xs text-gray-500 mt-0.5">Materiais, equipamentos e EPI consumidos — gerado automaticamente via saídas do depósito</p>
-                    </div>
-                    {selectedCostIds.length > 0 && (
-                      <button
-                        onClick={() => { setAppropCostId(null); setShowAppropModal(true) }}
-                        className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-[#F5A623] text-white hover:bg-[#d4891a] transition-colors"
-                      >
-                        Apropriar {selectedCostIds.length} selecionado(s)
-                      </button>
-                    )}
-                  </div>
-
-                  {/* Totais por categoria */}
-                  {costTotals.length > 0 && (
-                    <div className="flex flex-wrap gap-2">
-                      {costTotals.map((t: any) => {
-                        const cat = COST_CATEGORY[t.category] ?? COST_CATEGORY.OTHER
-                        const active = costFilter === t.category
-                        return (
-                          <button key={t.category}
-                            onClick={() => setCostFilter(active ? 'all' : t.category)}
-                            className="px-3 py-2 rounded-lg text-left transition-all"
-                            style={{ background: cat.bg, border: `1.5px solid ${active ? cat.color : 'transparent'}`, outline: 'none' }}
-                          >
-                            <div className="text-[10px] font-bold uppercase tracking-wide" style={{ color: cat.color }}>{cat.label}</div>
-                            <div className="text-sm font-bold text-gray-800">{t.total.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</div>
-                            <div className="text-[10px] text-gray-500">{t.count} item(s)</div>
-                          </button>
-                        )
-                      })}
-                      <div className="px-3 py-2 rounded-lg bg-gray-900 ml-auto">
-                        <div className="text-[10px] font-bold uppercase tracking-wide text-gray-400">Total</div>
-                        <div className="text-sm font-bold text-white">
-                          {costTotals.reduce((s: number, t: any) => s + t.total, 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Filtros rápidos */}
-                  <div className="flex gap-2 flex-wrap">
-                    {[
-                      { v: 'all',     l: 'Todos' },
-                      { v: 'pending', l: `⚠️ Pendentes${pendingCostsCount > 0 ? ` (${pendingCostsCount})` : ''}` },
-                    ].map(f => (
-                      <button key={f.v}
-                        onClick={() => setCostFilter(f.v)}
-                        className={`px-3 py-1 rounded-lg text-xs font-medium border transition-colors ${
-                          costFilter === f.v
-                            ? 'bg-amber-50 border-[#F5A623] text-amber-800'
-                            : 'border-gray-200 text-gray-600 hover:border-gray-300'
-                        }`}
-                      >
-                        {f.l}
-                      </button>
-                    ))}
-                  </div>
-
-                  {/* Tabela */}
-                  {costsLoading ? (
-                    <div className="flex justify-center py-10">
-                      <div className="h-6 w-6 rounded-full border-2 border-[#F5A623] border-t-transparent animate-spin" />
-                    </div>
-                  ) : (() => {
-                    const filtered = costs.filter(c => {
-                      if (costFilter === 'pending') return c.needsAppropriation
-                      if (costFilter === 'all') return true
-                      return c.category === costFilter
-                    })
-                    return (
-                      <div className="border border-gray-200 rounded-xl overflow-hidden">
-                        <table className="w-full text-sm">
-                          <thead className="bg-gray-50">
-                            <tr>
-                              <th className="px-3 py-2.5 w-8">
-                                <input type="checkbox"
-                                  onChange={e => setSelectedCostIds(
-                                    e.target.checked
-                                      ? filtered.filter((c: any) => c.needsAppropriation).map((c: any) => c.id)
-                                      : []
-                                  )}
-                                />
-                              </th>
-                              {['Descrição', 'Categoria', 'Qtd', 'Unit.', 'Total', 'Etapa', 'Status', ''].map(h => (
-                                <th key={h} className="px-3 py-2.5 text-left text-[10px] font-semibold text-gray-500 uppercase tracking-wide">{h}</th>
-                              ))}
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-gray-100">
-                            {filtered.map((cost: any) => {
-                              const cat = COST_CATEGORY[cost.category] ?? COST_CATEGORY.OTHER
-                              return (
-                                <tr key={cost.id} className={cost.needsAppropriation ? 'bg-amber-50/40' : 'bg-white'}>
-                                  <td className="px-3 py-2.5">
-                                    {cost.needsAppropriation && (
-                                      <input type="checkbox"
-                                        checked={selectedCostIds.includes(cost.id)}
-                                        onChange={e => setSelectedCostIds(prev =>
-                                          e.target.checked ? [...prev, cost.id] : prev.filter(x => x !== cost.id)
-                                        )}
-                                      />
-                                    )}
-                                  </td>
-                                  <td className="px-3 py-2.5">
-                                    <div className="font-medium text-gray-800">{cost.description}</div>
-                                    {cost.stockMovement && <div className="text-[10px] text-blue-500">Via depósito</div>}
-                                    <div className="text-[10px] text-gray-400">{new Date(cost.date).toLocaleDateString('pt-BR')}</div>
-                                  </td>
-                                  <td className="px-3 py-2.5">
-                                    <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full" style={{ color: cat.color, background: cat.bg }}>
-                                      {cat.label}
-                                    </span>
-                                  </td>
-                                  <td className="px-3 py-2.5 text-right text-gray-700">{Number(cost.quantity).toLocaleString('pt-BR')}</td>
-                                  <td className="px-3 py-2.5 text-right text-gray-500 text-xs">{Number(cost.unitCost).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</td>
-                                  <td className="px-3 py-2.5 text-right font-semibold text-gray-800">{Number(cost.totalCost).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</td>
-                                  <td className="px-3 py-2.5 text-xs text-gray-600">{cost.stage?.name ?? <span className="text-gray-400">—</span>}</td>
-                                  <td className="px-3 py-2.5">
-                                    {cost.needsAppropriation ? (
-                                      <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">⚠️ Pendente</span>
-                                    ) : (
-                                      <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-green-100 text-green-700">✅ Apropriado</span>
-                                    )}
-                                  </td>
-                                  <td className="px-3 py-2.5">
-                                    {cost.needsAppropriation && (
-                                      <button
-                                        onClick={() => { setAppropCostId(cost.id); setShowAppropModal(true) }}
-                                        className="text-[11px] font-semibold px-2 py-1 rounded-md border border-[#F5A623] text-[#F5A623] bg-amber-50 hover:bg-amber-100 transition-colors"
-                                      >
-                                        Apropriar
-                                      </button>
-                                    )}
-                                  </td>
-                                </tr>
-                              )
-                            })}
-                          </tbody>
-                        </table>
-                        {filtered.length === 0 && (
-                          <div className="text-center py-10 text-gray-500 text-sm">
-                            {costFilter === 'pending' ? '✅ Nenhum custo pendente de apropriação' : 'Nenhum custo registrado nesta obra'}
-                          </div>
-                        )}
-                      </div>
-                    )
-                  })()}
-                </div>
-              )}
-
-              {/* ─── Modal de apropriação ───────────────────────────────────── */}
-              {showAppropModal && (
+              {/* ─── Modal: definir etapa em alocação financeira ──────────── */}
+              {stageModalTx && (
                 <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
                   <div className="bg-white rounded-2xl p-6 max-w-md w-full shadow-xl">
-                    <h3 className="text-base font-bold mb-1">Apropriar à etapa</h3>
-                    <p className="text-sm text-gray-500 mb-4">
-                      {appropCostId
-                        ? 'Selecione a etapa para este custo:'
-                        : `Apropriar ${selectedCostIds.length} custo(s) selecionado(s) à etapa:`}
+                    <h3 className="text-base font-bold mb-1">Definir etapa</h3>
+                    <p className="text-sm text-gray-500 mb-1 truncate">{stageModalTx.description}</p>
+                    <p className="text-sm font-bold text-red-600 mb-4">
+                      {stageModalTx.amount.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
                     </p>
                     <select
-                      value={appropStageId}
-                      onChange={e => setAppropStageId(e.target.value)}
+                      value={stageModalStageId}
+                      onChange={e => setStageModalStageId(e.target.value)}
                       className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm mb-4 focus:outline-none focus:ring-1 focus:ring-[#F5A623]"
                     >
                       <option value="">Selecione a etapa...</option>
@@ -1725,37 +1587,33 @@ export default function ObraDetailPage() {
                     </select>
                     <div className="flex gap-2">
                       <button
-                        onClick={() => { setShowAppropModal(false); setAppropCostId(null); setAppropStageId('') }}
+                        onClick={() => { setStageModalTx(null); setStageModalStageId('') }}
                         className="flex-1 py-2.5 rounded-lg border border-gray-200 text-sm text-gray-600 hover:bg-gray-50 transition-colors"
                       >
                         Cancelar
                       </button>
                       <button
-                        disabled={!appropStageId || savingApprop}
+                        disabled={!stageModalStageId || savingStageModal}
                         onClick={async () => {
-                          if (!appropStageId) return
-                          setSavingApprop(true)
+                          if (!stageModalStageId || !stageModalTx) return
+                          setSavingStageModal(true)
                           try {
                             const token     = localStorage.getItem('token') || ''
                             const companyId = localStorage.getItem('companyId') || ''
-                            const headers   = { Authorization: `Bearer ${token}`, 'x-company-id': companyId, 'Content-Type': 'application/json' }
-                            if (appropCostId) {
-                              await fetch(`${API}/api/v1/projects/${id}/costs/${appropCostId}/appropriate`, {
-                                method: 'PATCH', headers, body: JSON.stringify({ stageId: appropStageId }),
-                              })
-                            } else {
-                              await fetch(`${API}/api/v1/projects/${id}/costs/appropriate-bulk`, {
-                                method: 'PATCH', headers, body: JSON.stringify({ costIds: selectedCostIds, stageId: appropStageId }),
-                              })
-                            }
-                            setShowAppropModal(false); setAppropCostId(null); setSelectedCostIds([]); setAppropStageId('')
-                            loadCosts()
-                          } catch { /* silencioso */ } finally { setSavingApprop(false) }
+                            await fetch(`${API}/api/v1/projects/${id}/allocations/${stageModalTx.allocId}/stage`, {
+                              method:  'PATCH',
+                              headers: { Authorization: `Bearer ${token}`, 'x-company-id': companyId, 'Content-Type': 'application/json' },
+                              body:    JSON.stringify({ stageId: stageModalStageId }),
+                            })
+                            setStageModalTx(null); setStageModalStageId('')
+                            // Recarregar summary + lista
+                            setAllocSummary(null)
+                          } catch { /* silencioso */ } finally { setSavingStageModal(false) }
                         }}
-                        className="flex-2 flex-1 py-2.5 rounded-lg text-sm font-semibold text-white transition-colors"
-                        style={{ background: appropStageId && !savingApprop ? '#F5A623' : '#D1D5DB', cursor: appropStageId ? 'pointer' : 'not-allowed' }}
+                        className="flex-[2] py-2.5 rounded-lg text-sm font-semibold text-white transition-colors"
+                        style={{ background: stageModalStageId && !savingStageModal ? '#F5A623' : '#D1D5DB', cursor: stageModalStageId ? 'pointer' : 'not-allowed' }}
                       >
-                        {savingApprop ? 'Salvando...' : '✅ Confirmar'}
+                        {savingStageModal ? 'Salvando...' : '✅ Confirmar'}
                       </button>
                     </div>
                   </div>

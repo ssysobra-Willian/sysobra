@@ -1,0 +1,26 @@
+refactor: remove aba Custos, melhora Apropriações com cards e alerta sem etapa
+
+FIX 1 - Remove aba Custos:
+  - TABS: Custos removido (11 para 10 abas)
+  - Estados removidos: costs, costTotals, costsLoading, pendingCostsCount,
+    costFilter, selectedCostIds, showAppropModal, appropCostId, savingApprop
+  - loadCosts() e useEffect removidos
+  - Redirect nao-gestores: Custos -> Pluviometria
+  - Badge da aba Custos removido
+  - JSX Custos + modal de apropriação removidos
+
+FIX 2 - Cards Material + MO na aba Apropriações:
+  - Project interface: materialCosts adicionado
+  - 2 cards: Materiais consumidos (blue) + Mao de obra (violet)
+
+FIX 3 - Alerta e definir etapa na aba Apropriações:
+  - financial summary: retorna semEtapaCount (EXPENSE allocs sem stageId)
+  - AllocSummary interface: semEtapaCount adicionado
+  - Alerta amber quando semEtapaCount > 0
+  - Coluna Etapa: despesas sem etapa mostram botao definir etapa
+  - Linhas de despesa sem etapa: fundo amber suave
+  - Modal para definir stageId na CostCenterAllocation
+  - AllocTx.costCenterAllocations: id adicionado
+  - project.routes.ts: PATCH /:id/allocations/:allocationId/stage
+
+Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>

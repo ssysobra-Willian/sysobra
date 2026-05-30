@@ -676,6 +676,16 @@ export async function financialRoutes(app: FastifyInstance) {
       }
     }
 
+    // Despesas EXPENSE sem etapa (stageId null) — via alocação para esta obra
+    const semEtapaCount = await (prisma as any).costCenterAllocation.count({
+      where: {
+        companyId,
+        projectId,
+        stageId: null,
+        transaction: { type: 'EXPENSE', isActive: true },
+      },
+    })
+
     return reply.send({
       totalReceitas:      Math.round(totalReceitas  * 100) / 100,
       totalDespesas:      Math.round(totalDespesas  * 100) / 100,
@@ -693,6 +703,7 @@ export async function financialRoutes(app: FastifyInstance) {
       countPendingExpense,
       countOverdueIncome,
       countOverdueExpense,
+      semEtapaCount,
     })
   })
 
