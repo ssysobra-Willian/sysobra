@@ -1,26 +1,18 @@
-refactor: remove aba Custos, melhora Apropriações com cards e alerta sem etapa
+fix: etapas — % executado fisico manual + valor realizado automático das apropriações
 
-FIX 1 - Remove aba Custos:
-  - TABS: Custos removido (11 para 10 abas)
-  - Estados removidos: costs, costTotals, costsLoading, pendingCostsCount,
-    costFilter, selectedCostIds, showAppropModal, appropCostId, savingApprop
-  - loadCosts() e useEffect removidos
-  - Redirect nao-gestores: Custos -> Pluviometria
-  - Badge da aba Custos removido
-  - JSX Custos + modal de apropriação removidos
+Backend:
+- GET /:id: progressPercent usa valor fisico do DB (nao sobrescreve com razão financeira)
+- updateProgressSchema: remove realizedValue (não é editável pelo usuário)
+- PATCH /stages/:stageId/progress: remove data.realizedValue
+- recalcProject: calcula realizedValue dinamicamente (allocs + entries por stageId)
+  para corrigir budgetAlert do projeto (antes usava stale DB realizedValue)
 
-FIX 2 - Cards Material + MO na aba Apropriações:
-  - Project interface: materialCosts adicionado
-  - 2 cards: Materiais consumidos (blue) + Mao de obra (violet)
-
-FIX 3 - Alerta e definir etapa na aba Apropriações:
-  - financial summary: retorna semEtapaCount (EXPENSE allocs sem stageId)
-  - AllocSummary interface: semEtapaCount adicionado
-  - Alerta amber quando semEtapaCount > 0
-  - Coluna Etapa: despesas sem etapa mostram botao definir etapa
-  - Linhas de despesa sem etapa: fundo amber suave
-  - Modal para definir stageId na CostCenterAllocation
-  - AllocTx.costCenterAllocations: id adicionado
-  - project.routes.ts: PATCH /:id/allocations/:allocationId/stage
+Frontend BudgetTable:
+- Coluna Progresso: input inline para % físico editável
+  - onChange atualiza estado local (localProgress)
+  - onBlur salva via PATCH /stages/:stageId/progress
+  - Barra azul mostra % físico digitado em tempo real
+  - Spinner enquanto salva
+- avgProgress: média ponderada pelo orçado (antes era média simples)
 
 Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>

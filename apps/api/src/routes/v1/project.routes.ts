@@ -88,11 +88,30 @@ async function nextProjectCode(companyId: string): Promise<string> {
 async function recalcProject(projectId: string, companyId: string) {
   const stages = await p.projectStage.findMany({
     where:  { projectId },
-    select: { budgetTotal: true, realizedValue: true, progressPercent: true },
+    select: { id: true, budgetTotal: true, progressPercent: true },
   })
 
-  const totalBudget   = stages.reduce((a: number, s: any) => a + toNum(s.budgetTotal),  0)
-  const totalRealized = stages.reduce((a: number, s: any) => a + toNum(s.realizedValue), 0)
+  // Calcular realizedValue real de cada etapa (allocs + entries)
+  const [allocsByStage, entriesByStage] = await Promise.all([
+    p.costCenterAllocation.groupBy({
+      by:    ['stageId'],
+      where: { companyId, projectId, stageId: { not: null }, transaction: { isPaid: true, isActive: true } },
+      _sum:  { amount: true },
+    }),
+    p.projectCostEntry.groupBy({
+      by:    ['stageId'],
+      where: { companyId, projectId, stageId: { not: null }, isCancelled: false },
+      _sum:  { totalCost: true },
+    }),
+  ])
+  const allocMap: Record<string, number> = {}
+  for (const r of allocsByStage) { if (r.stageId) allocMap[r.stageId] = toNum(r._sum.amount ?? 0) }
+  const entryMap: Record<string, number> = {}
+  for (const r of entriesByStage) { if (r.stageId) entryMap[r.stageId] = toNum(r._sum.totalCost ?? 0) }
+
+  const totalBudget   = stages.reduce((a: number, s: any) => a + toNum(s.budgetTotal), 0)
+  const totalRealized = stages.reduce((a: number, s: any) =>
+    a + (allocMap[s.id] ?? 0) + (entryMap[s.id] ?? 0), 0)
 
   // Média ponderada do progresso físico
   const totalWeight = stages.reduce((a: number, s: any) => a + toNum(s.budgetTotal), 0)
@@ -182,7 +201,6 @@ const createStageSchema = z.object({
 
 const updateProgressSchema = z.object({
   progressPercent: z.number().min(0).max(100),
-  realizedValue:   z.number().optional(),
   status:          z.enum(['PENDING','IN_PROGRESS','COMPLETED','CANCELLED']).optional(),
 })
 
@@ -495,19 +513,18 @@ export async function projectRoutes(app: FastifyInstance) {
         const deviationPercent        = budget > 0
           ? ((totalRealized - budget) / budget) * 100
           : 0
-        const progressPercent         = budget > 0
-          ? Math.min(100, Math.round((totalRealized / budget) * 10000) / 100)
-          : stage.progressPercent ?? 0
+        // progressPercent = % físico digitado pelo usuário (não sobrescrever com razão financeira)
+        const progressPercent = Math.min(100, Math.max(0, toNum(stage.progressPercent) ?? 0))
         return {
           ...stage,
-          realizedValue:          Math.round(totalRealized * 100) / 100,
+          realizedValue:           Math.round(totalRealized * 100) / 100,
           realizedFromAllocations: Math.round(realizedFromAllocations * 100) / 100,
-          realizedFromEntries:    Math.round(realizedFromEntries * 100) / 100,
-          balance:                Math.round(balance * 100) / 100,
-          progressPercent:        Math.round(progressPercent * 100) / 100,
-          deviationPercent:       Math.round(deviationPercent * 100) / 100,
-          isOverBudget:           deviationPercent > 5,
-          recentTransactions:     stageTxMap[stage.id] ?? [],
+          realizedFromEntries:     Math.round(realizedFromEntries * 100) / 100,
+          balance:                 Math.round(balance * 100) / 100,
+          progressPercent:         Math.round(progressPercent * 100) / 100,
+          deviationPercent:        Math.round(deviationPercent * 100) / 100,
+          isOverBudget:            deviationPercent > 5,
+          recentTransactions:      stageTxMap[stage.id] ?? [],
         }
       })
     } catch { /* silencioso: enriquecimento não bloqueia resposta */ }
@@ -913,8 +930,7 @@ export async function projectRoutes(app: FastifyInstance) {
     const body = updateProgressSchema.parse(request.body)
 
     const data: any = { progressPercent: body.progressPercent }
-    if (body.realizedValue !== undefined) data.realizedValue = body.realizedValue
-    if (body.status        !== undefined) data.status        = body.status
+    if (body.status !== undefined) data.status = body.status
 
     const updated = await p.projectStage.update({ where: { id: stageId }, data })
     await recalcProject(id, companyId)

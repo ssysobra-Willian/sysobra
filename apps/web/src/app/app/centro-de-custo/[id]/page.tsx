@@ -279,8 +279,27 @@ function BudgetTable({
   projectId: string
   onUpdateProgress: (stage: Stage) => void
 }) {
-  const [expanded, setExpanded] = useState<Record<string, boolean>>({})
+  const [expanded,       setExpanded]       = useState<Record<string, boolean>>({})
+  // Edição inline do % físico: chave = stageId, valor = string do input
+  const [localProgress,  setLocalProgress]  = useState<Record<string, string>>({})
+  const [savingProgress, setSavingProgress] = useState<Record<string, boolean>>({})
   const fmt = formatCurrency
+
+  const saveProgress = async (stageId: string, value: string) => {
+    const num = Math.min(100, Math.max(0, parseFloat(value) || 0))
+    setSavingProgress(p => ({ ...p, [stageId]: true }))
+    try {
+      const token     = localStorage.getItem('token') || ''
+      const companyId = localStorage.getItem('companyId') || ''
+      await fetch(`${API}/api/v1/projects/${projectId}/stages/${stageId}/progress`, {
+        method:  'PATCH',
+        headers: { Authorization: `Bearer ${token}`, 'x-company-id': companyId, 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ progressPercent: num }),
+      })
+    } catch { /* silencioso */ } finally {
+      setSavingProgress(p => ({ ...p, [stageId]: false }))
+    }
+  }
 
   const totalBudgetMat = stages.reduce((a, s) => a + s.budgetMaterial, 0)
   const totalBudgetLab = stages.reduce((a, s) => a + s.budgetLabor, 0)
@@ -288,9 +307,12 @@ function BudgetTable({
   const totalRealized  = stages.reduce((a, s) => a + s.realizedValue, 0)
   const totalBalance   = totalBudget - totalRealized
   const totalDeviation = totalBudget > 0 ? ((totalRealized - totalBudget) / totalBudget) * 100 : 0
-  const avgProgress    = stages.length > 0
-    ? stages.reduce((a, s) => a + s.progressPercent, 0) / stages.length
-    : 0
+  // Média ponderada do % físico pelo orçado de cada etapa
+  const avgProgress    = totalBudget > 0
+    ? stages.reduce((a, s) => a + s.progressPercent * s.budgetTotal, 0) / totalBudget
+    : stages.length > 0
+      ? stages.reduce((a, s) => a + s.progressPercent, 0) / stages.length
+      : 0
 
   if (stages.length === 0) {
     return (
@@ -396,15 +418,32 @@ function BudgetTable({
                           </span>
                         ) : <span className="text-xs text-gray-400">—</span>}
                       </td>
-                      <td className="px-4 py-3">
-                        <div className="flex flex-col items-center gap-1 min-w-[70px]">
-                          <div className="w-full bg-gray-100 rounded-full h-1.5">
+                      {/* % físico — inline edit */}
+                      <td className="px-4 py-3" onClick={e => e.stopPropagation()}>
+                        <div className="flex flex-col items-center gap-1 min-w-[80px]">
+                          <div className="flex items-center gap-1">
+                            <input
+                              type="number"
+                              min={0} max={100}
+                              value={localProgress[stage.id] ?? stage.progressPercent.toFixed(0)}
+                              onChange={e => setLocalProgress(prev => ({ ...prev, [stage.id]: e.target.value }))}
+                              onFocus={e => { e.stopPropagation(); setLocalProgress(prev => ({ ...prev, [stage.id]: stage.progressPercent.toFixed(0) })) }}
+                              onBlur={async e => {
+                                await saveProgress(stage.id, e.target.value)
+                                setLocalProgress(prev => { const n = { ...prev }; delete n[stage.id]; return n })
+                              }}
+                              className="w-12 text-center text-xs font-bold border border-gray-200 rounded-md py-0.5 focus:outline-none focus:ring-1 focus:ring-[#F5A623]"
+                            />
+                            <span className="text-[10px] text-gray-500">%</span>
+                            {savingProgress[stage.id] && <div className="w-2.5 h-2.5 rounded-full border border-[#F5A623] border-t-transparent animate-spin" />}
+                          </div>
+                          <div className="w-full bg-gray-100 rounded-full h-1">
                             <div
-                              className={`h-1.5 rounded-full ${progressBarBudget(stage.progressPercent, dev)}`}
-                              style={{ width: `${Math.min(100, stage.progressPercent)}%` }}
+                              className="h-1 rounded-full bg-blue-400 transition-all"
+                              style={{ width: `${Math.min(100, parseFloat(localProgress[stage.id] ?? String(stage.progressPercent)) || 0)}%` }}
                             />
                           </div>
-                          <span className="text-[10px] text-gray-500">{stage.progressPercent.toFixed(0)}%</span>
+                          <span className="text-[9px] text-gray-400">físico</span>
                         </div>
                       </td>
                       <td className="px-4 py-3 text-center hidden xl:table-cell">
@@ -414,7 +453,7 @@ function BudgetTable({
                       </td>
                       <td className="px-2 py-3">
                         <button
-                          title="Atualizar progresso"
+                          title="Editar etapa"
                           onClick={(e) => { e.stopPropagation(); onUpdateProgress(stage) }}
                           className="text-gray-300 hover:text-[#F5A623] transition-colors"
                         >
