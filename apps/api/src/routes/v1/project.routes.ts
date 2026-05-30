@@ -236,7 +236,21 @@ export async function projectRoutes(app: FastifyInstance) {
       p.project.count({ where }),
     ])
 
-    const serialised = projects.map(serialiseProject)
+    // Custos pendentes de apropriação por projeto
+    const pendingCostRows = await p.projectCostEntry.groupBy({
+      by: ['projectId'],
+      where: { companyId, needsAppropriation: true },
+      _count: { id: true },
+    })
+    const pendingMap = new Map<string, number>(
+      pendingCostRows.map((r: any) => [r.projectId, r._count.id])
+    )
+    const totalPendingCosts = pendingCostRows.reduce((a: number, r: any) => a + r._count.id, 0)
+
+    const serialised = projects.map((proj: any) => ({
+      ...serialiseProject(proj),
+      pendingCosts: pendingMap.get(proj.id) ?? 0,
+    }))
 
     // Contadores para os cards de métricas
     const allActive = await p.project.findMany({
@@ -258,7 +272,7 @@ export async function projectRoutes(app: FastifyInstance) {
       total,
       page,
       limit,
-      meta: { totalActive, totalAlert, totalOverBudget, totalWithinBudget },
+      meta: { totalActive, totalAlert, totalOverBudget, totalWithinBudget, totalPendingCosts },
       closeRequestsCount,
     })
   })

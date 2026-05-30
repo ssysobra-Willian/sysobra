@@ -5,8 +5,8 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import {
   Plus, Building2, AlertTriangle, TrendingUp, CheckCircle2,
-  LayoutGrid, List, Search, Filter, ChevronRight, HardHat,
-  Calendar, User, ArrowUpRight,
+  LayoutGrid, List, Search, ChevronRight, HardHat,
+  Calendar, ArrowUpRight, PackageX,
 } from 'lucide-react'
 import { formatCurrency } from '@/lib/format'
 import { UserAvatar } from '@/components/ui/UserAvatar'
@@ -49,6 +49,7 @@ interface Project {
   client: { id: string; name: string } | null
   responsible: { id: string; name: string; avatarUrl: string | null } | null
   _count?: { financialTransactions: number }
+  pendingCosts: number
 }
 
 interface Meta {
@@ -56,6 +57,7 @@ interface Meta {
   totalAlert: number
   totalOverBudget: number
   totalWithinBudget: number
+  totalPendingCosts: number
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -146,9 +148,17 @@ function ProjectCard({ proj }: { proj: Project }) {
         )}
 
         {/* Badge orçamento */}
-        <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full self-start ${badge.className}`}>
-          {badge.label}
-        </span>
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${badge.className}`}>
+            {badge.label}
+          </span>
+          {proj.pendingCosts > 0 && (
+            <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-orange-100 text-orange-700">
+              <PackageX size={10} />
+              {proj.pendingCosts} custo{proj.pendingCosts > 1 ? 's' : ''} p/ apropriar
+            </span>
+          )}
+        </div>
 
         {/* Métricas */}
         <div className="grid grid-cols-2 gap-x-3 gap-y-1.5">
@@ -246,6 +256,15 @@ function ProjectRow({ proj }: { proj: Project }) {
         <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${badge.className}`}>{badge.label}</span>
       </td>
       <td className="px-4 py-3">
+        {proj.pendingCosts > 0 ? (
+          <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-orange-100 text-orange-700">
+            <PackageX size={10} /> {proj.pendingCosts}
+          </span>
+        ) : (
+          <span className="text-xs text-gray-300">—</span>
+        )}
+      </td>
+      <td className="px-4 py-3">
         <Link href={`/app/centro-de-custo/${proj.id}`} className="flex items-center gap-1 text-[11px] font-medium text-[#F5A623] hover:text-[#e09610]">
           Ver <ArrowUpRight size={11} />
         </Link>
@@ -259,7 +278,7 @@ function ProjectRow({ proj }: { proj: Project }) {
 export default function CentroDeCustoPage() {
   const router = useRouter()
   const [projects, setProjects] = useState<Project[]>([])
-  const [meta,     setMeta]     = useState<Meta>({ totalActive: 0, totalAlert: 0, totalOverBudget: 0, totalWithinBudget: 0 })
+  const [meta,     setMeta]     = useState<Meta>({ totalActive: 0, totalAlert: 0, totalOverBudget: 0, totalWithinBudget: 0, totalPendingCosts: 0 })
   const [loading,  setLoading]  = useState(true)
   const [view,     setView]     = useState<'cards' | 'table'>('cards')
 
@@ -339,6 +358,26 @@ export default function CentroDeCustoPage() {
         <MetricCard icon={CheckCircle2}   label="Dentro do orçamento"   value={meta.totalWithinBudget} color="bg-green-500" />
       </div>
 
+      {/* ── Alerta custos pendentes ───────────────────────────────────────── */}
+      {meta.totalPendingCosts > 0 && (
+        <div className="flex items-center gap-3 bg-orange-50 border border-orange-200 rounded-xl px-4 py-3">
+          <div className="flex-shrink-0 h-9 w-9 rounded-lg bg-orange-100 flex items-center justify-center">
+            <PackageX size={18} className="text-orange-600" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-semibold text-orange-800">
+              {meta.totalPendingCosts} custo{meta.totalPendingCosts > 1 ? 's' : ''} pendente{meta.totalPendingCosts > 1 ? 's' : ''} de apropriação
+            </p>
+            <p className="text-xs text-orange-600 mt-0.5">
+              Saídas de material/EPI/equipamento aguardam vinculação a uma etapa da obra.
+            </p>
+          </div>
+          <span className="flex-shrink-0 text-[11px] font-medium text-orange-600 bg-orange-100 px-2.5 py-1 rounded-full">
+            Ver na aba Custos
+          </span>
+        </div>
+      )}
+
       {/* ── Filtros + Toggle ─────────────────────────────────────────────── */}
       <div className="flex flex-wrap items-center gap-3">
         {/* Busca */}
@@ -413,7 +452,7 @@ export default function CentroDeCustoPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="bg-gray-50 border-b border-gray-100">
-                  {['Obra', 'Responsável', 'Orçado', 'Realizado', 'Saldo', 'Desvio', 'Progresso', 'Status', ''].map(h => (
+                  {['Obra', 'Responsável', 'Orçado', 'Realizado', 'Saldo', 'Desvio', 'Progresso', 'Status', 'A Apropriar', ''].map(h => (
                     <th key={h} className="px-4 py-3 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wide">{h}</th>
                   ))}
                 </tr>
