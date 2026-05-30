@@ -1607,7 +1607,7 @@ export async function projectRoutes(app: FastifyInstance) {
     const { id }    = request.params as { id: string }
     const q         = request.query as { category?: string; pending?: string }
 
-    const where: any = { projectId: id, companyId }
+    const where: any = { projectId: id, companyId, isCancelled: false }
     if (q.category) where.category = q.category
     if (q.pending === 'true') where.needsAppropriation = true
 
@@ -1622,7 +1622,7 @@ export async function projectRoutes(app: FastifyInstance) {
       }),
       p.projectCostEntry.groupBy({
         by:    ['category'],
-        where: { projectId: id, companyId },
+        where: { projectId: id, companyId, isCancelled: false },
         _sum:  { totalCost: true },
         _count: { _all: true },
       }),

@@ -653,6 +653,9 @@ function progressBarColor(pct: number, status: string) {
 const TABS = ['Resumo', 'Apropriações', 'Custos', 'Pluviometria', 'Compras', 'Medições', 'Equipe', 'Documentos', 'Ferramentas', 'Pasta de Projetos', 'Histórico'] as const
 type Tab = typeof TABS[number]
 
+// Abas restritas a OWNER / ADMIN / MANAGER
+const MANAGER_ONLY_TABS: Tab[] = ['Resumo', 'Apropriações', 'Histórico']
+
 // ─── Mapa de categorias de custo ──────────────────────────────────────────────
 const COST_CATEGORY: Record<string, { label: string; color: string; bg: string }> = {
   MATERIAL:  { label: 'Material',     color: '#2563EB', bg: '#DBEAFE' },
@@ -676,7 +679,10 @@ export default function ObraDetailPage() {
   const [project,   setProject]   = useState<Project | null>(null)
   const [financial, setFinancial] = useState<FinancialSummary | null>(null)
   const [loading,   setLoading]   = useState(true)
-  const [tab,       setTab]       = useState<Tab>('Resumo')
+  const [tab,       setTab]       = useState<Tab>(
+    // Se não é gestor, começa na primeira aba permitida
+    () => 'Resumo' as Tab
+  )
   const [showProgressModal, setShowProgressModal] = useState(false)
   const [progressStage, setProgressStage] = useState<Stage | null>(null)
   const [progressVal,   setProgressVal]   = useState('')
@@ -864,6 +870,13 @@ export default function ObraDetailPage() {
       setCloseRequest(null)
     } catch { alert('Erro ao recusar') }
   }
+
+  // ── Redirecionar aba restrita para não-gestores ──────────────────────────
+  useEffect(() => {
+    if (!userIsManager && MANAGER_ONLY_TABS.includes(tab)) {
+      setTab('Custos')
+    }
+  }, [userIsManager, tab])
 
   // ── Carrega custos da obra ───────────────────────────────────────────────
   const loadCosts = async () => {
@@ -1247,7 +1260,7 @@ export default function ObraDetailPage() {
           <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
             {/* Tab bar */}
             <div className="flex border-b border-gray-100 overflow-x-auto">
-              {TABS.map(t => (
+              {TABS.filter(t => userIsManager || !MANAGER_ONLY_TABS.includes(t)).map(t => (
                 <button
                   key={t}
                   onClick={() => setTab(t)}
@@ -1272,7 +1285,7 @@ export default function ObraDetailPage() {
 
             {/* Conteúdo da aba */}
             <div className="p-4">
-              {tab === 'Resumo' && (
+              {tab === 'Resumo' && userIsManager && (
                 <div className="space-y-3">
                   {project.financialTransactions.length === 0 ? (
                     <p className="text-sm text-gray-400 text-center py-6">Nenhuma movimentação registrada</p>
@@ -1327,7 +1340,7 @@ export default function ObraDetailPage() {
                 </div>
               )}
 
-              {tab === 'Apropriações' && (
+              {tab === 'Apropriações' && userIsManager && (
                 <div className="space-y-4">
                   {/* Cards de resumo — usa totais do backend (allocatedValue correto) */}
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -1343,10 +1356,10 @@ export default function ObraDetailPage() {
                         {allocSummary ? formatCurrency(allocSummary.totalDespesas) : <span className="text-gray-300 animate-pulse">—</span>}
                       </p>
                     </div>
-                    <div className="bg-blue-50 border border-blue-100 rounded-xl p-3 text-center">
-                      <p className="text-[10px] font-semibold text-blue-500 uppercase tracking-wide mb-1">Pago</p>
-                      <p className="text-sm font-bold text-blue-700">
-                        {allocSummary ? formatCurrency(allocSummary.totalPago) : <span className="text-gray-300 animate-pulse">—</span>}
+                    <div className={`rounded-xl p-3 text-center border ${allocSummary ? (allocSummary.totalReceitas - allocSummary.totalDespesas >= 0 ? 'bg-emerald-50 border-emerald-100' : 'bg-red-50 border-red-100') : 'bg-gray-50 border-gray-100'}`}>
+                      <p className={`text-[10px] font-semibold uppercase tracking-wide mb-1 ${allocSummary ? (allocSummary.totalReceitas - allocSummary.totalDespesas >= 0 ? 'text-emerald-600' : 'text-red-500') : 'text-gray-400'}`}>Saldo</p>
+                      <p className={`text-sm font-bold ${allocSummary ? (allocSummary.totalReceitas - allocSummary.totalDespesas >= 0 ? 'text-emerald-700' : 'text-red-700') : 'text-gray-300'}`}>
+                        {allocSummary ? formatCurrency(allocSummary.totalReceitas - allocSummary.totalDespesas) : <span className="text-gray-300 animate-pulse">—</span>}
                       </p>
                     </div>
                     <div className={`rounded-xl p-3 text-center border ${allocSummary && allocSummary.countVencido > 0 ? 'bg-red-50 border-red-100' : 'bg-amber-50 border-amber-100'}`}>
@@ -2064,7 +2077,7 @@ export default function ObraDetailPage() {
                 />
               )}
 
-              {tab === 'Histórico' && (
+              {tab === 'Histórico' && userIsManager && (
                 <div className="py-4">
                   <ActivityFeed
                     projectId={id}

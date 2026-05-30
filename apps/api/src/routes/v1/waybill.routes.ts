@@ -323,6 +323,11 @@ export async function waybillRoutes(app: FastifyInstance) {
       },
     })
 
+    // Hook: DIRECT_PICKUP → COMPLETED imediatamente
+    if (!isDraft && exitType === 'DIRECT_PICKUP') {
+      await criarCustosWaybillCompleted(waybill.id, companyId)
+    }
+
     return reply.status(201).send(full)
   })
 
@@ -527,6 +532,11 @@ export async function waybillRoutes(app: FastifyInstance) {
       request,
     })
 
+    // Hook: DIRECT_PICKUP → COMPLETED ao emitir rascunho
+    if (newStatus === 'COMPLETED') {
+      await criarCustosWaybillCompleted(id, companyId)
+    }
+
     return reply.send({ success: true, docNumber, status: newStatus })
   })
 
@@ -622,6 +632,9 @@ export async function waybillRoutes(app: FastifyInstance) {
 
     // Criar registros na ficha do colaborador (EPI/Ferramentas)
     await criarRegistrosColaborador(waybill, result.waybillUpdate.receiverSignatureUrl ?? null)
+
+    // Hook: custo automático ao concluir romaneio de material
+    await criarCustosWaybillCompleted(id, companyId)
 
     return reply.send({
       success:          true,
@@ -874,6 +887,40 @@ export async function waybillRoutes(app: FastifyInstance) {
           notes:       `Devolução de pendência — Romaneio ${pendency.waybill.docNumber}`,
         },
       })
+
+      // Ajustar/cancelar custo no ProjectCostEntry vinculado ao waybill
+      const costEntry = await p().projectCostEntry.findFirst({
+        where: { waybillId: pendency.waybill.id, isCancelled: false, notes: pendency.waybillItem.id },
+      })
+      if (costEntry) {
+        const returnedQty   = pendingQty
+        const existingQty   = Number(costEntry.quantity)
+        const existingUnit  = Number(costEntry.unitCost)
+        if (returnedQty >= existingQty) {
+          // Devolução total: cancelar
+          await p().projectCostEntry.update({
+            where: { id: costEntry.id },
+            data: {
+              isCancelled: true,
+              cancelledAt: new Date(),
+              cancelledBy: userId ?? undefined,
+              notes: `${costEntry.notes ?? ''} | CANCELADO: ${returnedQty} devolvido(s)`,
+            },
+          })
+        } else {
+          // Devolução parcial: reduzir quantidade
+          const newQty   = existingQty - returnedQty
+          const newTotal = newQty * existingUnit
+          await p().projectCostEntry.update({
+            where: { id: costEntry.id },
+            data: {
+              quantity:  newQty,
+              totalCost: newTotal,
+              notes: `${costEntry.notes ?? ''} | Ajustado: ${returnedQty} devolvido(s)`,
+            },
+          })
+        }
+      }
     }
 
     // LOSS: registrar como perda (sem ajuste de estoque — já foi baixado)
@@ -1052,6 +1099,9 @@ export async function waybillPublicRoutes(app: FastifyInstance) {
     // Criar registros na ficha do colaborador (EPI/Ferramentas)
     await criarRegistrosColaborador(waybill, result.waybillUpdate.receiverSignatureUrl ?? null)
 
+    // Hook: custo automático ao concluir romaneio de material (via link público)
+    await criarCustosWaybillCompleted(waybill.id, waybill.companyId)
+
     return reply.send({
       success:         true,
       hasPendency:     result.hasPendency,
@@ -1187,6 +1237,68 @@ async function criarRegistrosColaborador(
         console.error('[criarRegistrosColaborador] ToolCustody error:', err)
       }
     }
+  }
+}
+
+// ─── HELPER: criar ProjectCostEntry ao concluir romaneio MATERIAL ────────────
+// Chamado sempre que um waybill de categoria MATERIAL muda para COMPLETED.
+
+async function criarCustosWaybillCompleted(waybillId: string, companyId: string) {
+  try {
+    const waybill = await p().waybill.findFirst({
+      where: { id: waybillId, companyId },
+      include: {
+        items: {
+          where: { isActive: true },
+          include: {
+            item: {
+              select: {
+                name: true, unit: true,
+                averageCost: true, unitCost: true,
+                isEpi: true, isUniform: true, requiresCustody: true,
+              },
+            },
+          },
+        },
+      },
+    })
+    if (!waybill) return
+    if (waybill.category !== 'MATERIAL') return
+    if (!waybill.destinationProjectId) return
+
+    for (const wi of waybill.items) {
+      if (!wi.item) continue
+      const qty      = Number(wi.receivedQty ?? wi.requestedQty ?? 0)
+      const unitC    = Number(wi.item.averageCost ?? wi.item.unitCost ?? 0)
+      const totalC   = qty * unitC
+      const category = wi.item.isEpi || wi.item.isUniform ? 'EPI'
+        : wi.item.requiresCustody ? 'EQUIPMENT'
+        : 'MATERIAL'
+
+      // Evitar duplicar se já existe entrada para este waybillItem
+      const exists = await p().projectCostEntry.findFirst({
+        where: { waybillId: waybill.id, companyId, notes: { contains: wi.id } },
+      })
+      if (exists) continue
+
+      await p().projectCostEntry.create({
+        data: {
+          companyId,
+          projectId:         waybill.destinationProjectId,
+          waybillId:         waybill.id,
+          description:       `Romaneio ${waybill.docNumber}: ${wi.item.name}`,
+          category,
+          quantity:          qty > 0 ? qty : 1,
+          unitCost:          unitC,
+          totalCost:         totalC,
+          needsAppropriation: true,
+          origin:            'WAYBILL',
+          notes:             wi.id,  // waybillItemId para deduplicação
+        },
+      })
+    }
+  } catch (err) {
+    console.error('[criarCustosWaybillCompleted]', err)
   }
 }
 

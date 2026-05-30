@@ -1672,6 +1672,10 @@ model ProjectCostEntry {
   appropriatedBy  String?   @map("appropriated_by")
   appropriatedAt  DateTime? @map("appropriated_at")
   origin          String?   @default("MANUAL")
+  isCancelled     Boolean   @default(false) @map("is_cancelled")
+  cancelledAt     DateTime? @map("cancelled_at")
+  cancelledBy     String?   @map("cancelled_by")
+  waybillId       String?   @map("waybill_id")
   createdAt       DateTime  @default(now()) @map("created_at")
 
   company       Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)

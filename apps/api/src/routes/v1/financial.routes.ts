@@ -1060,6 +1060,11 @@ export async function financialRoutes(app: FastifyInstance) {
         await updateBalance(prismaT, existing.bankAccountId, existing.type, toNum(existing.netAmount), 'revert')
       }
 
+      // Remover alocações de CC vinculadas ao cancelar
+      await (prismaT as any).costCenterAllocation.deleteMany({
+        where: { transactionId: id },
+      })
+
       await (prismaT as any).financialTransaction.update({
         where: { id },
         data: {
