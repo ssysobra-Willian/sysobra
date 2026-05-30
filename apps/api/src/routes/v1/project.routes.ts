@@ -1798,6 +1798,30 @@ export async function projectRoutes(app: FastifyInstance) {
 
     return reply.send({ success: true })
   })
+
+  // ── PATCH /:id/transactions/:txId/stage — etapa em lançamento direto ─────────
+  // Usado quando o lançamento usa projectId direto (sem CostCenterAllocation)
+  app.patch('/:id/transactions/:txId/stage', { preHandler: [requireCompany] }, async (request, reply) => {
+    const req       = request as RequestWithMember
+    const companyId = req.companyId!
+    const { id, txId } = request.params as { id: string; txId: string }
+    const body      = request.body as { stageId: string }
+
+    if (!body.stageId) return reply.status(400).send({ error: 'stageId é obrigatório' })
+
+    // Validar que a transação pertence a este projeto e empresa
+    const tx = await p.financialTransaction.findFirst({
+      where: { id: txId, projectId: id, companyId },
+    })
+    if (!tx) return reply.status(404).send({ error: 'Lançamento não encontrado' })
+
+    await p.financialTransaction.update({
+      where: { id: txId },
+      data:  { stageId: body.stageId },
+    })
+
+    return reply.send({ success: true })
+  })
 }
 
 // buildPlacaHtml migrado para apps/api/src/utils/placaTemplate.ts

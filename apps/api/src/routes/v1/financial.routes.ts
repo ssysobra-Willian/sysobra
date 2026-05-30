@@ -576,9 +576,15 @@ export async function financialRoutes(app: FastifyInstance) {
           createdBy:   { select: { id: true, name: true, avatarUrl: true } },
           stage:       { select: { id: true, name: true } },
           costCenterAllocations: {
-            include: {
-              project: { select: { id: true, name: true } },
-              stage:   { select: { id: true, name: true } },
+            // Filtrar pelo projeto se houver projectId na query (evita contaminação multi-projeto)
+            ...(q.projectId ? { where: { projectId: q.projectId } } : {}),
+            select: {
+              id:         true,
+              stageId:    true,   // campo direto para verificação confiável
+              amount:     true,
+              percentage: true,
+              project:    { select: { id: true, name: true } },
+              stage:      { select: { id: true, name: true } },
             },
           },
         },
@@ -677,17 +683,35 @@ export async function financialRoutes(app: FastifyInstance) {
       }
     }
 
-    // Despesas EXPENSE sem etapa (stageId null) — via alocação para esta obra
+    // Despesas EXPENSE sem etapa — via alocação OU lançamento direto (projectId)
     let semEtapaCount = 0
     try {
-      semEtapaCount = await prisma.costCenterAllocation.count({
-        where: {
-          projectId,
-          stageId: null,
-          transaction: { companyId, type: 'EXPENSE', isActive: true },
-        },
-      })
-    } catch { semEtapaCount = 0 }
+      const [allocCount, directCount] = await Promise.all([
+        // Alocações sem etapa para este projeto:
+        prisma.costCenterAllocation.count({
+          where: {
+            projectId,
+            stageId: null,
+            transaction: { companyId, type: 'EXPENSE', isActive: true },
+          },
+        }),
+        // Lançamentos diretos (sem CostCenterAllocation) sem stageId:
+        (prisma as any).financialTransaction.count({
+          where: {
+            companyId,
+            projectId,
+            isActive: true,
+            type: 'EXPENSE',
+            stageId: null,
+            costCenterAllocations: { none: {} },
+          },
+        }),
+      ])
+      semEtapaCount = allocCount + directCount
+    } catch (err) {
+      console.error('semEtapaCount error:', err)
+      semEtapaCount = 0
+    }
 
     return reply.send({
       totalReceitas:      Math.round(totalReceitas  * 100) / 100,

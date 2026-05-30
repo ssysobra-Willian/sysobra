@@ -173,10 +173,12 @@ interface AllocTx {
   netAmount:       number
   referenceDate:   string | null
   dueDate:         string | null
+  stageId?:        string | null   // campo direto na transação (lançamentos diretos)
   category:        { id: string; name: string; color: string | null } | null
   bankAccount:     { id: string; name: string } | null
   costCenterAllocations: {
     id:      string
+    stageId: string | null   // campo direto na alocação
     project: { id: string; name: string } | null
     stage:   { id: string; name: string } | null
     amount:  number
@@ -769,7 +771,7 @@ export default function ObraDetailPage() {
   const [allocPeriod,       setAllocPeriod]       = useState('ALL')
   const [allocLimit,        setAllocLimit]        = useState(10)
   // Modal de definir etapa em uma alocação
-  const [stageModalTx,      setStageModalTx]      = useState<{ txId: string; allocId: string; description: string; amount: number } | null>(null)
+  const [stageModalTx,      setStageModalTx]      = useState<{ txId: string; allocId: string | null; description: string; amount: number } | null>(null)
   const [stageModalStageId, setStageModalStageId] = useState('')
   const [savingStageModal,  setSavingStageModal]  = useState(false)
 
@@ -927,29 +929,33 @@ export default function ObraDetailPage() {
     }
   }, [userIsManager, tab])
 
-  // Carrega lançamentos + summary da aba Apropriações
+  // ── Summary da aba Apropriações (efeito separado — recarrega quando allocSummary = null) ──
+  useEffect(() => {
+    if (tab !== 'Apropriações' || allocSummary !== null) return
+    const token     = localStorage.getItem('token') || ''
+    const companyId = localStorage.getItem('companyId') || ''
+    if (!token || !id) return
+    fetch(`${API}/api/financial/transactions/summary?projectId=${id}`, {
+      headers: { Authorization: `Bearer ${token}`, 'x-company-id': companyId },
+    })
+      .then((r) => r.ok ? r.json() : null)
+      .then((d) => { if (d) setAllocSummary(d) })
+      .catch(() => {/* silencioso */})
+  }, [tab, id, allocSummary])
+
+  // ── Lançamentos da aba Apropriações (deps de filtros — sem summary) ──────────
   useEffect(() => {
     if (tab !== 'Apropriações') return
     const token     = localStorage.getItem('token') || ''
     const companyId = localStorage.getItem('companyId') || ''
     if (!token || !id) return
 
-    // Summary (totais corretos usando allocatedValue) — carrega uma vez por projeto
-    if (!allocSummary) {
-      fetch(`${API}/api/financial/transactions/summary?projectId=${id}`, {
-        headers: { Authorization: `Bearer ${token}`, 'x-company-id': companyId },
-      })
-        .then((r) => r.ok ? r.json() : null)
-        .then((d) => { if (d) setAllocSummary(d) })
-        .catch(() => {/* silencioso */})
-    }
-
     setAllocLoading(true)
     const qs = new URLSearchParams({ projectId: id, page: String(allocPage), limit: String(allocLimit) })
-    if (allocTypeFilter !== 'ALL')   qs.set('type',   allocTypeFilter)
-    if (allocStatusFilter === 'PAID')    qs.set('isPaid', 'true')
-    if (allocStatusFilter === 'PENDING') qs.set('isPaid', 'false')
-    if (allocSearch.trim())              qs.set('search', allocSearch.trim())
+    if (allocTypeFilter !== 'ALL')        qs.set('type',   allocTypeFilter)
+    if (allocStatusFilter === 'PAID')     qs.set('isPaid', 'true')
+    if (allocStatusFilter === 'PENDING')  qs.set('isPaid', 'false')
+    if (allocSearch.trim())               qs.set('search', allocSearch.trim())
     if (allocPeriod === 'THIS_MONTH') {
       const now = new Date()
       qs.set('startDate', new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10))
@@ -966,7 +972,7 @@ export default function ObraDetailPage() {
       .then((d) => { setAllocTxs(d.transactions ?? []); setAllocTotal(d.total ?? 0) })
       .catch(() => { setAllocTxs([]); setAllocTotal(0) })
       .finally(() => setAllocLoading(false))
-  }, [tab, id, allocPage, allocLimit, allocTypeFilter, allocStatusFilter, allocSearch, allocPeriod, allocSummary])
+  }, [tab, id, allocPage, allocLimit, allocTypeFilter, allocStatusFilter, allocSearch, allocPeriod])
 
   // Carrega pasta de projetos quando a aba for aberta
   useEffect(() => {
@@ -1556,17 +1562,30 @@ export default function ObraDetailPage() {
                               </thead>
                               <tbody className="divide-y divide-gray-50">
                                 {allocTxs.map(tx => {
-                                  // Usar stageId (campo direto) em vez de relação stage para evitar edge-case
-                                  // onde uma transação tem múltiplas alocações parcialmente etapadas
-                                  const allocWithStage    = tx.costCenterAllocations.find((a: any) => a.stageId ?? a.stage?.id)
-                                  const allocWithoutStage = tx.type === 'EXPENSE'
-                                    ? tx.costCenterAllocations.find((a: any) => !(a.stageId ?? a.stage?.id))
+                                  const isExpense = tx.type === 'EXPENSE'
+
+                                  // Alocação com etapa (filtra pelo campo direto stageId primeiro)
+                                  const allocWithStage    = tx.costCenterAllocations.find(a => a.stageId || a.stage?.id)
+                                  // Alocação sem etapa (para abrir o modal com o allocId correto)
+                                  const allocWithoutStage = isExpense
+                                    ? tx.costCenterAllocations.find(a => !a.stageId && !a.stage?.id)
                                     : undefined
-                                  const stage      = allocWithStage?.stage
-                                  const isOverdue  = !tx.isPaid && tx.dueDate && new Date(tx.dueDate) < new Date()
-                                  // needsStage: EXPENSE com pelo menos uma alocação sem etapa
-                                  const needsStage = tx.type === 'EXPENSE' &&
-                                    tx.costCenterAllocations.some((a: any) => !(a.stageId ?? a.stage?.id))
+
+                                  // Etapa visível: prioriza stage da alocação; fallback para stageId direto na tx
+                                  const stageFromAlloc = allocWithStage?.stage
+                                  const stageFromTx    = tx.stageId ? { id: tx.stageId, name: '—' } : null
+                                  const stage          = stageFromAlloc ?? stageFromTx
+
+                                  const isOverdue = !tx.isPaid && tx.dueDate && new Date(tx.dueDate) < new Date()
+
+                                  // needsStage cobre 2 casos:
+                                  // 1) lançamento direto (sem alocação) sem stageId
+                                  // 2) tem alocação filtrada por projeto, mas sem stageId nela
+                                  const needsStage = isExpense && !stage && (
+                                    (tx.costCenterAllocations.length === 0 && !tx.stageId) ||
+                                    tx.costCenterAllocations.some(a => !a.stageId && !a.stage?.id)
+                                  )
+
                                   return (
                                     <tr key={tx.id} className={`hover:bg-gray-50 transition-colors ${needsStage ? 'bg-amber-50/30' : ''}`}>
                                       <td className="px-3 py-2.5 text-xs text-gray-500 whitespace-nowrap">
@@ -1589,15 +1608,15 @@ export default function ObraDetailPage() {
                                         ) : <span className="text-xs text-gray-400">—</span>}
                                       </td>
                                       <td className="px-3 py-2.5">
-                                        {stage ? (
-                                          <span className="text-[10px] bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full whitespace-nowrap border border-blue-100">{stage.name}</span>
-                                        ) : needsStage && allocWithoutStage ? (
+                                        {stageFromAlloc ? (
+                                          <span className="text-[10px] bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full whitespace-nowrap border border-blue-100">{stageFromAlloc.name}</span>
+                                        ) : needsStage ? (
                                           <button
                                             onClick={() => setStageModalTx({
                                               txId:        tx.id,
-                                              allocId:     (allocWithoutStage as any).id,
+                                              allocId:     allocWithoutStage?.id ?? null,
                                               description: tx.description,
-                                              amount:      (allocWithoutStage as any).amount ?? tx.netAmount,
+                                              amount:      allocWithoutStage?.amount ?? tx.netAmount,
                                             })}
                                             className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 border border-amber-300 hover:bg-amber-200 transition-colors whitespace-nowrap"
                                           >
@@ -1773,11 +1792,21 @@ export default function ObraDetailPage() {
                           try {
                             const token     = localStorage.getItem('token') || ''
                             const companyId = localStorage.getItem('companyId') || ''
-                            await fetch(`${API}/api/v1/projects/${id}/allocations/${stageModalTx.allocId}/stage`, {
-                              method:  'PATCH',
-                              headers: { Authorization: `Bearer ${token}`, 'x-company-id': companyId, 'Content-Type': 'application/json' },
-                              body:    JSON.stringify({ stageId: stageModalStageId }),
-                            })
+                            const headers   = { Authorization: `Bearer ${token}`, 'x-company-id': companyId, 'Content-Type': 'application/json' }
+                            const body      = JSON.stringify({ stageId: stageModalStageId })
+
+                            if (stageModalTx.allocId) {
+                              // Lançamento com alocação: atualizar via alocação
+                              await fetch(`${API}/api/v1/projects/${id}/allocations/${stageModalTx.allocId}/stage`, {
+                                method: 'PATCH', headers, body,
+                              })
+                            } else {
+                              // Lançamento direto (sem alocação): atualizar stageId na transação
+                              await fetch(`${API}/api/v1/projects/${id}/transactions/${stageModalTx.txId}/stage`, {
+                                method: 'PATCH', headers, body,
+                              })
+                            }
+
                             setStageModalTx(null); setStageModalStageId('')
                             // Recarregar summary + lista
                             setAllocSummary(null)
