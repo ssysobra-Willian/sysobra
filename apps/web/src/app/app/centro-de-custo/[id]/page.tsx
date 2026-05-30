@@ -1724,7 +1724,11 @@ export default function ObraDetailPage() {
                                         ) : <span className="text-xs text-gray-400">—</span>}
                                       </td>
                                       <td className={`px-3 py-2.5 text-xs font-semibold whitespace-nowrap ${tx.type === 'INCOME' ? 'text-green-600' : 'text-red-600'}`}>
-                                        {tx.type === 'INCOME' ? '+' : '-'}{formatCurrency(tx.netAmount)}
+                                        {tx.type === 'INCOME' ? '+' : '-'}{formatCurrency(
+                                          tx.costCenterAllocations?.length > 0
+                                            ? tx.costCenterAllocations.reduce((s: number, a: any) => s + Number(a.amount), 0)
+                                            : Number(tx.netAmount)
+                                        )}
                                       </td>
                                       <td className="px-3 py-2.5">
                                         <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${

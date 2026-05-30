@@ -94,8 +94,9 @@ async function baixarEstoque(
   await p().$transaction(async (tx: any) => {
     // Buscar romaneio para saber categoria e destino
     const waybill = await tx.waybill.findFirst({
-      where: { id: waybillId },
+      where:   { id: waybillId },
       include: { destinationProject: { select: { id: true, name: true } } },
+      // destinationLocationId também é acessado diretamente via (waybill as any).destinationLocationId
     })
 
     const destLabel = waybill?.destinationProject
@@ -147,18 +148,53 @@ async function baixarEstoque(
 
       // Atualizar StockItem.quantity (campo global — exibido na UI de estoque)
       // + toolStatus/currentLocation para ferramentas
-      const stockItemData: any = { quantity: { decrement: qty } }
+      // Transferência entre almoxarifados NÃO altera quantidade global
+      const destLocationId = (waybill as any)?.destinationLocationId
+      const stockItemData: any = {}
+      if (!destLocationId) {
+        stockItemData.quantity = { decrement: qty }
+      }
       if (waybill?.category === 'TOOL') {
         stockItemData.currentLocation  = destLabel
         stockItemData.toolStatus       = 'IN_USE'
         stockItemData.currentProjectId = waybill?.destinationProject?.id ?? null
       }
-      await tx.stockItem.update({
-        where: { id: itemId },
-        data:  stockItemData,
-      })
+      if (Object.keys(stockItemData).length > 0) {
+        await tx.stockItem.update({
+          where: { id: itemId },
+          data:  stockItemData,
+        })
+      }
 
       console.log(`✅ Estoque baixado: ${waybillItem.item?.name} ${Number(balance.quantity)} → ${novoSaldo}`)
+
+      // Se romaneio tem destino = almoxarifado, incrementar saldo no destino
+      if (destLocationId) {
+        const destBalance = await tx.stockBalance.findFirst({
+          where: { itemId, locationId: destLocationId },
+        })
+        const avgCost = Number(balance.averageCost ?? 0)
+        if (destBalance) {
+          await tx.stockBalance.update({
+            where: { id: destBalance.id },
+            data:  {
+              quantity:   { increment: qty },
+              totalValue: { increment: qty * avgCost },
+            },
+          })
+        } else {
+          await tx.stockBalance.create({
+            data: {
+              companyId,
+              itemId,
+              locationId: destLocationId,
+              quantity:   qty,
+              averageCost: avgCost,
+              totalValue:  qty * avgCost,
+            },
+          })
+        }
+      }
 
       // Registrar movimento de saída
       await tx.stockMovement.create({
@@ -166,12 +202,14 @@ async function baixarEstoque(
           companyId,
           stockItemId: itemId,
           locationId,
-          type:      'OUT',
+          type:      destLocationId ? 'TRANSFER' : 'OUT',
           quantity:  qty,
           unitCost:  Number(waybillItem.unitCost),
           totalCost: Number(waybillItem.totalCost),
           docNumber,
-          notes: `Saída via romaneio ${docNumber}`,
+          notes: destLocationId
+            ? `Transferência via romaneio ${docNumber}`
+            : `Saída via romaneio ${docNumber}`,
         },
       })
     }
@@ -227,6 +265,7 @@ export async function waybillRoutes(app: FastifyInstance) {
         locationId:             body.locationId,
         destinationProjectId:   body.destinationProjectId  ?? null,
         destinationName:        body.destinationName        ?? null,
+        destinationLocationId:  (body as any).destinationLocationId ?? null,
         driverType:             body.driverType             ?? null,
         driverEmployeeId:       body.driverEmployeeId       ?? null,
         driverName:             body.driverName             ?? null,
@@ -422,8 +461,9 @@ export async function waybillRoutes(app: FastifyInstance) {
     await p().waybill.update({
       where: { id },
       data:  {
-        destinationProjectId: body.destinationProjectId ?? waybill.destinationProjectId,
-        destinationName:      body.destinationName      ?? waybill.destinationName,
+        destinationProjectId:  body.destinationProjectId ?? waybill.destinationProjectId,
+        destinationName:       body.destinationName      ?? waybill.destinationName,
+        destinationLocationId: (body as any).destinationLocationId ?? (waybill as any).destinationLocationId ?? null,
         exitType:             body.exitType             ?? waybill.exitType,
         driverType:           body.driverType           ?? waybill.driverType,
         driverEmployeeId:     body.driverEmployeeId     ?? waybill.driverEmployeeId,

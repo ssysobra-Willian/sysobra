@@ -198,11 +198,13 @@ const supplierLotSchema = z.object({
 })
 
 const basketCreateSchema = z.object({
-  type:        z.enum(['OUT', 'EPI', 'RETURN']).default('OUT'),
-  projectId:   z.string().optional(),
-  employeeId:  z.string().optional(),
-  destinatary: z.string().optional(),
-  notes:       z.string().optional(),
+  type:                 z.enum(['OUT', 'EPI', 'RETURN', 'TRANSFER']).default('OUT'),
+  projectId:            z.string().optional(),
+  employeeId:           z.string().optional(),
+  destinatary:          z.string().optional(),
+  notes:                z.string().optional(),
+  sourceLocationId:     z.string().optional(),      // almoxarifado de origem
+  destinationLocationId: z.string().optional(),     // almoxarifado de destino (transfer)
   items: z.array(z.object({
     stockItemId: z.string(),
     name:        z.string(),
@@ -1287,24 +1289,29 @@ export async function depositRoutes(app: FastifyInstance) {
       }
     }
 
+    const isTransfer = !!body.destinationLocationId
+
     // Criar basket
     const basket = await p().stockBasket.create({
       data: {
-        companyId:    cid,
+        companyId:            cid,
         docNumber,
-        type:         body.type,
-        status:       'DRAFT',
-        projectId:    body.projectId ?? null,
-        employeeId:   body.employeeId ?? null,
-        destinatary:  body.destinatary ?? null,
-        notes:        body.notes ?? null,
-        items:        body.items,
-        responsibleId: userId(request) ?? null,
+        type:                 isTransfer ? 'TRANSFER' : body.type,
+        status:               'DRAFT',
+        projectId:            body.projectId ?? null,
+        employeeId:           body.employeeId ?? null,
+        destinatary:          body.destinatary ?? null,
+        notes:                body.notes ?? null,
+        items:                body.items,
+        responsibleId:        userId(request) ?? null,
+        sourceLocationId:     body.sourceLocationId ?? null,
+        destinationLocationId: body.destinationLocationId ?? null,
       },
     })
 
     // Processar cada item: movimento + atualização de estoque
-    const movementType = body.type === 'RETURN' ? 'RETURN' :
+    const movementType = isTransfer        ? 'TRANSFER'      :
+                         body.type === 'RETURN' ? 'RETURN'   :
                          body.type === 'EPI'    ? 'EPI_DELIVERY' : 'OUT'
 
     const operations: any[] = []
@@ -1340,15 +1347,66 @@ export async function depositRoutes(app: FastifyInstance) {
             notes:         body.notes ?? null,
           },
         }),
-        p().stockItem.update({
-          where: { id: entry.stockItemId },
-          data:  { quantity: Math.max(0, newQty) },
-        }),
       )
+      // Transferência entre almoxarifados NÃO altera quantidade global
+      if (!isTransfer) {
+        operations.push(
+          p().stockItem.update({
+            where: { id: entry.stockItemId },
+            data:  { quantity: Math.max(0, newQty) },
+          }),
+        )
+      }
     }
 
     if (operations.length > 0) {
       await p().$transaction(operations)
+    }
+
+    // ── Transferência entre almoxarifados: atualiza StockBalance ─────────────
+    if (isTransfer && body.sourceLocationId && body.destinationLocationId) {
+      for (const entry of body.items) {
+        const item = await p().stockItem.findFirst({
+          where:  { id: entry.stockItemId, companyId: cid },
+          select: { id: true, averageCost: true, unitCost: true },
+        })
+        if (!item) continue
+        const avgCost = Number(item.averageCost ?? item.unitCost ?? 0)
+
+        // Decrementar saldo na origem
+        await p().stockBalance.updateMany({
+          where: { itemId: entry.stockItemId, locationId: body.sourceLocationId },
+          data:  {
+            quantity:   { decrement: entry.quantity },
+            totalValue: { decrement: entry.quantity * avgCost },
+          },
+        })
+
+        // Incrementar saldo no destino (upsert)
+        const destBal = await p().stockBalance.findFirst({
+          where: { itemId: entry.stockItemId, locationId: body.destinationLocationId },
+        })
+        if (destBal) {
+          await p().stockBalance.update({
+            where: { id: destBal.id },
+            data:  {
+              quantity:   { increment: entry.quantity },
+              totalValue: { increment: entry.quantity * avgCost },
+            },
+          })
+        } else {
+          await p().stockBalance.create({
+            data: {
+              companyId:   cid,
+              itemId:      entry.stockItemId,
+              locationId:  body.destinationLocationId,
+              quantity:    entry.quantity,
+              averageCost: avgCost,
+              totalValue:  entry.quantity * avgCost,
+            },
+          })
+        }
+      }
     }
 
     // ── Custo automático: itens OUT do romaneio vinculados a obra ─────────────
