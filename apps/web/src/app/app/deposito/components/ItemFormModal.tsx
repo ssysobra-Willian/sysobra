@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useRef, useCallback } from 'react'
+import React, { useState, useRef, useCallback, useEffect } from 'react'
 import {
   X, Package, ShieldCheck, Shirt, Upload, Loader2, CheckCircle2,
   MapPin, ChevronDown, ChevronUp, Plus, Trash2, Camera, Search,
@@ -412,6 +412,15 @@ export function ItemFormModal({ mode, isOpen, onClose, onSuccess, item, location
   const [lots,              setLots]              = useState<LotInput[]>([])
   const [initialLocationId, setInitialLocationId] = useState('')
 
+  // Fornecedor principal
+  const [supplierId,           setSupplierId]           = useState('')
+  const [supplierName,         setSupplierName]         = useState('')
+  const [supplierSearch,       setSupplierSearch]       = useState('')
+  const [supplierMode,         setSupplierMode]         = useState<'select' | 'manual'>('select')
+  const [showSupplierDropdown, setShowSupplierDropdown] = useState(false)
+  const [suppliers,            setSuppliers]            = useState<{ id: string; name: string; cpfCnpj?: string | null }[]>([])
+  const supplierRef = useRef<HTMLDivElement>(null)
+
   // Sections open/close
   const [secIdent,   setSecIdent]   = useState(true)
   const [secLocal,   setSecLocal]   = useState(true)
@@ -424,6 +433,28 @@ export function ItemFormModal({ mode, isOpen, onClose, onSuccess, item, location
   const [success, setSuccess] = useState(false)
 
   const units = mode === 'epi' ? UNITS_EPI : mode === 'uniform' ? UNITS_UNIFORM : UNITS_MATERIAL
+
+  // Carregar fornecedores ao abrir o modal
+  useEffect(() => {
+    if (!isOpen) return
+    fetch(`${API}/api/v1/suppliers?limit=200`, {
+      headers: { Authorization: `Bearer ${getToken()}`, 'x-company-id': getCompanyId() },
+    })
+      .then(r => r.json())
+      .then(d => setSuppliers(d.suppliers ?? []))
+      .catch(() => {})
+  }, [isOpen])
+
+  // Fechar dropdown de fornecedor ao clicar fora
+  useEffect(() => {
+    const h = (e: MouseEvent) => {
+      if (supplierRef.current && !supplierRef.current.contains(e.target as Node)) {
+        setShowSupplierDropdown(false)
+      }
+    }
+    document.addEventListener('mousedown', h)
+    return () => document.removeEventListener('mousedown', h)
+  }, [])
 
   const handleSubmit = async () => {
     if (!name.trim()) { setError('Nome é obrigatório'); return }
@@ -452,6 +483,8 @@ export function ItemFormModal({ mode, isOpen, onClose, onSuccess, item, location
         requiresCustody: false,
         isEpi:           mode === 'epi',
         isUniform:       mode === 'uniform',
+        supplierId:      supplierId   || undefined,
+        supplierName:    supplierName || undefined,
         lots:            lots.length > 0 ? lots : undefined,
       }
 
@@ -689,6 +722,86 @@ export function ItemFormModal({ mode, isOpen, onClose, onSuccess, item, location
               )}
             </div>
           </Section>
+
+          {/* ── Fornecedor principal (campo rápido, fora de seção) ── */}
+          <div className="border border-gray-100 rounded-xl p-4 space-y-3">
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <span className="text-sm font-semibold text-gray-700">🏭 Fornecedor principal</span>
+              <div className="flex gap-1.5">
+                {(['select', 'manual'] as const).map(v => (
+                  <button key={v} type="button"
+                    onClick={() => { setSupplierMode(v); setSupplierId(''); setSupplierName(''); setSupplierSearch('') }}
+                    className={cn(
+                      'px-3 py-1 rounded-full text-xs font-medium border transition',
+                      supplierMode === v
+                        ? 'bg-[#FEF3DC] border-[#F5A623] text-amber-800 font-semibold'
+                        : 'border-gray-200 text-gray-500 hover:border-gray-300',
+                    )}
+                  >
+                    {v === 'select' ? '📋 Cadastrado' : '✏️ Manual'}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {supplierMode === 'select' ? (
+              <div ref={supplierRef} className="relative">
+                <div className="relative">
+                  <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                  <input
+                    value={supplierSearch}
+                    onChange={e => {
+                      setSupplierSearch(e.target.value)
+                      setShowSupplierDropdown(true)
+                      if (!e.target.value) { setSupplierId(''); setSupplierName('') }
+                    }}
+                    onFocus={() => setShowSupplierDropdown(true)}
+                    placeholder="Buscar fornecedor cadastrado…"
+                    className={cn(inputCls, 'pl-9', supplierId ? 'pr-8 border-green-300 bg-green-50' : '')}
+                    readOnly={!!supplierId}
+                  />
+                  {supplierId && (
+                    <button type="button"
+                      onClick={() => { setSupplierId(''); setSupplierName(''); setSupplierSearch('') }}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-red-500">
+                      <X size={13} />
+                    </button>
+                  )}
+                </div>
+                {showSupplierDropdown && !supplierId && (
+                  <div className="absolute left-0 right-0 top-full z-50 mt-1 bg-white border border-gray-200 rounded-xl shadow-lg max-h-44 overflow-y-auto">
+                    {suppliers
+                      .filter(s => !supplierSearch || s.name.toLowerCase().includes(supplierSearch.toLowerCase()))
+                      .slice(0, 8)
+                      .map(s => (
+                        <button key={s.id} type="button"
+                          onMouseDown={() => {
+                            setSupplierId(s.id); setSupplierName(s.name)
+                            setSupplierSearch(s.name); setShowSupplierDropdown(false)
+                          }}
+                          className="w-full flex items-start gap-2 px-3 py-2 hover:bg-gray-50 text-left border-b border-gray-50 last:border-0">
+                          <div>
+                            <div className="text-xs font-medium text-gray-800">{s.name}</div>
+                            {s.cpfCnpj && <div className="text-[10px] text-gray-400">{s.cpfCnpj}</div>}
+                          </div>
+                        </button>
+                      ))}
+                    {suppliers.filter(s => !supplierSearch || s.name.toLowerCase().includes(supplierSearch.toLowerCase())).length === 0 && (
+                      <div className="px-3 py-3 text-xs text-gray-400 text-center">Nenhum fornecedor encontrado</div>
+                    )}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <input
+                value={supplierName}
+                onChange={e => setSupplierName(e.target.value)}
+                placeholder="Nome do fornecedor (sem cadastro)"
+                className={inputCls}
+              />
+            )}
+            <p className="text-[11px] text-gray-400">Opcional — vínculo do item com o fornecedor padrão.</p>
+          </div>
 
           {/* ── Seção 4: Lotes (colapsado) ── */}
           <Section title="🏷️ Lotes e Fornecedores" open={secLotes} onToggle={() => setSecLotes(o => !o)}>

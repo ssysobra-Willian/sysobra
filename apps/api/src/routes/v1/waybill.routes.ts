@@ -772,11 +772,12 @@ export async function waybillRoutes(app: FastifyInstance) {
           where:   { isActive: true },
           include: { item: { select: { id: true, name: true, unit: true, code: true } } },
         },
-        location:           { select: { id: true, name: true, type: true } },
-        destinationProject: { select: { id: true, name: true } },
-        driverEmployee:     { select: { id: true, name: true } },
-        receiverEmployee:   { select: { id: true, name: true } },
-        pendencies:         { where: { isActive: true, status: 'OPEN' } },
+        location:            { select: { id: true, name: true, type: true } },
+        destinationProject:  { select: { id: true, name: true } },
+        destinationLocation: { select: { id: true, name: true, type: true } },
+        driverEmployee:      { select: { id: true, name: true } },
+        receiverEmployee:    { select: { id: true, name: true } },
+        pendencies:          { where: { isActive: true, status: 'OPEN' } },
       },
     })
 
@@ -1734,7 +1735,11 @@ function gerarHtmlRomaneio({
             </div>
             <div class="info-row">
               <span class="info-label">Destino</span>
-              <span class="info-value">${waybill.destinationProject?.name ?? waybill.destinationName ?? '—'}</span>
+              <span class="info-value">${
+                waybill.destinationLocation
+                  ? `${waybill.destinationLocation.type === 'CENTRAL' ? '🏦 Depósito Central' : '📦 Almoxarifado'}: ${waybill.destinationLocation.name}`
+                  : (waybill.destinationProject?.name ?? waybill.destinationName ?? '—')
+              }</span>
             </div>
           </div>
           <div>

@@ -1854,9 +1854,9 @@ export async function projectRoutes(app: FastifyInstance) {
 
     if (!body.stageId) return reply.status(400).send({ error: 'stageId é obrigatório' })
 
-    // Verificar que a alocação pertence à empresa (projectId é opcional em alocações antigas)
+    // CostCenterAllocation não tem companyId — buscar só pelo id
     const alloc = await p.costCenterAllocation.findFirst({
-      where: { id: allocationId, companyId },
+      where: { id: allocationId },
     })
     if (!alloc) return reply.status(404).send({ error: 'Alocação não encontrada' })
 
