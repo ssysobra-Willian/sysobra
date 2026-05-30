@@ -1723,8 +1723,20 @@ ${_basketFooter}
         select: { type: true, quantity: true, totalCost: true },
       }),
       p().toolCustody.count({ where: { companyId: cid, returnedAt: null, dueDate: { lt: now } } }),
-      p().toolMaintenanceRecord.count({ where: { companyId: cid, nextDate: { lt: now } } }),
-      p().toolMaintenanceRecord.count({ where: { companyId: cid, nextDate: { gte: now, lte: next30Days } } }),
+      p().toolMaintenanceRecord.count({
+        where: {
+          companyId: cid,
+          nextDate: { lt: now },
+          tool: { isActive: true, toolStatus: { notIn: ['DISCARDED', 'LOST', 'PENDING_DELETE'] } },
+        },
+      }),
+      p().toolMaintenanceRecord.count({
+        where: {
+          companyId: cid,
+          nextDate: { gte: now, lte: next30Days },
+          tool: { isActive: true, toolStatus: { notIn: ['DISCARDED', 'LOST', 'PENDING_DELETE'] } },
+        },
+      }),
       // FIX 8: aggregate total value from StockBalance (per-location pre-calculated)
       p().stockBalance.aggregate({
         where: { companyId: cid },

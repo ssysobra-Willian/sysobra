@@ -491,7 +491,7 @@ const TOOL_STATUS_CONFIG: Record<string, { label: string; bg: string; text: stri
   DISCARDED:   { label: '🗑️ Descartada',   bg: 'bg-gray-100',   text: 'text-gray-500'   },
 }
 
-function ToolsTable({ items, onView, onEdit, onCustody, onMaintenance, onSendToMaintenance, onReturn, onReturnFromMaintenance, selectedLocationId, onExpandPhoto }: {
+function ToolsTable({ items, onView, onEdit, onCustody, onMaintenance, onSendToMaintenance, onReturn, onReturnFromMaintenance, onRequestDelete, selectedLocationId, onExpandPhoto }: {
   items:                       StockItem[]
   onView:                      (item: StockItem) => void
   onEdit?:                     (item: StockItem) => void
@@ -500,6 +500,7 @@ function ToolsTable({ items, onView, onEdit, onCustody, onMaintenance, onSendToM
   onSendToMaintenance?:        (item: StockItem) => void
   onReturn?:                   (item: StockItem) => void
   onReturnFromMaintenance?:    (item: StockItem) => void
+  onRequestDelete?:            (item: StockItem) => void
   selectedLocationId?:         string
   onExpandPhoto?:              (url: string) => void
 }) {
@@ -752,6 +753,7 @@ function ToolsTable({ items, onView, onEdit, onCustody, onMaintenance, onSendToM
                         onView={() => onView(item)}
                         onEdit={onEdit ? () => onEdit(item) : undefined}
                         onCustody={() => onCustody(item)}
+                        onRequestDelete={onRequestDelete ? () => onRequestDelete(item) : undefined}
                       />
                     </div>
                   </td>
@@ -825,6 +827,15 @@ function ToolsTable({ items, onView, onEdit, onCustody, onMaintenance, onSendToM
                   className="mt-2 w-full flex items-center justify-center gap-1.5 py-1.5 rounded-lg border border-green-300 text-green-700 text-xs font-medium hover:bg-green-50 transition"
                 >
                   <CheckCircle2 size={12} /> Registrar retorno
+                </button>
+              )}
+              {/* Solicitar exclusão */}
+              {onRequestDelete && (
+                <button
+                  onClick={e => { e.stopPropagation(); onRequestDelete(item) }}
+                  className="mt-2 w-full flex items-center justify-center gap-1.5 py-1.5 rounded-lg border border-red-200 text-red-600 text-xs font-medium hover:bg-red-50 transition"
+                >
+                  <Trash2 size={12} /> Solicitar exclusão
                 </button>
               )}
             </div>
@@ -2135,6 +2146,7 @@ export default function DepositoPage() {
                     onSendToMaintenance={handleSendToMaintenanceFromTable}
                     onReturn={item => setReturnToolItem(item)}
                     onReturnFromMaintenance={handleReturnFromMaintenanceFromTable}
+                    onRequestDelete={item => { setDeleteTargetItem(item); setDeleteReason(''); setShowReqDeleteModal(true) }}
                     selectedLocationId={selectedLocation !== 'all' ? selectedLocation : undefined}
                     onExpandPhoto={url => setExpandedPhoto(url)}
                   />

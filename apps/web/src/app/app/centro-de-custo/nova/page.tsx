@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import {
@@ -87,6 +87,7 @@ export default function NovaObraPage() {
   const [users,            setUsers]           = useState<UserItem[]>([])
   const [selectedResp,     setSelectedResp]    = useState<UserItem | null>(null)
   const [showRespDrop,     setShowRespDrop]    = useState(false)
+  const respDropRef = useRef<HTMLDivElement>(null)
 
   // ── Dados técnicos
   const [cno,            setCno]           = useState('')
@@ -132,6 +133,17 @@ export default function NovaObraPage() {
       }))
       setUsers(members)
     })
+  }, [])
+
+  // ── Fechar dropdown responsável ao clicar fora
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (respDropRef.current && !respDropRef.current.contains(e.target as Node)) {
+        setShowRespDrop(false)
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
   }, [])
 
   // ── CEP auto-preenchimento
@@ -342,7 +354,7 @@ export default function NovaObraPage() {
             </div>
 
             {/* Responsável */}
-            <div className="relative">
+            <div className="relative" ref={respDropRef}>
               <label className={LabelClass}>Responsável interno</label>
               <div className="relative">
                 <input
@@ -358,10 +370,10 @@ export default function NovaObraPage() {
               </div>
               {showRespDrop && !selectedResp && (
                 <div className="absolute z-20 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-48 overflow-y-auto">
-                  {users.filter(u => u.name.toLowerCase().includes(respSearch.toLowerCase())).map(u => (
+                  {users.filter(u => !respSearch || (u.name || '').toLowerCase().includes(respSearch.toLowerCase())).map(u => (
                     <button
                       key={u.id}
-                      onClick={() => { setSelectedResp(u); setShowRespDrop(false) }}
+                      onClick={() => { setSelectedResp(u); setRespSearch(u.name); setShowRespDrop(false) }}
                       className="w-full text-left px-3 py-2 hover:bg-gray-50 flex items-center gap-2.5 border-b border-gray-50 last:border-0"
                     >
                       {/* Avatar */}
@@ -374,7 +386,7 @@ export default function NovaObraPage() {
                         />
                       ) : (
                         <div className="w-7 h-7 rounded-full bg-[#F5A623] flex-shrink-0 flex items-center justify-center text-white text-xs font-bold">
-                          {u.name.charAt(0).toUpperCase()}
+                          {(u.name || '?').charAt(0).toUpperCase()}
                         </div>
                       )}
                       <div className="min-w-0">
@@ -383,8 +395,10 @@ export default function NovaObraPage() {
                       </div>
                     </button>
                   ))}
-                  {users.filter(u => u.name.toLowerCase().includes(respSearch.toLowerCase())).length === 0 && (
-                    <p className="px-3 py-2 text-xs text-gray-400">Nenhum usuário encontrado</p>
+                  {users.filter(u => !respSearch || (u.name || '').toLowerCase().includes(respSearch.toLowerCase())).length === 0 && (
+                    <p className="px-3 py-2 text-xs text-gray-400">
+                      {users.length === 0 ? 'Carregando usuários...' : 'Nenhum usuário encontrado'}
+                    </p>
                   )}
                 </div>
               )}
