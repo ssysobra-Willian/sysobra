@@ -95,7 +95,7 @@ async function recalcProject(projectId: string, companyId: string) {
   const [allocsByStage, entriesByStage] = await Promise.all([
     p.costCenterAllocation.groupBy({
       by:    ['stageId'],
-      where: { companyId, projectId, stageId: { not: null }, transaction: { isPaid: true, isActive: true } },
+      where: { companyId, projectId, stageId: { not: null }, transaction: { isActive: true, type: 'EXPENSE' } },
       _sum:  { amount: true },
     }),
     p.projectCostEntry.groupBy({
@@ -469,8 +469,8 @@ export async function projectRoutes(app: FastifyInstance) {
         const tx = alloc.transaction
         if (!tx) continue
 
-        // Realizado = apenas despesas pagas
-        if (tx.type === 'EXPENSE' && tx.isPaid) {
+        // Comprometido = todas as despesas ativas (pagas + pendentes)
+        if (tx.type === 'EXPENSE') {
           stageRealizedMap[alloc.stageId] = (stageRealizedMap[alloc.stageId] ?? 0) + Number(alloc.amount)
         }
 
@@ -492,15 +492,48 @@ export async function projectRoutes(app: FastifyInstance) {
         }
       }
 
-      // Mapa stageId → total de ProjectCostEntry (material, EPI, equipamento) apropiados
-      const costEntriesByStage = await p.projectCostEntry.groupBy({
-        by:    ['stageId'],
-        where: { companyId, projectId: id, stageId: { not: null }, isCancelled: false },
-        _sum:  { totalCost: true },
+      // Lançamentos diretos com stageId (sem CostCenterAllocation) — comprometido
+      const directTxs = await p.financialTransaction.findMany({
+        where: {
+          companyId, projectId: id, isActive: true,
+          type: 'EXPENSE', stageId: { not: null },
+          costCenterAllocations: { none: {} },
+        },
+        select: { stageId: true, netAmount: true, isPaid: true },
       })
+      for (const tx of directTxs) {
+        if (!tx.stageId) continue
+        stageRealizedMap[tx.stageId] = (stageRealizedMap[tx.stageId] ?? 0) + Number(tx.netAmount)
+      }
+
+      // Mapa stageId → total de ProjectCostEntry (material, EPI, equipamento) apropiados
+      // E lista individual de entradas por etapa (para exibir na linha expandida)
+      const [costEntriesByStage, costEntriesPerStage] = await Promise.all([
+        p.projectCostEntry.groupBy({
+          by:    ['stageId'],
+          where: { companyId, projectId: id, stageId: { not: null }, isCancelled: false },
+          _sum:  { totalCost: true },
+        }),
+        p.projectCostEntry.findMany({
+          where: { companyId, projectId: id, stageId: { not: null }, isCancelled: false, category: { not: 'LABOR' } },
+          select: { id: true, description: true, category: true, quantity: true, unitCost: true, totalCost: true, stageId: true },
+          orderBy: { date: 'desc' },
+        }),
+      ])
       const entriesMap: Record<string, number> = {}
       for (const row of costEntriesByStage) {
         if (row.stageId) entriesMap[row.stageId] = Math.round(Number(row._sum.totalCost ?? 0) * 100) / 100
+      }
+      const stageEntriesMap: Record<string, any[]> = {}
+      for (const entry of costEntriesPerStage) {
+        if (!entry.stageId) continue
+        if (!stageEntriesMap[entry.stageId]) stageEntriesMap[entry.stageId] = []
+        stageEntriesMap[entry.stageId].push({
+          ...entry,
+          quantity:  Number(entry.quantity),
+          unitCost:  Number(entry.unitCost),
+          totalCost: Number(entry.totalCost),
+        })
       }
 
       // Enriquecer cada etapa com os dados calculados
@@ -525,6 +558,7 @@ export async function projectRoutes(app: FastifyInstance) {
           deviationPercent:        Math.round(deviationPercent * 100) / 100,
           isOverBudget:            deviationPercent > 5,
           recentTransactions:      stageTxMap[stage.id] ?? [],
+          costEntries:             stageEntriesMap[stage.id] ?? [],
         }
       })
     } catch { /* silencioso: enriquecimento não bloqueia resposta */ }

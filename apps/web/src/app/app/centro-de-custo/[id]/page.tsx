@@ -49,6 +49,11 @@ interface StageTx {
   category: { name: string; color: string | null; icon: string | null } | null
 }
 
+interface StageCostEntry {
+  id: string; description: string | null; category: string
+  quantity: number; unitCost: number; totalCost: number
+}
+
 interface Stage {
   id: string
   code: string | null
@@ -67,6 +72,7 @@ interface Stage {
   deviationPercent: number
   isOverBudget: boolean
   recentTransactions: StageTx[]
+  costEntries: StageCostEntry[]
   startDate: string | null
   endDate: string | null
 }
@@ -508,6 +514,42 @@ function BudgetTable({
                               >
                                 <Edit2 size={10} /> Atualizar progresso
                               </button>
+                            </div>
+                          )}
+
+                          {/* Materiais apropiados a esta etapa */}
+                          {stage.costEntries && stage.costEntries.length > 0 && (
+                            <div className="mt-3 pt-3 border-t border-amber-100">
+                              <p className="text-[11px] font-semibold text-gray-500 uppercase mb-2">📦 Materiais do depósito</p>
+                              <table className="w-full">
+                                <thead>
+                                  <tr className="text-[10px] text-gray-400 uppercase">
+                                    <th className="text-left pb-1 font-semibold">Descrição</th>
+                                    <th className="text-left pb-1 font-semibold hidden sm:table-cell">Categoria</th>
+                                    <th className="text-right pb-1 font-semibold">Qtd</th>
+                                    <th className="text-right pb-1 font-semibold">Total</th>
+                                  </tr>
+                                </thead>
+                                <tbody className="divide-y divide-amber-100">
+                                  {stage.costEntries.map((entry: StageCostEntry) => (
+                                    <tr key={entry.id}>
+                                      <td className="py-1.5 pr-3 text-xs text-gray-700">{entry.description || entry.category}</td>
+                                      <td className="py-1.5 pr-3 text-xs text-gray-500 hidden sm:table-cell">
+                                        {entry.category === 'MATERIAL'  ? 'Material' :
+                                         entry.category === 'EPI'       ? 'EPI'      :
+                                         entry.category === 'EQUIPMENT' ? 'Equip.'   :
+                                         entry.category === 'SERVICE'   ? 'Serviço'  : entry.category}
+                                      </td>
+                                      <td className="py-1.5 text-xs text-right text-gray-600">
+                                        {entry.quantity.toLocaleString('pt-BR', { maximumFractionDigits: 3 })}
+                                      </td>
+                                      <td className="py-1.5 text-xs font-semibold text-right text-orange-700">
+                                        {fmt(entry.totalCost)}
+                                      </td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
                             </div>
                           )}
                         </td>
@@ -1808,8 +1850,10 @@ export default function ObraDetailPage() {
                             }
 
                             setStageModalTx(null); setStageModalStageId('')
-                            // Recarregar summary + lista
+                            // Recarregar summary + etapas (realizedValue)
                             setAllocSummary(null)
+                            scrollPosRef.current = window.scrollY
+                            await loadProject()
                           } catch { /* silencioso */ } finally { setSavingStageModal(false) }
                         }}
                         className="flex-[2] py-2.5 rounded-lg text-sm font-semibold text-white transition-colors"
