@@ -372,8 +372,8 @@ export default function CentroDeCustoPage() {
               Saídas de material/EPI/equipamento aguardam vinculação a uma etapa da obra.
             </p>
           </div>
-          <span className="flex-shrink-0 text-[11px] font-medium text-orange-600 bg-orange-100 px-2.5 py-1 rounded-full">
-            Ver na aba Custos
+          <span className="flex-shrink-0 text-[11px] font-medium text-orange-600 bg-orange-100 px-2.5 py-1 rounded-full whitespace-nowrap">
+            Ver na aba Apropriações → Materiais
           </span>
         </div>
       )}

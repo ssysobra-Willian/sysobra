@@ -1668,7 +1668,12 @@ export async function projectRoutes(app: FastifyInstance) {
     const q         = request.query as { category?: string; pending?: string }
 
     const where: any = { projectId: id, companyId, isCancelled: false }
-    if (q.category) where.category = q.category
+    // LABOR vai para folha de pagamento; excluir desta rota por padrão
+    if (q.category) {
+      where.category = q.category
+    } else {
+      where.category = { not: 'LABOR' }
+    }
     if (q.pending === 'true') where.needsAppropriation = true
 
     const [costs, totals] = await Promise.all([
@@ -1689,7 +1694,7 @@ export async function projectRoutes(app: FastifyInstance) {
     ])
 
     const pendingCount = await p.projectCostEntry.count({
-      where: { projectId: id, companyId, needsAppropriation: true },
+      where: { projectId: id, companyId, needsAppropriation: true, category: { not: 'LABOR' } },
     })
 
     return reply.send({

@@ -773,6 +773,15 @@ export default function ObraDetailPage() {
   const [stageModalStageId, setStageModalStageId] = useState('')
   const [savingStageModal,  setSavingStageModal]  = useState(false)
 
+  // ── Aba Apropriações — sub-abas ──────────────────────────────────────────
+  const [allocSubTab,        setAllocSubTab]        = useState<'financeiro' | 'materiais'>('financeiro')
+  const [costEntries,        setCostEntries]        = useState<any[]>([])
+  const [costEntriesPending, setCostEntriesPending] = useState(0)
+  const [loadingEntries,     setLoadingEntries]     = useState(false)
+  const [entryStageModal,    setEntryStageModal]    = useState<any>(null)
+  const [entryStageId,       setEntryStageId]       = useState('')
+  const [savingEntryStage,   setSavingEntryStage]   = useState(false)
+
   // ── Scroll position — preservar posição ao recarregar dados após modal ────
   const scrollPosRef = useRef(0)
   const restoreScroll = useCallback(() => {
@@ -1017,6 +1026,30 @@ export default function ObraDetailPage() {
       setSavingProgressModal(false)
     }
   }
+
+  // Carrega entradas de custo (material/EPI/equip) da aba Materiais
+  const loadCostEntries = useCallback(async () => {
+    if (!id) return
+    setLoadingEntries(true)
+    try {
+      const token     = localStorage.getItem('token') || ''
+      const companyId = localStorage.getItem('companyId') || ''
+      const res = await fetch(`${API}/api/v1/projects/${id}/costs`, {
+        headers: { Authorization: `Bearer ${token}`, 'x-company-id': companyId },
+      })
+      if (res.ok) {
+        const data = await res.json()
+        setCostEntries(data.costs ?? [])
+        setCostEntriesPending(data.pendingCount ?? 0)
+      }
+    } catch { /* silencioso */ } finally {
+      setLoadingEntries(false)
+    }
+  }, [id])
+
+  useEffect(() => {
+    if (tab === 'Apropriações') loadCostEntries()
+  }, [tab, loadCostEntries])
 
   // ── Hooks de paginação (devem vir antes de qualquer return condicional) ──────
   const resumoPagination = usePagination({
@@ -1419,161 +1452,289 @@ export default function ObraDetailPage() {
                     </div>
                   </div>
 
-                  {/* Alerta: despesas sem etapa */}
-                  {allocSummary && allocSummary.semEtapaCount > 0 && (
-                    <div className="flex items-start gap-3 px-4 py-3 rounded-xl bg-amber-50 border border-amber-200 border-l-4 border-l-amber-500">
-                      <AlertTriangle size={16} className="text-amber-600 flex-shrink-0 mt-0.5" />
-                      <div>
-                        <p className="text-sm font-semibold text-amber-800">
-                          {allocSummary.semEtapaCount} despesa{allocSummary.semEtapaCount > 1 ? 's' : ''} sem etapa definida
-                        </p>
-                        <p className="text-xs text-amber-700 mt-0.5">
-                          Clique em "Definir etapa" na linha para apropriar corretamente o custo da obra.
-                        </p>
+                  {/* ── Sub-abas: Lançamentos / Materiais ── */}
+                  <div className="flex border-b border-gray-200">
+                    {([
+                      { id: 'financeiro', label: '💰 Lançamentos', badge: allocSummary?.semEtapaCount ?? 0 },
+                      { id: 'materiais',  label: '📦 Materiais do depósito', badge: costEntriesPending },
+                    ] as const).map(st => (
+                      <button
+                        key={st.id}
+                        onClick={() => setAllocSubTab(st.id)}
+                        className={`relative px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors ${
+                          allocSubTab === st.id
+                            ? 'border-[#F5A623] text-[#F5A623]'
+                            : 'border-transparent text-gray-500 hover:text-gray-700'
+                        }`}
+                      >
+                        {st.label}
+                        {st.badge > 0 && (
+                          <span className="ml-1.5 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold">
+                            {st.badge}
+                          </span>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* ── Sub-aba: Lançamentos financeiros ── */}
+                  {allocSubTab === 'financeiro' && (
+                    <div className="space-y-3">
+                      {/* Alerta: despesas sem etapa */}
+                      {allocSummary && allocSummary.semEtapaCount > 0 && (
+                        <div className="flex items-start gap-3 px-4 py-3 rounded-xl bg-amber-50 border border-amber-200 border-l-4 border-l-amber-500">
+                          <AlertTriangle size={16} className="text-amber-600 flex-shrink-0 mt-0.5" />
+                          <div>
+                            <p className="text-sm font-semibold text-amber-800">
+                              {allocSummary.semEtapaCount} despesa{allocSummary.semEtapaCount > 1 ? 's' : ''} sem etapa definida
+                            </p>
+                            <p className="text-xs text-amber-700 mt-0.5">
+                              Clique em "Definir etapa" na linha para apropriar corretamente o custo da obra.
+                            </p>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Filtros */}
+                      <div className="flex flex-wrap gap-2 items-center">
+                        <select value={allocTypeFilter} onChange={e => { setAllocTypeFilter(e.target.value); setAllocPage(1) }}
+                          className="border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-[#F5A623]">
+                          <option value="ALL">Todos os tipos</option>
+                          <option value="INCOME">Receitas</option>
+                          <option value="EXPENSE">Despesas</option>
+                        </select>
+                        <select value={allocStatusFilter} onChange={e => { setAllocStatusFilter(e.target.value); setAllocPage(1) }}
+                          className="border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-[#F5A623]">
+                          <option value="ALL">Todos os status</option>
+                          <option value="PAID">Pago</option>
+                          <option value="PENDING">Pendente</option>
+                        </select>
+                        <select value={allocPeriod} onChange={e => { setAllocPeriod(e.target.value); setAllocPage(1) }}
+                          className="border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-[#F5A623]">
+                          <option value="ALL">Todos os períodos</option>
+                          <option value="THIS_MONTH">Este mês</option>
+                          <option value="THIS_YEAR">Este ano</option>
+                        </select>
+                        <input
+                          type="text"
+                          placeholder="Buscar descrição..."
+                          value={allocSearch}
+                          onChange={e => { setAllocSearch(e.target.value); setAllocPage(1) }}
+                          className="border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs flex-1 min-w-[140px] focus:outline-none focus:ring-1 focus:ring-[#F5A623]"
+                        />
+                        <Link href={`/app/financeiro?projectId=${id}`}
+                          className="text-xs text-[#F5A623] hover:text-[#d4891a] font-medium flex items-center gap-1 flex-shrink-0">
+                          Ver no financeiro <ExternalLink size={11} />
+                        </Link>
                       </div>
+
+                      {/* Tabela / estados */}
+                      {allocLoading ? (
+                        <div className="flex justify-center py-10">
+                          <div className="h-6 w-6 rounded-full border-2 border-[#F5A623] border-t-transparent animate-spin" />
+                        </div>
+                      ) : allocTxs.length === 0 ? (
+                        <div className="text-center py-10">
+                          <ClipboardList size={32} className="text-gray-300 mx-auto mb-3" />
+                          <p className="text-sm text-gray-500 font-medium">Nenhuma apropriação encontrada</p>
+                          <p className="text-xs text-gray-400 mt-1 mb-4">Lançamentos financeiros vinculados a esta obra aparecerão aqui</p>
+                          <Link href={`/app/financeiro/lancamentos/novo?projectId=${id}`}
+                            className="inline-block text-xs font-semibold py-1.5 px-3 bg-[#F5A623] text-white rounded-lg hover:bg-[#d4891a] transition-colors">
+                            + Novo lançamento
+                          </Link>
+                        </div>
+                      ) : (
+                        <>
+                          <div className="overflow-x-auto rounded-xl border border-gray-100">
+                            <table className="w-full text-sm">
+                              <thead>
+                                <tr className="bg-gray-50 border-b border-gray-100">
+                                  {['Data', 'Descrição', 'Categoria', 'Etapa', 'Valor', 'Status', 'Conta'].map(h => (
+                                    <th key={h} className="px-3 py-2.5 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">{h}</th>
+                                  ))}
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-gray-50">
+                                {allocTxs.map(tx => {
+                                  // Usar stageId (campo direto) em vez de relação stage para evitar edge-case
+                                  // onde uma transação tem múltiplas alocações parcialmente etapadas
+                                  const allocWithStage    = tx.costCenterAllocations.find((a: any) => a.stageId ?? a.stage?.id)
+                                  const allocWithoutStage = tx.type === 'EXPENSE'
+                                    ? tx.costCenterAllocations.find((a: any) => !(a.stageId ?? a.stage?.id))
+                                    : undefined
+                                  const stage      = allocWithStage?.stage
+                                  const isOverdue  = !tx.isPaid && tx.dueDate && new Date(tx.dueDate) < new Date()
+                                  // needsStage: EXPENSE com pelo menos uma alocação sem etapa
+                                  const needsStage = tx.type === 'EXPENSE' &&
+                                    tx.costCenterAllocations.some((a: any) => !(a.stageId ?? a.stage?.id))
+                                  return (
+                                    <tr key={tx.id} className={`hover:bg-gray-50 transition-colors ${needsStage ? 'bg-amber-50/30' : ''}`}>
+                                      <td className="px-3 py-2.5 text-xs text-gray-500 whitespace-nowrap">
+                                        {tx.referenceDate ? formatDateBR(tx.referenceDate) : '—'}
+                                      </td>
+                                      <td className="px-3 py-2.5 text-xs text-gray-900 max-w-[200px]">
+                                        <p className="truncate font-medium">{tx.description}</p>
+                                        {tx.isPayroll && (
+                                          <span className="inline-block mt-0.5 text-[10px] bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded-full font-semibold">
+                                            Folha
+                                          </span>
+                                        )}
+                                      </td>
+                                      <td className="px-3 py-2.5">
+                                        {tx.category ? (
+                                          <span className="text-[10px] px-2 py-0.5 rounded-full font-medium whitespace-nowrap"
+                                            style={{ backgroundColor: `${tx.category.color ?? '#e5e7eb'}22`, color: tx.category.color ?? '#6b7280' }}>
+                                            {tx.category.name}
+                                          </span>
+                                        ) : <span className="text-xs text-gray-400">—</span>}
+                                      </td>
+                                      <td className="px-3 py-2.5">
+                                        {stage ? (
+                                          <span className="text-[10px] bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full whitespace-nowrap border border-blue-100">{stage.name}</span>
+                                        ) : needsStage && allocWithoutStage ? (
+                                          <button
+                                            onClick={() => setStageModalTx({
+                                              txId:        tx.id,
+                                              allocId:     (allocWithoutStage as any).id,
+                                              description: tx.description,
+                                              amount:      (allocWithoutStage as any).amount ?? tx.netAmount,
+                                            })}
+                                            className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 border border-amber-300 hover:bg-amber-200 transition-colors whitespace-nowrap"
+                                          >
+                                            ⚠️ Definir etapa
+                                          </button>
+                                        ) : <span className="text-xs text-gray-400">—</span>}
+                                      </td>
+                                      <td className={`px-3 py-2.5 text-xs font-semibold whitespace-nowrap ${tx.type === 'INCOME' ? 'text-green-600' : 'text-red-600'}`}>
+                                        {tx.type === 'INCOME' ? '+' : '-'}{formatCurrency(tx.netAmount)}
+                                      </td>
+                                      <td className="px-3 py-2.5">
+                                        <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${
+                                          tx.isPaid      ? 'bg-green-100 text-green-700'  :
+                                          isOverdue      ? 'bg-red-100 text-red-600'      :
+                                          'bg-amber-100 text-amber-700'
+                                        }`}>
+                                          {tx.isPaid ? 'Pago' : isOverdue ? 'Vencido' : 'Pendente'}
+                                        </span>
+                                      </td>
+                                      <td className="px-3 py-2.5 text-xs text-gray-500 whitespace-nowrap">
+                                        {tx.bankAccount?.name ?? '—'}
+                                      </td>
+                                    </tr>
+                                  )
+                                })}
+                              </tbody>
+                            </table>
+                          </div>
+
+                          {/* Paginação */}
+                          <Pagination
+                            currentPage={allocPage}
+                            totalPages={Math.max(1, Math.ceil(allocTotal / allocLimit))}
+                            totalItems={allocTotal}
+                            itemsPerPage={allocLimit}
+                            onPageChange={setAllocPage}
+                            onPerPageChange={n => { setAllocLimit(n); setAllocPage(1) }}
+                            perPageOptions={[10, 25, 50]}
+                            label="lançamentos"
+                          />
+                        </>
+                      )}
                     </div>
                   )}
 
-                  {/* Filtros */}
-                  <div className="flex flex-wrap gap-2 items-center">
-                    <select value={allocTypeFilter} onChange={e => { setAllocTypeFilter(e.target.value); setAllocPage(1) }}
-                      className="border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-[#F5A623]">
-                      <option value="ALL">Todos os tipos</option>
-                      <option value="INCOME">Receitas</option>
-                      <option value="EXPENSE">Despesas</option>
-                    </select>
-                    <select value={allocStatusFilter} onChange={e => { setAllocStatusFilter(e.target.value); setAllocPage(1) }}
-                      className="border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-[#F5A623]">
-                      <option value="ALL">Todos os status</option>
-                      <option value="PAID">Pago</option>
-                      <option value="PENDING">Pendente</option>
-                    </select>
-                    <select value={allocPeriod} onChange={e => { setAllocPeriod(e.target.value); setAllocPage(1) }}
-                      className="border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-[#F5A623]">
-                      <option value="ALL">Todos os períodos</option>
-                      <option value="THIS_MONTH">Este mês</option>
-                      <option value="THIS_YEAR">Este ano</option>
-                    </select>
-                    <input
-                      type="text"
-                      placeholder="Buscar descrição..."
-                      value={allocSearch}
-                      onChange={e => { setAllocSearch(e.target.value); setAllocPage(1) }}
-                      className="border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs flex-1 min-w-[140px] focus:outline-none focus:ring-1 focus:ring-[#F5A623]"
-                    />
-                    <Link href={`/app/financeiro?projectId=${id}`}
-                      className="text-xs text-[#F5A623] hover:text-[#d4891a] font-medium flex items-center gap-1 flex-shrink-0">
-                      Ver no financeiro <ExternalLink size={11} />
-                    </Link>
-                  </div>
+                  {/* ── Sub-aba: Materiais (entradas de custo de depósito/romaneio) ── */}
+                  {allocSubTab === 'materiais' && (
+                    <div className="space-y-3">
+                      {/* Alerta: materiais sem etapa */}
+                      {costEntriesPending > 0 && (
+                        <div className="flex items-start gap-3 px-4 py-3 rounded-xl bg-amber-50 border border-amber-200 border-l-4 border-l-amber-500">
+                          <AlertTriangle size={16} className="text-amber-600 flex-shrink-0 mt-0.5" />
+                          <div>
+                            <p className="text-sm font-semibold text-amber-800">
+                              {costEntriesPending} material{costEntriesPending > 1 ? 'is' : ''} sem etapa definida
+                            </p>
+                            <p className="text-xs text-amber-700 mt-0.5">
+                              Clique em "Definir etapa" para apropriar o consumo de material à etapa correta.
+                            </p>
+                          </div>
+                        </div>
+                      )}
 
-                  {/* Tabela / estados */}
-                  {allocLoading ? (
-                    <div className="flex justify-center py-10">
-                      <div className="h-6 w-6 rounded-full border-2 border-[#F5A623] border-t-transparent animate-spin" />
-                    </div>
-                  ) : allocTxs.length === 0 ? (
-                    <div className="text-center py-10">
-                      <ClipboardList size={32} className="text-gray-300 mx-auto mb-3" />
-                      <p className="text-sm text-gray-500 font-medium">Nenhuma apropriação encontrada</p>
-                      <p className="text-xs text-gray-400 mt-1 mb-4">Lançamentos financeiros vinculados a esta obra aparecerão aqui</p>
-                      <Link href={`/app/financeiro/lancamentos/novo?projectId=${id}`}
-                        className="inline-block text-xs font-semibold py-1.5 px-3 bg-[#F5A623] text-white rounded-lg hover:bg-[#d4891a] transition-colors">
-                        + Novo lançamento
-                      </Link>
-                    </div>
-                  ) : (
-                    <>
-                      <div className="overflow-x-auto rounded-xl border border-gray-100">
-                        <table className="w-full text-sm">
-                          <thead>
-                            <tr className="bg-gray-50 border-b border-gray-100">
-                              {['Data', 'Descrição', 'Categoria', 'Etapa', 'Valor', 'Status', 'Conta'].map(h => (
-                                <th key={h} className="px-3 py-2.5 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">{h}</th>
-                              ))}
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-gray-50">
-                            {allocTxs.map(tx => {
-                              const allocWithStage = tx.costCenterAllocations.find(a => a.stage)
-                              const allocWithoutStage = tx.type === 'EXPENSE'
-                                ? tx.costCenterAllocations.find(a => !a.stage)
-                                : undefined
-                              const stage    = allocWithStage?.stage
-                              const isOverdue = !tx.isPaid && tx.dueDate && new Date(tx.dueDate) < new Date()
-                              const needsStage = !stage && tx.type === 'EXPENSE'
-                              return (
-                                <tr key={tx.id} className={`hover:bg-gray-50 transition-colors ${needsStage ? 'bg-amber-50/30' : ''}`}>
+                      {/* Tabela de materiais */}
+                      {loadingEntries ? (
+                        <div className="flex justify-center py-10">
+                          <div className="h-6 w-6 rounded-full border-2 border-[#F5A623] border-t-transparent animate-spin" />
+                        </div>
+                      ) : costEntries.length === 0 ? (
+                        <div className="text-center py-10">
+                          <p className="text-3xl mb-3">📦</p>
+                          <p className="text-sm text-gray-500 font-medium">Nenhum material lançado nesta obra</p>
+                          <p className="text-xs text-gray-400 mt-1">Saídas de depósito e romaneios aparecerão aqui</p>
+                        </div>
+                      ) : (
+                        <div className="overflow-x-auto rounded-xl border border-gray-100">
+                          <table className="w-full text-sm">
+                            <thead>
+                              <tr className="bg-gray-50 border-b border-gray-100">
+                                {['Data', 'Descrição', 'Categoria', 'Qtd', 'Custo unit.', 'Total', 'Etapa'].map(h => (
+                                  <th key={h} className="px-3 py-2.5 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">{h}</th>
+                                ))}
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-gray-50">
+                              {costEntries.map((entry: any) => (
+                                <tr key={entry.id} className={`hover:bg-gray-50 transition-colors ${entry.needsAppropriation ? 'bg-amber-50/30' : ''}`}>
                                   <td className="px-3 py-2.5 text-xs text-gray-500 whitespace-nowrap">
-                                    {tx.referenceDate ? formatDateBR(tx.referenceDate) : '—'}
+                                    {entry.createdAt ? formatDateBR(entry.createdAt) : '—'}
                                   </td>
                                   <td className="px-3 py-2.5 text-xs text-gray-900 max-w-[200px]">
-                                    <p className="truncate font-medium">{tx.description}</p>
-                                    {tx.isPayroll && (
-                                      <span className="inline-block mt-0.5 text-[10px] bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded-full font-semibold">
-                                        Folha
+                                    <p className="truncate font-medium">{entry.description || entry.category}</p>
+                                    {entry.origin && (
+                                      <span className="inline-block mt-0.5 text-[10px] bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded-full">
+                                        {entry.origin === 'WAYBILL' ? 'Romaneio' : entry.origin === 'DEPOSIT' ? 'Depósito' : entry.origin}
                                       </span>
                                     )}
                                   </td>
                                   <td className="px-3 py-2.5">
-                                    {tx.category ? (
-                                      <span className="text-[10px] px-2 py-0.5 rounded-full font-medium whitespace-nowrap"
-                                        style={{ backgroundColor: `${tx.category.color ?? '#e5e7eb'}22`, color: tx.category.color ?? '#6b7280' }}>
-                                        {tx.category.name}
-                                      </span>
-                                    ) : <span className="text-xs text-gray-400">—</span>}
+                                    <span className="text-[10px] px-2 py-0.5 rounded-full font-medium bg-gray-100 text-gray-600 whitespace-nowrap">
+                                      {entry.category === 'MATERIAL' ? 'Material' :
+                                       entry.category === 'EPI'      ? 'EPI'      :
+                                       entry.category === 'EQUIPMENT'? 'Equip.'   :
+                                       entry.category === 'LABOR'    ? 'M.O.'     :
+                                       entry.category === 'SERVICE'  ? 'Serviço'  : entry.category}
+                                    </span>
+                                  </td>
+                                  <td className="px-3 py-2.5 text-xs text-gray-700 whitespace-nowrap">
+                                    {entry.quantity != null ? Number(entry.quantity).toLocaleString('pt-BR', { maximumFractionDigits: 3 }) : '—'}
+                                  </td>
+                                  <td className="px-3 py-2.5 text-xs text-gray-700 whitespace-nowrap">
+                                    {entry.unitCost != null ? Number(entry.unitCost).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : '—'}
+                                  </td>
+                                  <td className="px-3 py-2.5 text-xs font-semibold text-red-600 whitespace-nowrap">
+                                    {entry.totalCost != null ? Number(entry.totalCost).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : '—'}
                                   </td>
                                   <td className="px-3 py-2.5">
-                                    {stage ? (
-                                      <span className="text-[10px] bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full whitespace-nowrap border border-blue-100">{stage.name}</span>
-                                    ) : needsStage && allocWithoutStage ? (
+                                    {entry.stage ? (
+                                      <span className="text-[10px] bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full whitespace-nowrap border border-blue-100">
+                                        {entry.stage.name}
+                                      </span>
+                                    ) : (
                                       <button
-                                        onClick={() => setStageModalTx({
-                                          txId:        tx.id,
-                                          allocId:     (allocWithoutStage as any).id,
-                                          description: tx.description,
-                                          amount:      (allocWithoutStage as any).amount ?? tx.netAmount,
-                                        })}
+                                        onClick={() => { setEntryStageModal(entry); setEntryStageId('') }}
                                         className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 border border-amber-300 hover:bg-amber-200 transition-colors whitespace-nowrap"
                                       >
                                         ⚠️ Definir etapa
                                       </button>
-                                    ) : <span className="text-xs text-gray-400">—</span>}
-                                  </td>
-                                  <td className={`px-3 py-2.5 text-xs font-semibold whitespace-nowrap ${tx.type === 'INCOME' ? 'text-green-600' : 'text-red-600'}`}>
-                                    {tx.type === 'INCOME' ? '+' : '-'}{formatCurrency(tx.netAmount)}
-                                  </td>
-                                  <td className="px-3 py-2.5">
-                                    <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${
-                                      tx.isPaid      ? 'bg-green-100 text-green-700'  :
-                                      isOverdue      ? 'bg-red-100 text-red-600'      :
-                                      'bg-amber-100 text-amber-700'
-                                    }`}>
-                                      {tx.isPaid ? 'Pago' : isOverdue ? 'Vencido' : 'Pendente'}
-                                    </span>
-                                  </td>
-                                  <td className="px-3 py-2.5 text-xs text-gray-500 whitespace-nowrap">
-                                    {tx.bankAccount?.name ?? '—'}
+                                    )}
                                   </td>
                                 </tr>
-                              )
-                            })}
-                          </tbody>
-                        </table>
-                      </div>
-
-                      {/* Paginação */}
-                      <Pagination
-                        currentPage={allocPage}
-                        totalPages={Math.max(1, Math.ceil(allocTotal / allocLimit))}
-                        totalItems={allocTotal}
-                        itemsPerPage={allocLimit}
-                        onPageChange={setAllocPage}
-                        onPerPageChange={n => { setAllocLimit(n); setAllocPage(1) }}
-                        perPageOptions={[10, 25, 50]}
-                        label="lançamentos"
-                      />
-                    </>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </div>
                   )}
                 </div>
               )}
@@ -1626,6 +1787,66 @@ export default function ObraDetailPage() {
                         style={{ background: stageModalStageId && !savingStageModal ? '#F5A623' : '#D1D5DB', cursor: stageModalStageId ? 'pointer' : 'not-allowed' }}
                       >
                         {savingStageModal ? 'Salvando...' : '✅ Confirmar'}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* ─── Modal: definir etapa em entrada de custo (material/EPI/equip) ──── */}
+              {entryStageModal && (
+                <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
+                  <div className="bg-white rounded-2xl p-6 max-w-md w-full shadow-xl">
+                    <h3 className="text-base font-bold mb-1">Definir etapa — Material</h3>
+                    <p className="text-sm text-gray-500 mb-1 truncate">
+                      {entryStageModal.description || entryStageModal.category}
+                    </p>
+                    <p className="text-sm font-bold text-red-600 mb-4">
+                      {entryStageModal.totalCost != null
+                        ? Number(entryStageModal.totalCost).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+                        : '—'}
+                    </p>
+                    <select
+                      value={entryStageId}
+                      onChange={e => setEntryStageId(e.target.value)}
+                      className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm mb-4 focus:outline-none focus:ring-1 focus:ring-[#F5A623]"
+                    >
+                      <option value="">Selecione a etapa...</option>
+                      {(project?.stages ?? []).map((s: any) => (
+                        <option key={s.id} value={s.id}>{s.name}</option>
+                      ))}
+                    </select>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => { setEntryStageModal(null); setEntryStageId('') }}
+                        className="flex-1 py-2.5 rounded-lg border border-gray-200 text-sm text-gray-600 hover:bg-gray-50 transition-colors"
+                      >
+                        Cancelar
+                      </button>
+                      <button
+                        disabled={!entryStageId || savingEntryStage}
+                        onClick={async () => {
+                          if (!entryStageId || !entryStageModal) return
+                          setSavingEntryStage(true)
+                          try {
+                            const token     = localStorage.getItem('token') || ''
+                            const companyId = localStorage.getItem('companyId') || ''
+                            await fetch(`${API}/api/v1/projects/${id}/costs/${entryStageModal.id}/appropriate`, {
+                              method:  'PATCH',
+                              headers: { Authorization: `Bearer ${token}`, 'x-company-id': companyId, 'Content-Type': 'application/json' },
+                              body:    JSON.stringify({ stageId: entryStageId }),
+                            })
+                            setEntryStageModal(null)
+                            setEntryStageId('')
+                            await loadCostEntries()
+                            scrollPosRef.current = window.scrollY
+                            await loadProject()
+                          } catch { /* silencioso */ } finally { setSavingEntryStage(false) }
+                        }}
+                        className="flex-[2] py-2.5 rounded-lg text-sm font-semibold text-white transition-colors"
+                        style={{ background: entryStageId && !savingEntryStage ? '#F5A623' : '#D1D5DB', cursor: entryStageId ? 'pointer' : 'not-allowed' }}
+                      >
+                        {savingEntryStage ? 'Salvando...' : '✅ Confirmar'}
                       </button>
                     </div>
                   </div>
