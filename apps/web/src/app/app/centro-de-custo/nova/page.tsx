@@ -121,20 +121,20 @@ export default function NovaObraPage() {
       headers: { Authorization: `Bearer ${token}` },
     }).then(r => r.json()).then(d => setClients(d.clients ?? []))
 
-    // Busca membros da empresa (responsável = User.id vinculado ao project.responsibleId)
-    fetch(`${API}/api/v1/members?companyId=${companyId}&limit=200`, {
+    // Busca colaboradores ativos (responsável = Employee.id vinculado ao project.responsibleId)
+    fetch(`${API}/api/v1/employees?limit=200&status=ACTIVE`, {
       headers: {
         Authorization:  `Bearer ${token}`,
         'x-company-id': companyId,
       },
     }).then(r => r.json()).then(d => {
-      const list = d.members ?? []
+      const list = d.employees ?? []
       const members: UserItem[] = list
-        .map((m: any) => ({
-          id:        m.userId ?? m.id,
-          name:      m.user?.name ?? m.name ?? '',
-          avatarUrl: m.user?.avatarUrl ?? m.avatarUrl ?? null,
-          role:      m.role ?? '',
+        .map((e: any) => ({
+          id:        e.id,
+          name:      e.name ?? '',
+          avatarUrl: e.photo ?? e.photoUrl ?? null,
+          role:      e.position ?? e.role ?? '',
         }))
         .filter((u: UserItem) => u.name)
       setUsers(members)

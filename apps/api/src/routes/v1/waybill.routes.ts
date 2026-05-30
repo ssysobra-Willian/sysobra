@@ -375,7 +375,7 @@ export async function waybillRoutes(app: FastifyInstance) {
   app.get('/', { preHandler }, async (request, reply) => {
     const req       = request as RequestWithMember
     const companyId = cid(req)
-    const { category, status, locationId, page = '1', limit = '20' } = request.query as any
+    const { category, status, locationId, search, page = '1', limit = '20' } = request.query as any
 
     const where: any = {
       companyId,
@@ -383,6 +383,15 @@ export async function waybillRoutes(app: FastifyInstance) {
       ...(category   && { category }),
       ...(status     && { status }),
       ...(locationId && { locationId }),
+      ...(search && {
+        OR: [
+          { docNumber:       { contains: search, mode: 'insensitive' } },
+          { destinationName: { contains: search, mode: 'insensitive' } },
+          { destinationProject: { name: { contains: search, mode: 'insensitive' } } },
+          { destinationLocation: { name: { contains: search, mode: 'insensitive' } } },
+          { location: { name: { contains: search, mode: 'insensitive' } } },
+        ],
+      }),
     }
 
     const [waybills, total] = await Promise.all([
@@ -393,11 +402,12 @@ export async function waybillRoutes(app: FastifyInstance) {
             where:   { isActive: true },
             include: { item: { select: { id: true, name: true, unit: true, category: true } } },
           },
-          location:           { select: { id: true, name: true, type: true } },
-          destinationProject: { select: { id: true, name: true } },
-          driverEmployee:     { select: { id: true, name: true } },
-          receiverEmployee:   { select: { id: true, name: true } },
-          pendencies:         { where: { status: 'OPEN', isActive: true } },
+          location:            { select: { id: true, name: true, type: true } },
+          destinationProject:  { select: { id: true, name: true } },
+          destinationLocation: { select: { id: true, name: true, type: true } },
+          driverEmployee:      { select: { id: true, name: true } },
+          receiverEmployee:    { select: { id: true, name: true } },
+          pendencies:          { where: { status: 'OPEN', isActive: true } },
         },
         orderBy: { createdAt: 'desc' },
         skip:    (Number(page) - 1) * Number(limit),

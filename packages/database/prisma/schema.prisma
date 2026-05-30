@@ -331,7 +331,7 @@ model User {
   problemComments ProblemComment[]
   financialTransactions FinancialTransaction[] @relation("FinancialCreatedBy")
   financialAuditLogs    FinancialAuditLog[]
-  projectsResponsible   Project[]              @relation("ProjectResponsible")
+  // projectsResponsible moved to Employee model
   clientsCreated        Client[]               @relation("ClientCreatedBy")
   suppliersCreated      Supplier[]             @relation("SupplierCreatedBy")
   waybillsAsSender      Waybill[]
@@ -548,7 +548,7 @@ model Project {
 
   company               Company               @relation(fields: [companyId], references: [id], onDelete: Cascade)
   client                Client?               @relation(fields: [clientId], references: [id])
-  responsible           User?                 @relation("ProjectResponsible", fields: [responsibleId], references: [id])
+  responsible           Employee?             @relation("ProjectResponsible", fields: [responsibleId], references: [id])
   stages                ProjectStage[]
   transactions          Transaction[]
   stockMovements        StockMovement[]
@@ -1148,6 +1148,7 @@ model Employee {
   stockBaskets          StockBasket[]  @relation("BasketEmployee")
   waybillsAsDriver      Waybill[]      @relation("WaybillDriver")
   waybillsAsReceiver    Waybill[]      @relation("WaybillReceiver")
+  projectsResponsible   Project[]      @relation("ProjectResponsible")
 
   @@unique([companyId, code])
   @@index([companyId, status])
@@ -1417,16 +1418,20 @@ model StockBasket {
   estimatedArrival  DateTime? @map("estimated_arrival")
   confirmedArrival  DateTime? @map("confirmed_arrival")
 
-  responsibleId String? @map("responsible_id")
+  responsibleId         String? @map("responsible_id")
+  sourceLocationId      String? @map("source_location_id")       // almoxarifado de origem
+  destinationLocationId String? @map("destination_location_id")  // almoxarifado de destino (quando tipo TRANSFER)
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  company     Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  project     Project?  @relation(fields: [projectId], references: [id])
-  employee    Employee? @relation("BasketEmployee", fields: [employeeId], references: [id])
-  responsible User?     @relation("BasketResponsible", fields: [responsibleId], references: [id])
-  movements   StockMovement[]
+  company             Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  project             Project?       @relation(fields: [projectId], references: [id])
+  employee            Employee?      @relation("BasketEmployee", fields: [employeeId], references: [id])
+  responsible         User?          @relation("BasketResponsible", fields: [responsibleId], references: [id])
+  sourceLocation      StockLocation? @relation("BasketSourceLocation", fields: [sourceLocationId], references: [id])
+  destinationLocation StockLocation? @relation("BasketDestinationLocation", fields: [destinationLocationId], references: [id])
+  movements           StockMovement[]
 
   @@unique([companyId, docNumber])
   @@index([companyId, status])
@@ -1556,8 +1561,11 @@ model StockLocation {
   transfersFrom StockTransfer[] @relation("TransferFrom")
   transfersTo   StockTransfer[] @relation("TransferTo")
   permissions   StockLocationPermission[]
-  epiDeliveries StockEpiDelivery[]
-  waybills      Waybill[]
+  epiDeliveries        StockEpiDelivery[]
+  waybills             Waybill[]
+  basketsAsSource      StockBasket[] @relation("BasketSourceLocation")
+  basketsAsDestination StockBasket[] @relation("BasketDestinationLocation")
+  waybillsAsDestination Waybill[]   @relation("WaybillDestinationLocation")
 
   @@unique([companyId, name])
   @@index([companyId])
@@ -2269,8 +2277,9 @@ model Waybill {
   locationId String @map("location_id")
 
   // Destino:
-  destinationProjectId String? @map("destination_project_id")
-  destinationName      String? @map("destination_name") // se destino externo
+  destinationProjectId  String? @map("destination_project_id")
+  destinationName       String? @map("destination_name")       // se destino externo
+  destinationLocationId String? @map("destination_location_id") // se destino = outro almoxarifado
 
   // ── MOTORISTA ──
   driverType       String? @map("driver_type") // EMPLOYEE | EXTERNAL
@@ -2330,9 +2339,10 @@ model Waybill {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  company            Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  location           StockLocation @relation(fields: [locationId], references: [id])
-  destinationProject Project?      @relation(fields: [destinationProjectId], references: [id])
+  company             Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  location            StockLocation  @relation(fields: [locationId], references: [id])
+  destinationProject  Project?       @relation(fields: [destinationProjectId], references: [id])
+  destinationLocation StockLocation? @relation("WaybillDestinationLocation", fields: [destinationLocationId], references: [id])
   driverEmployee     Employee?     @relation("WaybillDriver", fields: [driverEmployeeId], references: [id])
   receiverEmployee   Employee?     @relation("WaybillReceiver", fields: [receiverEmployeeId], references: [id])
   senderUser         User?         @relation(fields: [senderUserId], references: [id])

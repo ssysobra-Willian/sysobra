@@ -22,13 +22,13 @@ const DEFAULT_RAIN_THRESHOLD = 10
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 async function getProjectOfCompany(projectId: string, companyId: string) {
-  return p.project.findFirst({
+  const proj = await p.project.findFirst({
     where: { id: projectId, companyId },
     select: {
       id: true, name: true, code: true, coverImage: true, status: true,
       startDate: true, expectedEndDate: true, progressPercent: true,
       client:      { select: { id: true, name: true } },
-      responsible: { select: { id: true, name: true, avatarUrl: true } },
+      responsible: { select: { id: true, name: true, photo: true } },
       company:     { select: { id: true, name: true, cnpj: true, logo: true } },
       // Etapas: retornar sempre (necessário para aba Etapas do Diário)
       stages: {
@@ -42,6 +42,13 @@ async function getProjectOfCompany(projectId: string, companyId: string) {
       },
     },
   })
+  if (!proj) return null
+  return {
+    ...proj,
+    responsible: proj.responsible
+      ? { ...proj.responsible, avatarUrl: proj.responsible.photo ?? null }
+      : null,
+  }
 }
 
 async function getAccessibleProjectIds(memberId: string): Promise<string[]> {
@@ -208,7 +215,7 @@ export async function diaryRoutes(app: FastifyInstance) {
       where:   projectWhere,
       include: {
         client:      { select: { id: true, name: true } },
-        responsible: { select: { id: true, name: true, avatarUrl: true } },
+        responsible: { select: { id: true, name: true, photo: true } },
         stages:      { where: { status: { not: 'CANCELLED' } }, select: { id: true, name: true, progressPercent: true, status: true }, orderBy: { order: 'asc' } },
         diaryEntries: {
           orderBy: { date: 'desc' },
@@ -237,7 +244,7 @@ export async function diaryRoutes(app: FastifyInstance) {
         coverImage:      proj.coverImage,
         status:          proj.status,
         client:          proj.client,
-        responsible:     proj.responsible,
+        responsible:     proj.responsible ? { ...proj.responsible, avatarUrl: proj.responsible.photo ?? null } : null,
         startDate:       proj.startDate,
         expectedEndDate: proj.expectedEndDate,
         progressPercent: Number(proj.progressPercent),

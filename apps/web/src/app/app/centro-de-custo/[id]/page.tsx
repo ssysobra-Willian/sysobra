@@ -1671,8 +1671,12 @@ export default function ObraDetailPage() {
                                     : undefined
 
                                   // Etapa visível: prioriza stage da alocação; fallback para stageId direto na tx
+                                  // Só usa tx.stageId como fallback quando é lançamento direto (sem alocações)
+                                  // Evita bleed: quando outra obra define etapa para a mesma tx, não afeta esta obra
                                   const stageFromAlloc = allocWithStage?.stage
-                                  const stageFromTx    = tx.stageId ? { id: tx.stageId, name: '—' } : null
+                                  const stageFromTx    = tx.costCenterAllocations.length === 0 && tx.stageId
+                                    ? { id: tx.stageId, name: '—' }
+                                    : null
                                   const stage          = stageFromAlloc ?? stageFromTx
 
                                   const isOverdue = !tx.isPaid && tx.dueDate && new Date(tx.dueDate) < new Date()

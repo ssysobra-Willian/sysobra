@@ -138,7 +138,16 @@
       "PowerShell(cd C:\\\\projetos\\\\sysobra\\\\apps\\\\api; npx ts-node -e \"const { PrismaClient } = require\\('@prisma/client'\\); const p = new PrismaClient\\(\\); p.company.findMany\\({ select: { id: true, name: true } }\\).then\\(r => { console.log\\(JSON.stringify\\(r\\)\\); return p.stockItem.findMany\\({ where: { requiresCustody: true, toolStatus: 'IN_USE' }, select: { name: true, companyId: true, currentProjectId: true } }\\) }\\).then\\(t => { console.log\\(JSON.stringify\\(t\\)\\); p.\\\\$disconnect\\(\\); }\\)\")",
       "Bash(echo \"API PID: $!\")",
       "Bash(echo \"Web PID: $!\")",
-      "PowerShell(cd C:\\\\projetos\\\\sysobra; Start-Process powershell -ArgumentList '-NoExit', '-Command', 'cd C:\\\\projetos\\\\sysobra\\\\apps\\\\api; npm run dev' -WindowStyle Normal; Start-Sleep -Seconds 3; Start-Process powershell -ArgumentList '-NoExit', '-Command', 'cd C:\\\\projetos\\\\sysobra\\\\apps\\\\web; npm run dev' -WindowStyle Normal; Write-Host \"Servers starting...\")"
+      "PowerShell(cd C:\\\\projetos\\\\sysobra; Start-Process powershell -ArgumentList '-NoExit', '-Command', 'cd C:\\\\projetos\\\\sysobra\\\\apps\\\\api; npm run dev' -WindowStyle Normal; Start-Sleep -Seconds 3; Start-Process powershell -ArgumentList '-NoExit', '-Command', 'cd C:\\\\projetos\\\\sysobra\\\\apps\\\\web; npm run dev' -WindowStyle Normal; Write-Host \"Servers starting...\")",
+      "PowerShell(cd C:\\\\projetos\\\\sysobra; $env:DATABASE_URL = \"postgresql://sysobra:sysobra123@127.0.0.1:5432/sysobra\"; npx prisma db push --schema packages/database/prisma/schema.prisma --accept-data-loss 2>&1 | Select-Object -Last 30)",
+      "PowerShell(Set-Content *)",
+      "PowerShell(Get-Content \"C:\\\\projetos\\\\sysobra\\\\apps\\\\api\\\\src\\\\routes\\\\v1\\\\project.routes.ts\" | Select-Object -First 5; \\(Get-Item \"C:\\\\projetos\\\\sysobra\\\\apps\\\\api\\\\src\\\\routes\\\\v1\\\\project.routes.ts\"\\).Length)",
+      "PowerShell(Get-Item *)",
+      "PowerShell(git checkout *)",
+      "PowerShell(cd C:\\\\projetos\\\\sysobra; $env:DATABASE_URL = \"postgresql://sysobra:sysobra123@127.0.0.1:5432/sysobra\"; npx prisma db push --schema packages/database/prisma/schema.prisma --accept-data-loss 2>&1 | Select-Object -Last 15)",
+      "PowerShell(cd C:\\\\projetos\\\\sysobra; $env:DATABASE_URL = \"postgresql://sysobra:sysobra123@127.0.0.1:5432/sysobra\"; npx prisma generate --schema packages/database/prisma/schema.prisma 2>&1 | Select-Object -Last 8)",
+      "PowerShell(cd C:\\\\projetos\\\\sysobra; $env:DATABASE_URL = \"postgresql://sysobra:sysobra123@127.0.0.1:5432/sysobra\"; npx prisma generate --schema packages/database/prisma/schema.prisma 2>&1 | Select-Object -Last 5)",
+      "PowerShell(cd C:\\\\projetos\\\\sysobra; Start-Process powershell -ArgumentList '-NoExit', '-Command', 'cd C:\\\\projetos\\\\sysobra; npx turbo dev' -WindowStyle Normal; Write-Host \"Servidor iniciado\")"
     ]
   }
 }

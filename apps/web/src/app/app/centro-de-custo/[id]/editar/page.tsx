@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import {
   ChevronLeft, ChevronRight, Loader2, Save, Building2, CheckCircle2,
@@ -13,7 +13,7 @@ const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
 // ─── Tipos ─────────────────────────────────────────────────────────────────────
 
 interface Client   { id: string; name: string }
-interface UserItem { id: string; name: string }
+interface UserItem { id: string; name: string; avatarUrl?: string | null; role?: string }
 
 // ─── Seções do formulário ──────────────────────────────────────────────────────
 
@@ -57,6 +57,7 @@ export default function EditarObraPage() {
   const [users,        setUsers]       = useState<UserItem[]>([])
   const [selectedResp, setSelectedResp]= useState<UserItem | null>(null)
   const [showRespDrop, setShowRespDrop]= useState(false)
+  const respDropRef = useRef<HTMLDivElement>(null)
 
   const [coverImage, setCoverImage] = useState('')
 
@@ -97,9 +98,9 @@ export default function EditarObraPage() {
 
     try {
       const [projRes, clientsRes, membersRes] = await Promise.all([
-        fetch(`${API}/api/v1/projects/${id}`,              { headers: hdrs }),
-        fetch(`${API}/api/v1/clients?limit=200`,           { headers: hdrs }),
-        fetch(`${API}/api/v1/members`,                     { headers: hdrs }),
+        fetch(`${API}/api/v1/projects/${id}`,                         { headers: hdrs }),
+        fetch(`${API}/api/v1/clients?limit=200`,                      { headers: hdrs }),
+        fetch(`${API}/api/v1/employees?limit=200&status=ACTIVE`,      { headers: hdrs }),
       ])
 
       if (!projRes.ok) {
@@ -109,7 +110,7 @@ export default function EditarObraPage() {
 
       const projData    = await projRes.json()
       const clientsData = clientsRes.ok ? await clientsRes.json() : { clients: [] }
-      const membersData = membersRes.ok ? await membersRes.json() : { members: [] }
+      const membersData = membersRes.ok ? await membersRes.json() : { employees: [] }
 
       const proj = projData.project
 
@@ -147,13 +148,17 @@ export default function EditarObraPage() {
         setClientSearch(proj.client.name)
       }
 
-      const allMembers: UserItem[] = (membersData.members ?? []).map((m: any) => ({
-        id:   m.userId ?? m.id,
-        name: m.user?.name ?? m.name ?? '',
-      }))
+      const allMembers: UserItem[] = (membersData.employees ?? [])
+        .map((e: any) => ({
+          id:        e.id,
+          name:      e.name ?? '',
+          avatarUrl: e.photo ?? e.photoUrl ?? null,
+          role:      e.position ?? e.role ?? '',
+        }))
+        .filter((u: UserItem) => u.name)
       setUsers(allMembers)
       if (proj.responsible) {
-        setSelectedResp({ id: proj.responsible.id, name: proj.responsible.name })
+        setSelectedResp({ id: proj.responsible.id, name: proj.responsible.name, avatarUrl: proj.responsible.avatarUrl ?? null })
         setRespSearch(proj.responsible.name)
       }
     } catch (e: any) {
@@ -164,6 +169,17 @@ export default function EditarObraPage() {
   }, [id])
 
   useEffect(() => { loadData() }, [loadData])
+
+  // ── Fechar dropdown responsável ao clicar fora ─────────────────────────────
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (respDropRef.current && !respDropRef.current.contains(e.target as Node)) {
+        setShowRespDrop(false)
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [])
 
   // ── Salvar ────────────────────────────────────────────────────────────────────
   const handleSubmit = async () => {
@@ -410,7 +426,7 @@ export default function EditarObraPage() {
             </div>
 
             {/* Responsável ─────────────────────────────────────────────────── */}
-            <div className="relative">
+            <div className="relative" ref={respDropRef}>
               <label className={LabelClass}>Responsável interno</label>
               <div className="relative">
                 <input
@@ -421,7 +437,7 @@ export default function EditarObraPage() {
                     setShowRespDrop(true)
                   }}
                   onFocus={() => setShowRespDrop(true)}
-                  placeholder="Buscar usuário..."
+                  placeholder="Buscar colaborador..."
                   className={InputClass}
                 />
                 {selectedResp && (
@@ -432,18 +448,30 @@ export default function EditarObraPage() {
                 )}
               </div>
               {showRespDrop && !selectedResp && (
-                <div className="absolute z-20 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-40 overflow-y-auto">
+                <div className="absolute z-20 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-48 overflow-y-auto">
                   {users
-                    .filter(u => u.name.toLowerCase().includes(respSearch.toLowerCase()))
+                    .filter(u => !respSearch || (u.name || '').toLowerCase().includes(respSearch.toLowerCase()))
                     .map(u => (
                       <button
                         key={u.id}
-                        onClick={() => { setSelectedResp(u); setShowRespDrop(false) }}
-                        className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50"
-                      >{u.name}</button>
+                        onClick={() => { setSelectedResp(u); setRespSearch(u.name); setShowRespDrop(false) }}
+                        className="w-full flex items-center gap-2 text-left px-3 py-2 hover:bg-gray-50"
+                      >
+                        {u.avatarUrl ? (
+                          <img src={u.avatarUrl} alt="" className="w-7 h-7 rounded-full object-cover flex-shrink-0" />
+                        ) : (
+                          <div className="w-7 h-7 rounded-full bg-[#F5A623] flex items-center justify-center text-white text-[11px] font-bold flex-shrink-0">
+                            {(u.name || '?')[0].toUpperCase()}
+                          </div>
+                        )}
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium text-gray-800 truncate">{u.name}</p>
+                          {u.role && <p className="text-[11px] text-gray-400 truncate">{u.role}</p>}
+                        </div>
+                      </button>
                     ))}
-                  {users.filter(u => u.name.toLowerCase().includes(respSearch.toLowerCase())).length === 0 && (
-                    <p className="px-3 py-2 text-xs text-gray-400">Nenhum usuário encontrado</p>
+                  {users.filter(u => !respSearch || (u.name || '').toLowerCase().includes(respSearch.toLowerCase())).length === 0 && (
+                    <p className="px-3 py-2 text-xs text-gray-400">Nenhum colaborador encontrado</p>
                   )}
                 </div>
               )}

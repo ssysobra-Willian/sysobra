@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import {
   ArrowLeft, RefreshCw, Plus, FileText, Loader2, ChevronDown, ChevronUp,
   Copy, Check, Link2, Download, X, Package, Wrench, ShieldCheck, Truck,
-  User, MapPin, Calendar, AlertTriangle, ClipboardList,
+  User, MapPin, Calendar, AlertTriangle, ClipboardList, Search,
 } from 'lucide-react'
 import { SignaturePad } from '@/components/deposit/SignaturePad'
 import { useAuthenticatedPdf } from '@/hooks/useAuthenticatedPdf'
@@ -108,10 +108,11 @@ interface Waybill {
   dispatchedAt:       string | null
   receivedAt:         string | null
   createdAt:          string
-  location:           { id: string; name: string; type: string }
-  destinationProject: { id: string; name: string } | null
-  driverEmployee:     { id: string; name: string } | null
-  receiverEmployee:   { id: string; name: string } | null
+  location:            { id: string; name: string; type: string }
+  destinationProject:  { id: string; name: string } | null
+  destinationLocation: { id: string; name: string; type: string } | null
+  driverEmployee:      { id: string; name: string } | null
+  receiverEmployee:    { id: string; name: string } | null
   items:              WaybillItem[]
   pendencies:         any[]
 }
@@ -240,13 +241,15 @@ function WaybillCard({
             <div style={{ fontSize: 12, color: '#374151' }}>{waybill.location?.name ?? '—'}</div>
           </div>
         </div>
-        {(waybill.destinationProject || waybill.destinationName) && (
+        {(waybill.destinationLocation || waybill.destinationProject || waybill.destinationName) && (
           <div style={{ display: 'flex', alignItems: 'flex-start', gap: 6 }}>
             <MapPin size={12} style={{ color: '#9CA3AF', marginTop: 3, flexShrink: 0 }} />
             <div>
               <div style={{ fontSize: 10, color: '#9CA3AF', fontWeight: 600 }}>DESTINO</div>
               <div style={{ fontSize: 12, color: '#374151' }}>
-                {waybill.destinationProject?.name ?? waybill.destinationName}
+                {waybill.destinationLocation
+                  ? `${waybill.destinationLocation.type === 'CENTRAL' ? '🏦' : '📦'} ${waybill.destinationLocation.name}`
+                  : (waybill.destinationProject?.name ?? waybill.destinationName)}
               </div>
             </div>
           </div>
@@ -868,6 +871,7 @@ export default function RomaneiosPage() {
   // filtros
   const [category,   setCategory]   = useState('')
   const [status,     setStatus]     = useState('')
+  const [search,     setSearch]     = useState('')
 
   // dados
   const [waybills,   setWaybills]   = useState<Waybill[]>([])
@@ -894,6 +898,7 @@ export default function RomaneiosPage() {
     const qs = new URLSearchParams({ page: String(page), limit: String(LIMIT) })
     if (category) qs.set('category', category)
     if (status)   qs.set('status', status)
+    if (search)   qs.set('search', search)
     try {
       const [r, locR] = await Promise.all([
         apiFetch(`/api/v1/waybill?${qs}`),
@@ -910,10 +915,10 @@ export default function RomaneiosPage() {
       }
     } catch { /* silencioso */ }
     finally { setLoading(false) }
-  }, [page, category, status])
+  }, [page, category, status, search])
 
   useEffect(() => { loadWaybills() }, [loadWaybills])
-  useEffect(() => { setPage(1) }, [category, status])
+  useEffect(() => { setPage(1) }, [category, status, search])
 
   // ── handlers ─────────────────────────────────────────────────────────────
 
@@ -1061,6 +1066,29 @@ export default function RomaneiosPage() {
             })}
           </div>
 
+          {/* Search */}
+          <div style={{ position: 'relative', marginBottom: 10 }}>
+            <Search size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: '#9CA3AF', pointerEvents: 'none' }} />
+            <input
+              type="text"
+              placeholder="Buscar por nº, destino ou local..."
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              style={{
+                width: '100%', boxSizing: 'border-box',
+                padding: '8px 32px 8px 32px', borderRadius: 8,
+                border: '1px solid #E5E7EB', fontSize: 13, outline: 'none',
+                background: '#fff', color: '#374151',
+              }}
+            />
+            {search && (
+              <button
+                onClick={() => setSearch('')}
+                style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', padding: 2, color: '#9CA3AF' }}
+              ><X size={14} /></button>
+            )}
+          </div>
+
           {/* Status pills */}
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
             {STATUS_PILLS.map(s => (
@@ -1094,8 +1122,8 @@ export default function RomaneiosPage() {
               Nenhum romaneio encontrado
             </p>
             <p style={{ fontSize: 13, color: '#9CA3AF' }}>
-              {category || status
-                ? 'Tente ajustar os filtros'
+              {category || status || search
+                ? 'Tente ajustar os filtros ou a busca'
                 : 'Crie seu primeiro romaneio com o botão "Novo Romaneio"'}
             </p>
           </div>

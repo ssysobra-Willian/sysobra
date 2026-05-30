@@ -86,9 +86,12 @@ export default function WaybillModal({
   const [exitType, setExitType] = useState<'DIRECT_PICKUP' | 'DRIVER_DELIVERY'>('DIRECT_PICKUP')
 
   // Destino
+  const [destinationType,      setDestinationType]      = useState<'PROJECT' | 'LOCATION'>('PROJECT')
   const [destinationProjectId, setDestinationProjectId] = useState('')
   const [destinationName,      setDestinationName]      = useState('')
+  const [destinationLocationId,setDestinationLocationId]= useState('')
   const [projects,             setProjects]             = useState<any[]>([])
+  const [locations,            setLocations]            = useState<any[]>([])
 
   // Motorista
   const [driverType,       setDriverType]       = useState<'EMPLOYEE' | 'EXTERNAL'>('EMPLOYEE')
@@ -135,6 +138,7 @@ export default function WaybillModal({
   useEffect(() => {
     if (!isOpen) return
     loadProjects()
+    loadLocations()
     loadEmployees()
     loadItems()
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -185,6 +189,16 @@ export default function WaybillModal({
       const r = await apiFetch('/api/v1/projects?limit=100')
       const d = await r.json()
       setProjects(d.projects ?? d ?? [])
+    } catch {}
+  }
+
+  async function loadLocations() {
+    try {
+      const r = await apiFetch('/api/v1/deposit/locations')
+      const d = await r.json()
+      // excluir o próprio locationId (origem) da lista de destinos
+      const all = d.locations ?? d ?? []
+      setLocations(all.filter((l: any) => l.id !== locationId && l.isActive !== false))
     } catch {}
   }
 
@@ -271,8 +285,9 @@ export default function WaybillModal({
       locationId,
       status,
       exitType,
-      destinationProjectId: destinationProjectId || null,
-      destinationName:      destinationName      || null,
+      destinationProjectId:  destinationType === 'PROJECT'  ? (destinationProjectId || null) : null,
+      destinationLocationId: destinationType === 'LOCATION' ? (destinationLocationId || null) : null,
+      destinationName:       destinationName || null,
       driverType:           exitType === 'DRIVER_DELIVERY' ? driverType : null,
       driverEmployeeId:     exitType === 'DRIVER_DELIVERY' && driverType === 'EMPLOYEE'
                               ? driverEmployeeId : null,
@@ -511,24 +526,61 @@ export default function WaybillModal({
                 <label style={{ fontSize: 13, fontWeight: 500, display: 'block', marginBottom: 6 }}>
                   Destino <span style={{ color: '#DC2626' }}>*</span>
                 </label>
-                <select
-                  value={destinationProjectId}
-                  onChange={e => { setDestinationProjectId(e.target.value); setStep1Error('') }}
-                  style={{ width: '100%', padding: '9px 12px',
-                    border: '1px solid #D1D5DB', borderRadius: 8, fontSize: 14, marginBottom: 8 }}
-                >
-                  <option value="">Selecionar obra...</option>
-                  {projects.map(p => (
-                    <option key={p.id} value={p.id}>{p.code} — {p.name}</option>
+                {/* Toggle Obra / Almoxarifado */}
+                <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
+                  {([
+                    { v: 'PROJECT',  l: '🏗️ Obra' },
+                    { v: 'LOCATION', l: '🏪 Almoxarifado' },
+                  ] as const).map(opt => (
+                    <button key={opt.v} onClick={() => {
+                      setDestinationType(opt.v)
+                      setDestinationProjectId('')
+                      setDestinationLocationId('')
+                      setDestinationName('')
+                      setStep1Error('')
+                    }} style={{
+                      flex: 1, padding: '7px 10px', borderRadius: 8, fontSize: 12, cursor: 'pointer',
+                      border: `2px solid ${destinationType === opt.v ? '#F5A623' : '#E5E7EB'}`,
+                      background: destinationType === opt.v ? '#FEF3DC' : 'transparent',
+                      fontWeight: destinationType === opt.v ? 600 : 400,
+                    }}>{opt.l}</button>
                   ))}
-                </select>
-                <input
-                  value={destinationName}
-                  onChange={e => { setDestinationName(e.target.value); setStep1Error('') }}
-                  placeholder="Ou descrever destino externo..."
-                  style={{ width: '100%', padding: '9px 12px',
-                    border: '1px solid #D1D5DB', borderRadius: 8, fontSize: 14 }}
-                />
+                </div>
+
+                {destinationType === 'PROJECT' ? (
+                  <>
+                    <select
+                      value={destinationProjectId}
+                      onChange={e => { setDestinationProjectId(e.target.value); setStep1Error('') }}
+                      style={{ width: '100%', padding: '9px 12px',
+                        border: '1px solid #D1D5DB', borderRadius: 8, fontSize: 14, marginBottom: 8 }}
+                    >
+                      <option value="">Selecionar obra...</option>
+                      {projects.map(p => (
+                        <option key={p.id} value={p.id}>{p.code} — {p.name}</option>
+                      ))}
+                    </select>
+                    <input
+                      value={destinationName}
+                      onChange={e => { setDestinationName(e.target.value); setStep1Error('') }}
+                      placeholder="Ou descrever destino externo..."
+                      style={{ width: '100%', padding: '9px 12px',
+                        border: '1px solid #D1D5DB', borderRadius: 8, fontSize: 14 }}
+                    />
+                  </>
+                ) : (
+                  <select
+                    value={destinationLocationId}
+                    onChange={e => { setDestinationLocationId(e.target.value); setStep1Error('') }}
+                    style={{ width: '100%', padding: '9px 12px',
+                      border: '1px solid #D1D5DB', borderRadius: 8, fontSize: 14 }}
+                  >
+                    <option value="">Selecionar almoxarifado...</option>
+                    {locations.map((l: any) => (
+                      <option key={l.id} value={l.id}>{l.name}</option>
+                    ))}
+                  </select>
+                )}
               </div>
 
               {/* Motorista — apenas se DRIVER_DELIVERY */}
@@ -953,8 +1005,12 @@ export default function WaybillModal({
               }}>
                 <div><strong>Tipo:</strong> {exitType === 'DIRECT_PICKUP' ? 'Retirada direta' : 'Entrega por motorista'}</div>
                 <div><strong>Itens:</strong> {selectedItems.length} tipo(s) — {selectedItems.reduce((s, i) => s + i.quantity, 0)} un</div>
-                {(destinationProjectId || destinationName) && (
-                  <div><strong>Destino:</strong> {projects.find(p => p.id === destinationProjectId)?.name || destinationName}</div>
+                {(destinationProjectId || destinationName || destinationLocationId) && (
+                  <div><strong>Destino:</strong> {
+                    destinationType === 'LOCATION'
+                      ? (locations.find((l: any) => l.id === destinationLocationId)?.name ?? destinationLocationId)
+                      : (projects.find((p: any) => p.id === destinationProjectId)?.name ?? destinationName)
+                  }</div>
                 )}
               </div>
 
@@ -1039,9 +1095,13 @@ export default function WaybillModal({
               <button
                 onClick={() => {
                   if (step === 1) {
-                    const hasDestination = !!destinationProjectId || destinationName.trim().length > 0
+                    const hasDestination = destinationType === 'LOCATION'
+                      ? !!destinationLocationId
+                      : (!!destinationProjectId || destinationName.trim().length > 0)
                     if (!hasDestination) {
-                      setStep1Error('Informe o destino — selecione uma obra ou preencha o destino externo')
+                      setStep1Error(destinationType === 'LOCATION'
+                        ? 'Selecione o almoxarifado de destino'
+                        : 'Informe o destino — selecione uma obra ou preencha o destino externo')
                       return
                     }
                     const hasReceiver = receiverType === 'EMPLOYEE'
