@@ -2483,6 +2483,15 @@ export default function DepositoPage() {
               <p className="text-sm text-gray-700">
                 Item: <strong>{deleteTargetItem.name}</strong>
               </p>
+              {Number(deleteTargetItem.quantity) > 1 && (
+                <div className="bg-red-50 border border-red-200 rounded-xl px-3 py-2 text-xs text-red-700 flex items-start gap-2">
+                  <AlertTriangle size={13} className="flex-shrink-0 mt-0.5" />
+                  <span>
+                    Este item tem <strong>{deleteTargetItem.quantity} unidades</strong> em estoque.
+                    A exclusão removerá <strong>todas as unidades</strong>.
+                  </span>
+                </div>
+              )}
               <div className="bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 text-xs text-amber-800">
                 ⚠️ O item ficará aguardando aprovação do gestor antes de ser excluído.
               </div>

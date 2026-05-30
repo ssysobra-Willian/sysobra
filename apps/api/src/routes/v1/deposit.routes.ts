@@ -1727,14 +1727,14 @@ ${_basketFooter}
         where: {
           companyId: cid,
           nextDate: { lt: now },
-          tool: { isActive: true, toolStatus: { notIn: ['DISCARDED', 'LOST', 'PENDING_DELETE'] } },
+          stockItem: { isActive: true, toolStatus: { notIn: ['DISCARDED', 'LOST', 'PENDING_DELETE'] } },
         },
       }),
       p().toolMaintenanceRecord.count({
         where: {
           companyId: cid,
           nextDate: { gte: now, lte: next30Days },
-          tool: { isActive: true, toolStatus: { notIn: ['DISCARDED', 'LOST', 'PENDING_DELETE'] } },
+          stockItem: { isActive: true, toolStatus: { notIn: ['DISCARDED', 'LOST', 'PENDING_DELETE'] } },
         },
       }),
       // FIX 8: aggregate total value from StockBalance (per-location pre-calculated)
