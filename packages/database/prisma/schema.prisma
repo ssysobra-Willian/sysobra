@@ -2457,6 +2457,7 @@ model ToolDeleteRequest {
   itemId      String    @map("item_id")
   requestedBy String    @map("requested_by")
   reason      String
+  quantity    Int       @default(1)          // quantidade a excluir (parcial ou total)
   status      String    @default("PENDING")  // PENDING | APPROVED | REJECTED
   reviewedBy  String?   @map("reviewed_by")
   reviewNotes String?   @map("review_notes")

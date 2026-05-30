@@ -3727,35 +3727,61 @@ ${getPdfFooter(company?.name ?? '')}
     })
     if (!deleteReq) return reply.status(404).send({ error: 'Solicitação não encontrada' })
 
-    const itemId = deleteReq.itemId
+    const itemId      = deleteReq.itemId
+    const reqQty      = (deleteReq as any).quantity ?? 1
+    const currentQty  = Number(deleteReq.item.quantity)
+    const isTotal     = reqQty >= currentQty
 
-    // Verificar se há custódia ativa
-    const activeCustody = await p().toolCustody.findFirst({
-      where: { stockItemId: itemId, returnedAt: null },
-    })
-    if (activeCustody) {
-      return reply.status(400).send({
-        error: 'TOOL_IN_USE',
-        message: 'Não é possível excluir uma ferramenta em uso. Solicite a devolução primeiro.',
+    // Verificar custódia ativa (bloqueia só exclusão total de ferramentas)
+    if (isTotal && deleteReq.item.requiresCustody) {
+      const activeCustody = await p().toolCustody.findFirst({
+        where: { stockItemId: itemId, returnedAt: null },
       })
+      if (activeCustody) {
+        return reply.status(400).send({
+          error: 'TOOL_IN_USE',
+          message: 'Não é possível excluir uma ferramenta em uso. Solicite a devolução primeiro.',
+        })
+      }
     }
 
-    await p().$transaction([
-      p().toolDeleteRequest.update({
-        where: { id },
-        data:  { status: 'APPROVED', reviewedBy: uid, reviewNotes: body?.notes ?? null, reviewedAt: new Date() },
-      }),
-      p().stockBalance.updateMany({
-        where: { itemId, companyId: cid },
-        data:  { quantity: 0, totalValue: 0 },
-      }),
-      p().stockItem.update({
-        where: { id: itemId },
-        data:  { isActive: false, quantity: 0 },
-      }),
-    ])
+    if (isTotal) {
+      // Exclusão total — desativar item
+      await p().$transaction([
+        p().toolDeleteRequest.update({
+          where: { id },
+          data:  { status: 'APPROVED', reviewedBy: uid, reviewNotes: body?.notes ?? null, reviewedAt: new Date() },
+        }),
+        p().stockBalance.updateMany({
+          where: { itemId, companyId: cid },
+          data:  { quantity: 0, totalValue: 0 },
+        }),
+        p().stockItem.update({
+          where: { id: itemId },
+          data:  { isActive: false, quantity: 0 },
+        }),
+      ])
+    } else {
+      // Exclusão parcial — reduzir quantidade
+      const newQty      = currentQty - reqQty
+      const unitCost    = Number((deleteReq.item as any).averageCost ?? (deleteReq.item as any).unitCost ?? 0)
+      await p().$transaction([
+        p().toolDeleteRequest.update({
+          where: { id },
+          data:  { status: 'APPROVED', reviewedBy: uid, reviewNotes: body?.notes ?? null, reviewedAt: new Date() },
+        }),
+        p().stockBalance.updateMany({
+          where: { itemId, companyId: cid },
+          data:  { quantity: { decrement: reqQty }, totalValue: newQty * unitCost },
+        }),
+        p().stockItem.update({
+          where: { id: itemId },
+          data:  { quantity: newQty, toolStatus: 'AVAILABLE' },
+        }),
+      ])
+    }
 
-    return reply.send({ success: true })
+    return reply.send({ success: true, partial: !isTotal, removedQty: reqQty })
   })
 
   // PATCH /api/v1/deposit/tools/delete-requests/:id/reject
@@ -3798,7 +3824,7 @@ ${getPdfFooter(company?.name ?? '')}
     const cid = companyId(req)
     const uid = userId(req)
     const { id } = request.params as { id: string }
-    const body = request.body as { reason?: string }
+    const body = request.body as { reason?: string; quantity?: number }
 
     if (!body?.reason?.trim()) {
       return reply.status(400).send({ error: 'Motivo obrigatório para solicitar exclusão.' })
@@ -3816,17 +3842,24 @@ ${getPdfFooter(company?.name ?? '')}
       return reply.status(400).send({ error: 'Já existe uma solicitação de exclusão pendente para este item.' })
     }
 
+    // quantidade a excluir: respeitando o estoque atual, mínimo 1
+    const totalQty   = Number(item.quantity)
+    const reqQty     = body.quantity && body.quantity > 0 ? Math.min(body.quantity, totalQty) : totalQty
+    const isTotal    = reqQty >= totalQty
+
     const deleteReq = await p().toolDeleteRequest.create({
       data: {
         companyId:   cid,
         itemId:      id,
         requestedBy: uid!,
         reason:      body.reason.trim(),
+        quantity:    reqQty,
         status:      'PENDING',
       },
     })
 
-    if (item.requiresCustody) {
+    // Marcar como PENDING_DELETE só quando a exclusão é total em ferramenta
+    if (item.requiresCustody && isTotal) {
       await p().stockItem.update({ where: { id }, data: { toolStatus: 'PENDING_DELETE' } })
     }
 

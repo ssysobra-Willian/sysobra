@@ -1500,9 +1500,10 @@ export default function DepositoPage() {
   // Lightbox foto
   const [expandedPhoto, setExpandedPhoto] = useState<string | null>(null)
 
-  // Solicitar exclusão (material / EPI / uniforme)
+  // Solicitar exclusão (material / EPI / uniforme / ferramenta)
   const [deleteTargetItem,    setDeleteTargetItem]    = useState<StockItem | null>(null)
   const [deleteReason,        setDeleteReason]        = useState('')
+  const [deleteQuantity,      setDeleteQuantity]      = useState(1)
   const [showReqDeleteModal,  setShowReqDeleteModal]  = useState(false)
   const [requestingDelete,    setRequestingDelete]    = useState(false)
 
@@ -1846,6 +1847,7 @@ export default function DepositoPage() {
             ))}
           </div>
         ) : summary && (
+          <>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             <MetricCard
               label="Total de itens"
@@ -1871,106 +1873,103 @@ export default function DepositoPage() {
               icon={<ArrowDownToLine size={18} className="text-green-600" />}
               color="bg-green-50"
             />
-            {/* ── Alert cards (clicáveis) ───────────────────────────────── */}
-            {([
-              {
-                key:   'low_stock'       as AlertFilterKey,
-                label: 'Estoque baixo',
-                value: summary.lowStockCount,
-                icon:  <AlertTriangle size={18} />,
-                ring:  'ring-red-400',
-                bg:    'bg-red-50',
-                iconColor: 'text-red-500',
-                activeBg:  'bg-red-500',
-                hasAlert:  summary.lowStockCount > 0,
-              },
-              {
-                key:   'late_return'     as AlertFilterKey,
-                label: 'Devoluções atrasadas',
-                value: summary.overdueReturns,
-                icon:  <Clock size={18} />,
-                ring:  'ring-orange-400',
-                bg:    'bg-orange-50',
-                iconColor: 'text-orange-500',
-                activeBg:  'bg-orange-500',
-                hasAlert:  summary.overdueReturns > 0,
-              },
-              {
-                key:   'maintenance'     as AlertFilterKey,
-                label: 'Em manutenção',
-                value: summary.inMaintenanceCount,
-                icon:  <Wrench size={18} />,
-                ring:  'ring-purple-400',
-                bg:    'bg-purple-50',
-                iconColor: 'text-purple-600',
-                activeBg:  'bg-purple-600',
-                hasAlert:  false,
-              },
-              {
-                key:   'maintenance_due' as AlertFilterKey,
-                label: 'Manutenções vencidas',
-                value: summary.overdueMaintenance,
-                icon:  <AlertTriangle size={18} />,
-                ring:  'ring-red-400',
-                bg:    'bg-red-50',
-                iconColor: 'text-red-600',
-                activeBg:  'bg-red-600',
-                hasAlert:  summary.overdueMaintenance > 0,
-              },
-              {
-                key:   'maintenance_upcoming' as AlertFilterKey,
-                label: 'Próximas (30d)',
-                value: summary.upcomingMaintenance ?? 0,
-                icon:  <Calendar size={18} />,
-                ring:  'ring-amber-400',
-                bg:    'bg-amber-50',
-                iconColor: 'text-amber-600',
-                activeBg:  'bg-amber-600',
-                hasAlert:  false,
-              },
-            ]).map(card => {
-              const isActive = activeFilter === card.key
-              return (
-                <button
-                  key={card.key}
-                  onClick={() => setActiveFilter(activeFilter === card.key ? null : card.key)}
-                  className={cn(
-                    'bg-white rounded-xl border p-3 text-left shadow-sm transition-all',
-                    'hover:border-gray-300 focus:outline-none',
-                    isActive
-                      ? `border-transparent ring-2 ${card.ring}`
-                      : card.hasAlert
-                        ? 'border-red-200 hover:border-red-300'
-                        : 'border-gray-100',
-                  )}
-                >
-                  <div className="flex items-start gap-2.5">
-                    <div className={cn(
-                      'w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 transition-colors',
-                      isActive ? `${card.activeBg} text-white` : `${card.bg} ${card.iconColor}`,
-                    )}>
-                      {card.icon}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs text-gray-500 truncate">{card.label}</p>
-                      <p className={cn(
-                        'text-lg font-bold leading-tight',
-                        isActive ? 'text-gray-900' : card.hasAlert ? 'text-red-600' : 'text-gray-800',
-                      )}>{card.value}</p>
-                    </div>
-                    {card.hasAlert && !isActive && (
-                      <span className="w-2 h-2 rounded-full bg-red-500 flex-shrink-0 mt-1" />
-                    )}
-                    {isActive && (
-                      <span className="text-[10px] font-semibold bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded-full flex-shrink-0">
-                        ativo
-                      </span>
-                    )}
-                  </div>
-                </button>
-              )
-            })}
           </div>
+
+          {/* ── Alert badges compactos ──────────────────────────────────────── */}
+          <div className="flex flex-wrap items-center gap-2 mt-3 px-3 py-2.5 bg-gray-50 rounded-xl border border-gray-100">
+            <span className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide mr-1 flex-shrink-0">Alertas</span>
+
+            {/* Estoque baixo */}
+            <button
+              onClick={() => setActiveFilter(activeFilter === 'low_stock' ? null : 'low_stock')}
+              className={cn(
+                'flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold border transition-all',
+                activeFilter === 'low_stock'
+                  ? 'bg-red-500 border-red-500 text-white'
+                  : summary.lowStockCount > 0
+                    ? 'bg-red-50 border-red-200 text-red-700 hover:bg-red-100'
+                    : 'bg-white border-gray-200 text-gray-400 hover:border-gray-300',
+              )}
+            >
+              <AlertTriangle size={11} />
+              {summary.lowStockCount} estoque baixo
+            </button>
+
+            {/* Devoluções atrasadas */}
+            <button
+              onClick={() => setActiveFilter(activeFilter === 'late_return' ? null : 'late_return')}
+              className={cn(
+                'flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold border transition-all',
+                activeFilter === 'late_return'
+                  ? 'bg-orange-500 border-orange-500 text-white'
+                  : summary.overdueReturns > 0
+                    ? 'bg-orange-50 border-orange-200 text-orange-700 hover:bg-orange-100'
+                    : 'bg-white border-gray-200 text-gray-400 hover:border-gray-300',
+              )}
+            >
+              <Clock size={11} />
+              {summary.overdueReturns} dev. atrasada{summary.overdueReturns !== 1 ? 's' : ''}
+            </button>
+
+            {/* Em manutenção */}
+            <button
+              onClick={() => setActiveFilter(activeFilter === 'maintenance' ? null : 'maintenance')}
+              className={cn(
+                'flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold border transition-all',
+                activeFilter === 'maintenance'
+                  ? 'bg-purple-600 border-purple-600 text-white'
+                  : summary.inMaintenanceCount > 0
+                    ? 'bg-purple-50 border-purple-200 text-purple-700 hover:bg-purple-100'
+                    : 'bg-white border-gray-200 text-gray-400 hover:border-gray-300',
+              )}
+            >
+              <Wrench size={11} />
+              {summary.inMaintenanceCount} em manutenção
+            </button>
+
+            {/* Manutenções vencidas */}
+            <button
+              onClick={() => setActiveFilter(activeFilter === 'maintenance_due' ? null : 'maintenance_due')}
+              className={cn(
+                'flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold border transition-all',
+                activeFilter === 'maintenance_due'
+                  ? 'bg-red-600 border-red-600 text-white'
+                  : summary.overdueMaintenance > 0
+                    ? 'bg-red-50 border-red-200 text-red-700 hover:bg-red-100'
+                    : 'bg-white border-gray-200 text-gray-400 hover:border-gray-300',
+              )}
+            >
+              <AlertTriangle size={11} />
+              {summary.overdueMaintenance} manut. vencida{summary.overdueMaintenance !== 1 ? 's' : ''}
+            </button>
+
+            {/* Manutenções próximas 30d */}
+            <button
+              onClick={() => setActiveFilter(activeFilter === 'maintenance_upcoming' ? null : 'maintenance_upcoming')}
+              className={cn(
+                'flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold border transition-all',
+                activeFilter === 'maintenance_upcoming'
+                  ? 'bg-amber-500 border-amber-500 text-white'
+                  : (summary.upcomingMaintenance ?? 0) > 0
+                    ? 'bg-amber-50 border-amber-200 text-amber-700 hover:bg-amber-100'
+                    : 'bg-white border-gray-200 text-gray-400 hover:border-gray-300',
+              )}
+            >
+              <Calendar size={11} />
+              {summary.upcomingMaintenance ?? 0} próx. (30d)
+            </button>
+
+            {/* Limpar filtro ativo */}
+            {activeFilter && (
+              <button
+                onClick={() => setActiveFilter(null)}
+                className="ml-auto flex items-center gap-1 px-2 py-1 rounded-full text-[11px] text-gray-400 hover:text-gray-600 border border-transparent hover:border-gray-200 transition-all"
+              >
+                <X size={10} /> limpar filtro
+              </button>
+            )}
+          </div>
+          </>
         )}
 
         {/* ── Valor do estoque por categoria ───────────────────────────── */}
@@ -2129,7 +2128,7 @@ export default function DepositoPage() {
                     onView={handleViewItem}
                     onEdit={item => { setEditingMaterial(item); setMaterialFormOpen(true) }}
                     onCustody={item => setCustodyItem(item)}
-                    onRequestDelete={item => { setDeleteTargetItem(item); setDeleteReason(''); setShowReqDeleteModal(true) }}
+                    onRequestDelete={item => { setDeleteTargetItem(item); setDeleteReason(''); setDeleteQuantity(Number(item.quantity) || 1); setShowReqDeleteModal(true) }}
                     onExpandPhoto={url => setExpandedPhoto(url)}
                   />
                 )}
@@ -2146,7 +2145,7 @@ export default function DepositoPage() {
                     onSendToMaintenance={handleSendToMaintenanceFromTable}
                     onReturn={item => setReturnToolItem(item)}
                     onReturnFromMaintenance={handleReturnFromMaintenanceFromTable}
-                    onRequestDelete={item => { setDeleteTargetItem(item); setDeleteReason(''); setShowReqDeleteModal(true) }}
+                    onRequestDelete={item => { setDeleteTargetItem(item); setDeleteReason(''); setDeleteQuantity(Number(item.quantity) || 1); setShowReqDeleteModal(true) }}
                     selectedLocationId={selectedLocation !== 'all' ? selectedLocation : undefined}
                     onExpandPhoto={url => setExpandedPhoto(url)}
                   />
@@ -2167,7 +2166,7 @@ export default function DepositoPage() {
                       onView={handleViewItem}
                       onEdit={item => { setEditingMaterial(item); setEpiFormOpen(true) }}
                       onCustody={item => setCustodyItem(item)}
-                      onRequestDelete={item => { setDeleteTargetItem(item); setDeleteReason(''); setShowReqDeleteModal(true) }}
+                      onRequestDelete={item => { setDeleteTargetItem(item); setDeleteReason(''); setDeleteQuantity(Number(item.quantity) || 1); setShowReqDeleteModal(true) }}
                       onExpandPhoto={url => setExpandedPhoto(url)}
                     />
                   </div>
@@ -2178,7 +2177,7 @@ export default function DepositoPage() {
                     onView={handleViewItem}
                     onEdit={item => { setEditingMaterial(item); setUniformFormOpen(true) }}
                     onCustody={item => setCustodyItem(item)}
-                    onRequestDelete={item => { setDeleteTargetItem(item); setDeleteReason(''); setShowReqDeleteModal(true) }}
+                    onRequestDelete={item => { setDeleteTargetItem(item); setDeleteReason(''); setDeleteQuantity(Number(item.quantity) || 1); setShowReqDeleteModal(true) }}
                     onExpandPhoto={url => setExpandedPhoto(url)}
                   />
                 )}
@@ -2483,15 +2482,39 @@ export default function DepositoPage() {
               <p className="text-sm text-gray-700">
                 Item: <strong>{deleteTargetItem.name}</strong>
               </p>
+
+              {/* Campo de quantidade — visível quando há mais de 1 unidade */}
               {Number(deleteTargetItem.quantity) > 1 && (
-                <div className="bg-red-50 border border-red-200 rounded-xl px-3 py-2 text-xs text-red-700 flex items-start gap-2">
-                  <AlertTriangle size={13} className="flex-shrink-0 mt-0.5" />
-                  <span>
-                    Este item tem <strong>{deleteTargetItem.quantity} unidades</strong> em estoque.
-                    A exclusão removerá <strong>todas as unidades</strong>.
-                  </span>
+                <div className="space-y-2">
+                  <label className="block text-xs font-medium text-gray-600">
+                    Quantidade a excluir
+                    <span className="text-gray-400 font-normal ml-1">(máx: {deleteTargetItem.quantity})</span>
+                  </label>
+                  <div className="flex items-center gap-3">
+                    <input
+                      type="number"
+                      min={1}
+                      max={Number(deleteTargetItem.quantity)}
+                      value={deleteQuantity}
+                      onChange={e => setDeleteQuantity(
+                        Math.min(Number(deleteTargetItem.quantity), Math.max(1, Number(e.target.value) || 1))
+                      )}
+                      className="w-20 px-3 py-2 text-sm text-center border border-gray-200 rounded-xl focus:outline-none focus:border-[#F5A623]"
+                    />
+                    <span className="text-xs text-gray-500">de {deleteTargetItem.quantity} unidades</span>
+                  </div>
+                  {deleteQuantity < Number(deleteTargetItem.quantity) ? (
+                    <p className="text-[11px] text-green-600">
+                      ✅ Restará <strong>{Number(deleteTargetItem.quantity) - deleteQuantity}</strong> unidade(s) no estoque
+                    </p>
+                  ) : (
+                    <p className="text-[11px] text-red-600">
+                      ⚠️ Todas as unidades serão excluídas
+                    </p>
+                  )}
                 </div>
               )}
+
               <div className="bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 text-xs text-amber-800">
                 ⚠️ O item ficará aguardando aprovação do gestor antes de ser excluído.
               </div>
@@ -2509,7 +2532,7 @@ export default function DepositoPage() {
             </div>
             <div className="flex gap-2 px-5 pb-5">
               <button
-                onClick={() => { setShowReqDeleteModal(false); setDeleteReason('') }}
+                onClick={() => { setShowReqDeleteModal(false); setDeleteReason(''); setDeleteQuantity(1) }}
                 className="flex-1 py-2.5 rounded-xl border border-gray-200 text-sm font-medium text-gray-600 hover:bg-gray-50 transition"
               >Cancelar</button>
               <button
@@ -2520,7 +2543,10 @@ export default function DepositoPage() {
                   try {
                     const res = await apiFetch(`/api/v1/deposit/items/${deleteTargetItem.id}/request-delete`, {
                       method: 'POST',
-                      body: JSON.stringify({ reason: deleteReason.trim() }),
+                      body: JSON.stringify({
+                        reason:   deleteReason.trim(),
+                        quantity: Number(deleteTargetItem.quantity) > 1 ? deleteQuantity : 1,
+                      }),
                     })
                     if (!res.ok) {
                       const d = await res.json().catch(() => ({}))

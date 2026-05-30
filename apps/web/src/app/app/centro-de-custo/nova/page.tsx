@@ -121,24 +121,24 @@ export default function NovaObraPage() {
       headers: { Authorization: `Bearer ${token}` },
     }).then(r => r.json()).then(d => setClients(d.clients ?? []))
 
-    // Busca colaboradores ativos (responsável pode ser qualquer colaborador)
-    fetch(`${API}/api/v1/employees?limit=200&status=ACTIVE`, {
+    // Busca membros da empresa (responsável = User.id vinculado ao project.responsibleId)
+    fetch(`${API}/api/v1/members?companyId=${companyId}&limit=200`, {
       headers: {
         Authorization:  `Bearer ${token}`,
         'x-company-id': companyId,
       },
     }).then(r => r.json()).then(d => {
-      const list = d.employees ?? []
-      const members: UserItem[] = list.map((e: any) => ({
-        id:        e.id,
-        name:      e.name || '',
-        avatarUrl: e.photo
-          ? (e.photo.startsWith('http') ? e.photo : `${API}${e.photo.startsWith('/') ? '' : '/'}${e.photo}`)
-          : null,
-        role:      e.role || e.position || '',
-      }))
+      const list = d.members ?? []
+      const members: UserItem[] = list
+        .map((m: any) => ({
+          id:        m.userId ?? m.id,
+          name:      m.user?.name ?? m.name ?? '',
+          avatarUrl: m.user?.avatarUrl ?? m.avatarUrl ?? null,
+          role:      m.role ?? '',
+        }))
+        .filter((u: UserItem) => u.name)
       setUsers(members)
-    })
+    }).catch(() => {})
   }, [])
 
   // ── Fechar dropdown responsável ao clicar fora
