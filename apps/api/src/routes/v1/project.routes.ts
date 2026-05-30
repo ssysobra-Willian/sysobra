@@ -1781,6 +1781,16 @@ export async function projectRoutes(app: FastifyInstance) {
       data:  { stageId: body.stageId },
     })
 
+    // Sincronizar stageId no lançamento financeiro (CC ↔ Financeiro)
+    if (alloc.transactionId) {
+      try {
+        await p.financialTransaction.update({
+          where: { id: alloc.transactionId },
+          data:  { stageId: body.stageId },
+        })
+      } catch { /* silencioso: campo pode não existir no DB ainda */ }
+    }
+
     return reply.send({ success: true })
   })
 }

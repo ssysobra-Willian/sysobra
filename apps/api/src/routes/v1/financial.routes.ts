@@ -574,6 +574,7 @@ export async function financialRoutes(app: FastifyInstance) {
           client:      { select: { id: true, name: true } },
           supplier:    { select: { id: true, name: true } },
           createdBy:   { select: { id: true, name: true, avatarUrl: true } },
+          stage:       { select: { id: true, name: true } },
           costCenterAllocations: {
             include: {
               project: { select: { id: true, name: true } },

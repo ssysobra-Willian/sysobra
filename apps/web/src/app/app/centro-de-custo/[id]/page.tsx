@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import { usePermissions } from '@/hooks/usePermissions'
 import Link from 'next/link'
@@ -279,29 +279,8 @@ function BudgetTable({
   projectId: string
   onUpdateProgress: (stage: Stage) => void
 }) {
-  const [expanded,       setExpanded]       = useState<Record<string, boolean>>({})
-  // Edição inline do % físico: chave = stageId, valor = number editado
-  const [editingProgress, setEditingProgress] = useState<Record<string, number>>({})
-  const [savingProgress,  setSavingProgress]  = useState<Record<string, boolean>>({})
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({})
   const fmt = formatCurrency
-
-  const saveProgress = async (stageId: string, val: number) => {
-    const num = Math.min(100, Math.max(0, val))
-    setSavingProgress(p => ({ ...p, [stageId]: true }))
-    try {
-      const token     = localStorage.getItem('token') || ''
-      const companyId = localStorage.getItem('companyId') || ''
-      await fetch(`${API}/api/v1/projects/${projectId}/stages/${stageId}/progress`, {
-        method:  'PATCH',
-        headers: { Authorization: `Bearer ${token}`, 'x-company-id': companyId, 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ progressPercent: num }),
-      })
-      // Limpar estado de edição após salvar com sucesso
-      setEditingProgress(p => { const n = { ...p }; delete n[stageId]; return n })
-    } catch { /* silencioso */ } finally {
-      setSavingProgress(p => ({ ...p, [stageId]: false }))
-    }
-  }
 
   const totalBudgetMat = stages.reduce((a, s) => a + s.budgetMaterial, 0)
   const totalBudgetLab = stages.reduce((a, s) => a + s.budgetLabor, 0)
@@ -420,40 +399,16 @@ function BudgetTable({
                           </span>
                         ) : <span className="text-xs text-gray-400">—</span>}
                       </td>
-                      {/* % físico — inline edit com botão salvar */}
-                      <td className="px-4 py-3" onClick={e => e.stopPropagation()}>
-                        <div className="flex flex-col items-center gap-1 min-w-[90px]">
-                          <div className="flex items-center gap-1">
-                            <input
-                              type="number"
-                              min={0} max={100}
-                              value={editingProgress[stage.id] ?? stage.progressPercent}
-                              onChange={e => {
-                                const v = Math.min(100, Math.max(0, parseFloat(e.target.value) || 0))
-                                setEditingProgress(prev => ({ ...prev, [stage.id]: v }))
-                              }}
-                              className="w-12 text-center text-xs font-bold border border-gray-200 rounded-md py-0.5 focus:outline-none focus:ring-1 focus:ring-[#F5A623]"
+                      {/* % físico — exibição estática (editar via botão lápis → modal) */}
+                      <td className="px-4 py-3 text-center" onClick={e => e.stopPropagation()}>
+                        <div className="flex flex-col items-center gap-1 min-w-[56px]">
+                          <span className="text-sm font-bold text-gray-800">{stage.progressPercent || 0}%</span>
+                          <div className="w-full bg-gray-100 rounded-full h-1">
+                            <div
+                              className="h-1 rounded-full bg-blue-400 transition-all"
+                              style={{ width: `${Math.min(100, stage.progressPercent)}%` }}
                             />
-                            <span className="text-[10px] text-gray-500">%</span>
                           </div>
-                          {/* Botão salvar — só aparece se valor mudou */}
-                          {editingProgress[stage.id] !== undefined &&
-                           editingProgress[stage.id] !== stage.progressPercent ? (
-                            <button
-                              disabled={savingProgress[stage.id]}
-                              onClick={() => saveProgress(stage.id, editingProgress[stage.id])}
-                              className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-green-500 text-white hover:bg-green-600 transition-colors disabled:opacity-50"
-                            >
-                              {savingProgress[stage.id] ? '…' : '✓ Salvar'}
-                            </button>
-                          ) : (
-                            <div className="w-full bg-gray-100 rounded-full h-1">
-                              <div
-                                className="h-1 rounded-full bg-blue-400 transition-all"
-                                style={{ width: `${Math.min(100, stage.progressPercent)}%` }}
-                              />
-                            </div>
-                          )}
                           <span className="text-[9px] text-gray-400">físico</span>
                         </div>
                       </td>
@@ -818,6 +773,15 @@ export default function ObraDetailPage() {
   const [stageModalStageId, setStageModalStageId] = useState('')
   const [savingStageModal,  setSavingStageModal]  = useState(false)
 
+  // ── Scroll position — preservar posição ao recarregar dados após modal ────
+  const scrollPosRef = useRef(0)
+  const restoreScroll = useCallback(() => {
+    const saved = scrollPosRef.current
+    if (saved > 0) {
+      setTimeout(() => { window.scrollTo({ top: saved, behavior: 'instant' }) }, 80)
+    }
+  }, [])
+
   const loadProject = useCallback(async () => {
     setLoading(true)
     try {
@@ -844,8 +808,9 @@ export default function ObraDetailPage() {
       }
     } finally {
       setLoading(false)
+      restoreScroll()
     }
-  }, [id, router])
+  }, [id, router, restoreScroll])
 
   useEffect(() => { loadProject() }, [loadProject])
 
@@ -2349,6 +2314,7 @@ export default function ObraDetailPage() {
           stages={project.stages}
           projectId={id}
           onUpdateProgress={(stage) => {
+            scrollPosRef.current = window.scrollY
             setProgressStage(stage)
             setProgressVal(String(stage.progressPercent))
             setShowProgressModal(true)

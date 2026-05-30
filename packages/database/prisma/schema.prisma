@@ -704,6 +704,7 @@ model ProjectStage {
   costCenterAllocations CostCenterAllocation[]
   diaryStageEntries     DiaryStageEntry[]
   costEntries           ProjectCostEntry[]
+  financialTransactions FinancialTransaction[]
 
   @@map("project_stages")
 }
@@ -904,6 +905,7 @@ model FinancialTransaction {
   installmentNumber Int?               @map("installment_number")
   totalInstallments Int?               @map("total_installments")
   projectId         String?            @map("project_id")
+  stageId           String?            @map("stage_id")
   transactionNumber String?            @map("transaction_number")
   transactionHash   String?            @unique @map("transaction_hash")
   isTransfer        Boolean            @default(false) @map("is_transfer")
@@ -926,6 +928,7 @@ model FinancialTransaction {
   client                 Client?              @relation(fields: [clientId], references: [id])
   supplier               Supplier?            @relation(fields: [supplierId], references: [id])
   project                Project?             @relation(fields: [projectId], references: [id])
+  stage                  ProjectStage?        @relation(fields: [stageId], references: [id])
   recurringTransaction   RecurringTransaction? @relation(fields: [recurringId], references: [id])
   costCenterAllocations  CostCenterAllocation[]
   auditLogs              FinancialAuditLog[]

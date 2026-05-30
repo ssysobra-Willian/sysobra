@@ -84,6 +84,7 @@ interface Transaction {
   client:         { id: string; name: string } | null
   supplier:       { id: string; name: string } | null
   createdBy:      { id: string; name: string; avatarUrl: string | null } | null
+  stage:          { id: string; name: string } | null | undefined
 }
 
 interface TxPage {
@@ -855,8 +856,16 @@ function FinanceiroContent() {
                           {tx.isTransfer && <ArrowLeftRight size={11} className="text-blue-400 flex-shrink-0" />}
                           <span className="text-xs text-gray-700 line-clamp-1 max-w-[200px]">{tx.description}</span>
                         </div>
-                        {/* Data visível só no mobile */}
-                        <p className="lg:hidden text-[10px] text-gray-400 font-mono">{fmtDate(tx.referenceDate)}</p>
+                        <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+                          {/* Data visível só no mobile */}
+                          <p className="lg:hidden text-[10px] text-gray-400 font-mono">{fmtDate(tx.referenceDate)}</p>
+                          {/* Badge de etapa — aparece quando stageId estiver definido */}
+                          {tx.stage?.name && (
+                            <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-blue-50 text-blue-600 border border-blue-100 whitespace-nowrap">
+                              {tx.stage.name}
+                            </span>
+                          )}
+                        </div>
                       </div>
                     </div>
                   </td>
