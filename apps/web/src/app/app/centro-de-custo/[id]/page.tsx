@@ -62,6 +62,7 @@ interface Stage {
   realizedValue: number
   // computed by backend
   realizedFromAllocations: number
+  realizedFromEntries: number
   balance: number
   deviationPercent: number
   isOverBudget: boolean
@@ -278,7 +279,7 @@ function BudgetTable({
   const totalBudgetMat = stages.reduce((a, s) => a + s.budgetMaterial, 0)
   const totalBudgetLab = stages.reduce((a, s) => a + s.budgetLabor, 0)
   const totalBudget    = stages.reduce((a, s) => a + s.budgetTotal, 0)
-  const totalRealized  = stages.reduce((a, s) => a + (s.realizedFromAllocations ?? s.realizedValue), 0)
+  const totalRealized  = stages.reduce((a, s) => a + s.realizedValue, 0)
   const totalBalance   = totalBudget - totalRealized
   const totalDeviation = totalBudget > 0 ? ((totalRealized - totalBudget) / totalBudget) * 100 : 0
   const avgProgress    = stages.length > 0
@@ -356,7 +357,7 @@ function BudgetTable({
             </thead>
             <tbody className="divide-y divide-gray-100">
               {stages.map((stage) => {
-                const realized = stage.realizedFromAllocations ?? stage.realizedValue
+                const realized = stage.realizedValue
                 const balance  = stage.balance ?? (stage.budgetTotal - realized)
                 const dev      = stage.deviationPercent ?? (stage.budgetTotal > 0 ? ((realized - stage.budgetTotal) / stage.budgetTotal) * 100 : 0)
                 const isExp    = expanded[stage.id]
@@ -420,6 +421,25 @@ function BudgetTable({
                     {isExp && (
                       <tr key={`${stage.id}-exp`} className="bg-amber-50/40">
                         <td colSpan={10} className="px-6 py-3">
+                          {/* Breakdown realizado */}
+                          {(stage.realizedFromAllocations > 0 || stage.realizedFromEntries > 0) && (
+                            <div className="flex flex-wrap gap-3 mb-3 pb-3 border-b border-amber-100">
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-[10px] font-semibold text-gray-400 uppercase">Realizado total:</span>
+                                <span className="text-xs font-bold text-gray-800">{fmt(stage.realizedValue)}</span>
+                              </div>
+                              <div className="flex items-center gap-1.5">
+                                <span className="w-2 h-2 rounded-full bg-blue-400 flex-shrink-0" />
+                                <span className="text-[10px] text-gray-500">Financeiro:</span>
+                                <span className="text-xs font-semibold text-blue-700">{fmt(stage.realizedFromAllocations)}</span>
+                              </div>
+                              <div className="flex items-center gap-1.5">
+                                <span className="w-2 h-2 rounded-full bg-orange-400 flex-shrink-0" />
+                                <span className="text-[10px] text-gray-500">Material/Custo:</span>
+                                <span className="text-xs font-semibold text-orange-700">{fmt(stage.realizedFromEntries)}</span>
+                              </div>
+                            </div>
+                          )}
                           {stage.recentTransactions && stage.recentTransactions.length > 0 ? (
                             <div>
                               <p className="text-[11px] font-semibold text-gray-500 uppercase mb-2">Últimos lançamentos desta etapa</p>

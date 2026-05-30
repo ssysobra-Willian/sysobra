@@ -474,20 +474,40 @@ export async function projectRoutes(app: FastifyInstance) {
         }
       }
 
+      // Mapa stageId → total de ProjectCostEntry (material, EPI, equipamento) apropiados
+      const costEntriesByStage = await p.projectCostEntry.groupBy({
+        by:    ['stageId'],
+        where: { companyId, projectId: id, stageId: { not: null }, isCancelled: false },
+        _sum:  { totalCost: true },
+      })
+      const entriesMap: Record<string, number> = {}
+      for (const row of costEntriesByStage) {
+        if (row.stageId) entriesMap[row.stageId] = Math.round(Number(row._sum.totalCost ?? 0) * 100) / 100
+      }
+
       // Enriquecer cada etapa com os dados calculados
       serialised.stages = serialised.stages.map((stage: any) => {
-        const realizedFromAllocations = stageRealizedMap[stage.id] ?? stage.realizedValue ?? 0
-        const balance                 = stage.budgetTotal - realizedFromAllocations
-        const deviationPercent        = stage.budgetTotal > 0
-          ? ((realizedFromAllocations - stage.budgetTotal) / stage.budgetTotal) * 100
+        const realizedFromAllocations = stageRealizedMap[stage.id] ?? 0
+        const realizedFromEntries     = entriesMap[stage.id] ?? 0
+        const totalRealized           = realizedFromAllocations + realizedFromEntries
+        const budget                  = stage.budgetTotal ?? 0
+        const balance                 = budget - totalRealized
+        const deviationPercent        = budget > 0
+          ? ((totalRealized - budget) / budget) * 100
           : 0
+        const progressPercent         = budget > 0
+          ? Math.min(100, Math.round((totalRealized / budget) * 10000) / 100)
+          : stage.progressPercent ?? 0
         return {
           ...stage,
-          realizedFromAllocations,
-          balance:           Math.round(balance * 100) / 100,
-          deviationPercent:  Math.round(deviationPercent * 100) / 100,
-          isOverBudget:      deviationPercent > 5,
-          recentTransactions: stageTxMap[stage.id] ?? [],
+          realizedValue:          Math.round(totalRealized * 100) / 100,
+          realizedFromAllocations: Math.round(realizedFromAllocations * 100) / 100,
+          realizedFromEntries:    Math.round(realizedFromEntries * 100) / 100,
+          balance:                Math.round(balance * 100) / 100,
+          progressPercent:        Math.round(progressPercent * 100) / 100,
+          deviationPercent:       Math.round(deviationPercent * 100) / 100,
+          isOverBudget:           deviationPercent > 5,
+          recentTransactions:     stageTxMap[stage.id] ?? [],
         }
       })
     } catch { /* silencioso: enriquecimento não bloqueia resposta */ }

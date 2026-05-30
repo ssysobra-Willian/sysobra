@@ -109,7 +109,7 @@ async function syncLaborCostEntries(
   // Cancelar entries LABOR existentes para esta transação
   await prismaClient.projectCostEntry.updateMany({
     where: { companyId, transactionId, isCancelled: false },
-    data:  { isCancelled: true, cancelledAt: new Date() },
+    data:  { isCancelled: true, cancelledAt: new Date(), cancelledBy: 'SYNC_UPDATE' },
   })
 
   // Criar novos a partir das alocações com costType LABOR
