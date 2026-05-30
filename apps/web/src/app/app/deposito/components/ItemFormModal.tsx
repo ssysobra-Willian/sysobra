@@ -209,71 +209,6 @@ function PhotoUpload({ value, onChange }: { value: string; onChange: (url: strin
 
 // ─── Lots Section ─────────────────────────────────────────────────────────────
 
-function LotSupplierSearch({ value, supplierId, onSelect, onClear }: {
-  value: string
-  supplierId: string | undefined
-  onSelect: (id: string, name: string) => void
-  onClear: () => void
-}) {
-  const [query,   setQuery]   = useState(value)
-  const [results, setResults] = useState<{ id: string; name: string; cpfCnpj?: string | null }[]>([])
-  const [loading, setLoading] = useState(false)
-
-  const search = useCallback(async (q: string) => {
-    setQuery(q)
-    if (q.length < 2) { setResults([]); return }
-    setLoading(true)
-    try {
-      const res = await fetch(`${API}/api/v1/suppliers?search=${encodeURIComponent(q)}&limit=6`, {
-        headers: { Authorization: `Bearer ${getToken()}`, 'x-company-id': getCompanyId() },
-      })
-      const d = await res.json()
-      setResults(d.suppliers ?? d ?? [])
-    } catch { setResults([]) }
-    finally { setLoading(false) }
-  }, [])
-
-  if (supplierId) {
-    return (
-      <div className="flex items-center gap-2 px-2.5 py-2 bg-green-50 border border-green-200 rounded-xl">
-        <span className="flex-1 text-xs font-medium text-green-800 truncate">{value}</span>
-        <button type="button" onClick={onClear} className="text-gray-400 hover:text-red-500 flex-shrink-0">
-          <X size={11} />
-        </button>
-      </div>
-    )
-  }
-
-  return (
-    <div className="relative">
-      <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
-      <input
-        type="text"
-        value={query}
-        onChange={e => search(e.target.value)}
-        onBlur={() => setTimeout(() => setResults([]), 150)}
-        placeholder="Buscar fornecedor…"
-        className={cn(inputCls, 'pl-7')}
-      />
-      {loading && <Loader2 size={11} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 animate-spin" />}
-      {results.length > 0 && (
-        <div className="absolute left-0 right-0 top-full z-50 mt-1 bg-white border border-gray-200 rounded-xl shadow-lg max-h-40 overflow-y-auto">
-          {results.map(s => (
-            <button key={s.id} type="button"
-              onMouseDown={() => { onSelect(s.id, s.name); setQuery(s.name); setResults([]) }}
-              className="w-full flex items-start gap-2 px-3 py-2 hover:bg-gray-50 text-left border-b border-gray-50 last:border-0">
-              <div className="flex-1 min-w-0">
-                <div className="text-xs font-medium text-gray-800 truncate">{s.name}</div>
-                {s.cpfCnpj && <div className="text-[10px] text-gray-400">{s.cpfCnpj}</div>}
-              </div>
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  )
-}
-
 function LotsSection({ lots, onChange }: { lots: LotInput[]; onChange: (l: LotInput[]) => void }) {
   const addLot = () => onChange([...lots, { quantity: 1 }])
   const removeLot = (i: number) => onChange(lots.filter((_, idx) => idx !== i))
@@ -294,17 +229,6 @@ function LotsSection({ lots, onChange }: { lots: LotInput[]; onChange: (l: LotIn
               className="p-1 hover:bg-red-50 rounded text-gray-400 hover:text-red-500">
               <Trash2 size={13} />
             </button>
-          </div>
-
-          {/* Fornecedor */}
-          <div>
-            <label className="text-xs text-gray-400 mb-1 block">Fornecedor</label>
-            <LotSupplierSearch
-              value={lot.supplierName ?? ''}
-              supplierId={lot.supplierId}
-              onSelect={(id, name) => updateLot(i, { supplierId: id, supplierName: name })}
-              onClear={() => updateLot(i, { supplierId: undefined, supplierName: undefined })}
-            />
           </div>
 
           {/* Qtd + Custo */}
@@ -361,7 +285,7 @@ function LotsSection({ lots, onChange }: { lots: LotInput[]; onChange: (l: LotIn
 
       <button type="button" onClick={addLot}
         className="w-full py-2.5 border-2 border-dashed border-gray-200 rounded-xl text-xs text-gray-400 hover:border-[#F5A623] hover:text-[#F5A623] transition flex items-center justify-center gap-2">
-        <Plus size={13} />Adicionar lote / fornecedor
+        <Plus size={13} />Adicionar lote
       </button>
 
       {lots.length > 0 && lots.some(l => l.unitCost) && (
@@ -804,7 +728,7 @@ export function ItemFormModal({ mode, isOpen, onClose, onSuccess, item, location
           </div>
 
           {/* ── Seção 4: Lotes (colapsado) ── */}
-          <Section title="🏷️ Lotes e Fornecedores" open={secLotes} onToggle={() => setSecLotes(o => !o)}>
+          <Section title="🏷️ Lotes" open={secLotes} onToggle={() => setSecLotes(o => !o)}>
             <p className="text-xs text-gray-400 -mt-1">Opcional — detalhe por fornecedor/NF. O custo médio será calculado automaticamente.</p>
             <LotsSection lots={lots} onChange={setLots} />
           </Section>
