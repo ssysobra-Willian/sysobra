@@ -280,13 +280,13 @@ function BudgetTable({
   onUpdateProgress: (stage: Stage) => void
 }) {
   const [expanded,       setExpanded]       = useState<Record<string, boolean>>({})
-  // Edição inline do % físico: chave = stageId, valor = string do input
-  const [localProgress,  setLocalProgress]  = useState<Record<string, string>>({})
-  const [savingProgress, setSavingProgress] = useState<Record<string, boolean>>({})
+  // Edição inline do % físico: chave = stageId, valor = number editado
+  const [editingProgress, setEditingProgress] = useState<Record<string, number>>({})
+  const [savingProgress,  setSavingProgress]  = useState<Record<string, boolean>>({})
   const fmt = formatCurrency
 
-  const saveProgress = async (stageId: string, value: string) => {
-    const num = Math.min(100, Math.max(0, parseFloat(value) || 0))
+  const saveProgress = async (stageId: string, val: number) => {
+    const num = Math.min(100, Math.max(0, val))
     setSavingProgress(p => ({ ...p, [stageId]: true }))
     try {
       const token     = localStorage.getItem('token') || ''
@@ -296,6 +296,8 @@ function BudgetTable({
         headers: { Authorization: `Bearer ${token}`, 'x-company-id': companyId, 'Content-Type': 'application/json' },
         body:    JSON.stringify({ progressPercent: num }),
       })
+      // Limpar estado de edição após salvar com sucesso
+      setEditingProgress(p => { const n = { ...p }; delete n[stageId]; return n })
     } catch { /* silencioso */ } finally {
       setSavingProgress(p => ({ ...p, [stageId]: false }))
     }
@@ -418,31 +420,40 @@ function BudgetTable({
                           </span>
                         ) : <span className="text-xs text-gray-400">—</span>}
                       </td>
-                      {/* % físico — inline edit */}
+                      {/* % físico — inline edit com botão salvar */}
                       <td className="px-4 py-3" onClick={e => e.stopPropagation()}>
-                        <div className="flex flex-col items-center gap-1 min-w-[80px]">
+                        <div className="flex flex-col items-center gap-1 min-w-[90px]">
                           <div className="flex items-center gap-1">
                             <input
                               type="number"
                               min={0} max={100}
-                              value={localProgress[stage.id] ?? stage.progressPercent.toFixed(0)}
-                              onChange={e => setLocalProgress(prev => ({ ...prev, [stage.id]: e.target.value }))}
-                              onFocus={e => { e.stopPropagation(); setLocalProgress(prev => ({ ...prev, [stage.id]: stage.progressPercent.toFixed(0) })) }}
-                              onBlur={async e => {
-                                await saveProgress(stage.id, e.target.value)
-                                setLocalProgress(prev => { const n = { ...prev }; delete n[stage.id]; return n })
+                              value={editingProgress[stage.id] ?? stage.progressPercent}
+                              onChange={e => {
+                                const v = Math.min(100, Math.max(0, parseFloat(e.target.value) || 0))
+                                setEditingProgress(prev => ({ ...prev, [stage.id]: v }))
                               }}
                               className="w-12 text-center text-xs font-bold border border-gray-200 rounded-md py-0.5 focus:outline-none focus:ring-1 focus:ring-[#F5A623]"
                             />
                             <span className="text-[10px] text-gray-500">%</span>
-                            {savingProgress[stage.id] && <div className="w-2.5 h-2.5 rounded-full border border-[#F5A623] border-t-transparent animate-spin" />}
                           </div>
-                          <div className="w-full bg-gray-100 rounded-full h-1">
-                            <div
-                              className="h-1 rounded-full bg-blue-400 transition-all"
-                              style={{ width: `${Math.min(100, parseFloat(localProgress[stage.id] ?? String(stage.progressPercent)) || 0)}%` }}
-                            />
-                          </div>
+                          {/* Botão salvar — só aparece se valor mudou */}
+                          {editingProgress[stage.id] !== undefined &&
+                           editingProgress[stage.id] !== stage.progressPercent ? (
+                            <button
+                              disabled={savingProgress[stage.id]}
+                              onClick={() => saveProgress(stage.id, editingProgress[stage.id])}
+                              className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-green-500 text-white hover:bg-green-600 transition-colors disabled:opacity-50"
+                            >
+                              {savingProgress[stage.id] ? '…' : '✓ Salvar'}
+                            </button>
+                          ) : (
+                            <div className="w-full bg-gray-100 rounded-full h-1">
+                              <div
+                                className="h-1 rounded-full bg-blue-400 transition-all"
+                                style={{ width: `${Math.min(100, stage.progressPercent)}%` }}
+                              />
+                            </div>
+                          )}
                           <span className="text-[9px] text-gray-400">físico</span>
                         </div>
                       </td>
@@ -756,11 +767,10 @@ export default function ObraDetailPage() {
     // Se não é gestor, começa na primeira aba permitida
     () => 'Resumo' as Tab
   )
-  const [showProgressModal, setShowProgressModal] = useState(false)
-  const [progressStage, setProgressStage] = useState<Stage | null>(null)
-  const [progressVal,   setProgressVal]   = useState('')
-  const [realizedVal,   setRealizedVal]   = useState('')
-  const [savingProgress, setSavingProgress] = useState(false)
+  const [showProgressModal,  setShowProgressModal]  = useState(false)
+  const [progressStage,      setProgressStage]      = useState<Stage | null>(null)
+  const [progressVal,        setProgressVal]        = useState('')
+  const [savingProgressModal, setSavingProgressModal] = useState(false)
   const [rainRecords, setRainRecords] = useState<RainRecord[]>([])
   const [rainPeriod,  setRainPeriod]  = useState<30 | 60 | 90>(60)
   const [rainLoading, setRainLoading] = useState(false)
@@ -1022,24 +1032,24 @@ export default function ObraDetailPage() {
 
   const handleProgressSave = async () => {
     if (!progressStage) return
-    setSavingProgress(true)
+    setSavingProgressModal(true)
     try {
       const token     = localStorage.getItem('token') || ''
       const companyId = localStorage.getItem('companyId') || ''
+      const pct = Math.min(100, Math.max(0, parseFloat(progressVal) || 0))
       await fetch(`${API}/api/v1/projects/${id}/stages/${progressStage.id}/progress`, {
-        method: 'PATCH',
+        method:  'PATCH',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}`, 'x-company-id': companyId },
-        body: JSON.stringify({
-          progressPercent: parseFloat(progressVal) || 0,
-          realizedValue:   parseFloat(realizedVal)  || undefined,
-          status: parseFloat(progressVal) >= 100 ? 'COMPLETED' : parseFloat(progressVal) > 0 ? 'IN_PROGRESS' : 'PENDING',
+        body:    JSON.stringify({
+          progressPercent: pct,
+          status: pct >= 100 ? 'COMPLETED' : pct > 0 ? 'IN_PROGRESS' : 'PENDING',
         }),
       })
       setShowProgressModal(false)
       setProgressStage(null)
       loadProject()
     } finally {
-      setSavingProgress(false)
+      setSavingProgressModal(false)
     }
   }
 
@@ -1426,25 +1436,23 @@ export default function ObraDetailPage() {
                     </div>
                   </div>
 
-                  {/* Cards Material + MO */}
-                  {(project?.materialCosts || project?.laborCosts) && (
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="bg-blue-50 border border-blue-100 rounded-xl p-3">
-                        <p className="text-[10px] font-semibold text-blue-500 uppercase tracking-wide mb-1">📦 Materiais consumidos</p>
-                        <p className="text-sm font-bold text-blue-700">
-                          {(project.materialCosts?.total ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-                        </p>
-                        <p className="text-[9px] text-gray-400 mt-0.5">Saídas de estoque apropiadas</p>
-                      </div>
-                      <div className="bg-violet-50 border border-violet-100 rounded-xl p-3">
-                        <p className="text-[10px] font-semibold text-violet-500 uppercase tracking-wide mb-1">👷 Mão de obra</p>
-                        <p className="text-sm font-bold text-violet-700">
-                          {(project.laborCosts?.total ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-                        </p>
-                        <p className="text-[9px] text-gray-400 mt-0.5">Folhas de pagamento lançadas</p>
-                      </div>
+                  {/* Cards Material + MO — sempre visíveis */}
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="bg-blue-50 border border-blue-100 rounded-xl p-3">
+                      <p className="text-[10px] font-semibold text-blue-500 uppercase tracking-wide mb-1">📦 Materiais consumidos</p>
+                      <p className="text-sm font-bold text-blue-700">
+                        {(project?.materialCosts?.total ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                      </p>
+                      <p className="text-[9px] text-gray-400 mt-0.5">Saídas de estoque apropiadas</p>
                     </div>
-                  )}
+                    <div className="bg-violet-50 border border-violet-100 rounded-xl p-3">
+                      <p className="text-[10px] font-semibold text-violet-500 uppercase tracking-wide mb-1">👷 Mão de obra</p>
+                      <p className="text-sm font-bold text-violet-700">
+                        {(project?.laborCosts?.total ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                      </p>
+                      <p className="text-[9px] text-gray-400 mt-0.5">Folhas de pagamento lançadas</p>
+                    </div>
+                  </div>
 
                   {/* Alerta: despesas sem etapa */}
                   {allocSummary && allocSummary.semEtapaCount > 0 && (
@@ -2343,7 +2351,6 @@ export default function ObraDetailPage() {
           onUpdateProgress={(stage) => {
             setProgressStage(stage)
             setProgressVal(String(stage.progressPercent))
-            setRealizedVal(String(stage.realizedFromAllocations ?? stage.realizedValue))
             setShowProgressModal(true)
           }}
         />
@@ -2357,31 +2364,34 @@ export default function ObraDetailPage() {
             <p className="text-sm text-gray-500">{progressStage.name}</p>
 
             <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Progresso físico (%)</label>
+              <label className="block text-xs font-medium text-gray-600 mb-1">% Executado (físico)</label>
               <input
                 type="number" min={0} max={100}
                 value={progressVal}
                 onChange={e => setProgressVal(e.target.value)}
                 className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-[#F5A623]"
               />
+              <p className="text-[10px] text-gray-400 mt-1">Valor realizado é calculado automaticamente pelas apropriações financeiras.</p>
             </div>
 
-            <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Valor realizado (R$)</label>
-              <input
-                type="number" min={0}
-                value={realizedVal}
-                onChange={e => setRealizedVal(e.target.value)}
-                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-[#F5A623]"
-              />
-            </div>
+            {progressStage && (
+              <div className="bg-gray-50 rounded-lg px-3 py-2 text-xs text-gray-600">
+                <span className="font-medium">Realizado atual: </span>
+                {formatCurrency(progressStage.realizedValue)}
+                {progressStage.budgetTotal > 0 && (
+                  <span className="ml-2 text-gray-400">
+                    ({((progressStage.realizedValue / progressStage.budgetTotal) * 100).toFixed(1)}% do orçado)
+                  </span>
+                )}
+              </div>
+            )}
 
             <div className="flex items-center gap-3 pt-2">
               <button onClick={() => setShowProgressModal(false)} className="flex-1 py-2 text-sm font-medium text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50">
                 Cancelar
               </button>
-              <button onClick={handleProgressSave} disabled={savingProgress} className="flex-1 py-2 text-sm font-medium bg-[#F5A623] text-white rounded-lg hover:bg-[#e09610] disabled:opacity-50">
-                {savingProgress ? 'Salvando...' : 'Salvar'}
+              <button onClick={handleProgressSave} disabled={savingProgressModal} className="flex-1 py-2 text-sm font-medium bg-[#F5A623] text-white rounded-lg hover:bg-[#e09610] disabled:opacity-50">
+                {savingProgressModal ? 'Salvando...' : 'Salvar'}
               </button>
             </div>
           </div>

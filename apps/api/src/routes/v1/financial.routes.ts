@@ -677,14 +677,16 @@ export async function financialRoutes(app: FastifyInstance) {
     }
 
     // Despesas EXPENSE sem etapa (stageId null) — via alocação para esta obra
-    const semEtapaCount = await (prisma as any).costCenterAllocation.count({
-      where: {
-        companyId,
-        projectId,
-        stageId: null,
-        transaction: { type: 'EXPENSE', isActive: true },
-      },
-    })
+    let semEtapaCount = 0
+    try {
+      semEtapaCount = await prisma.costCenterAllocation.count({
+        where: {
+          projectId,
+          stageId: null,
+          transaction: { companyId, type: 'EXPENSE', isActive: true },
+        },
+      })
+    } catch { semEtapaCount = 0 }
 
     return reply.send({
       totalReceitas:      Math.round(totalReceitas  * 100) / 100,

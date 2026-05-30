@@ -1,18 +1,27 @@
-fix: etapas — % executado fisico manual + valor realizado automático das apropriações
+fix: semEtapaCount try/catch, remove realizedVal modal, cards sempre visíveis, botão salvar %
 
-Backend:
-- GET /:id: progressPercent usa valor fisico do DB (nao sobrescreve com razão financeira)
-- updateProgressSchema: remove realizedValue (não é editável pelo usuário)
-- PATCH /stages/:stageId/progress: remove data.realizedValue
-- recalcProject: calcula realizedValue dinamicamente (allocs + entries por stageId)
-  para corrigir budgetAlert do projeto (antes usava stale DB realizedValue)
+FIX 1 - CRITICO: semEtapaCount derrubava summary endpoint
+  - financial.routes.ts: envolver count em try/catch (fallback = 0)
+  - Corrigir filtro: companyId via transaction (CostCenterAllocation nao tem companyId direto)
+  - Sem try/catch a query lancando erro retornava HTTP 500
+    frontend recebia r.ok=false, allocSummary ficava null, cards mostravam --
 
-Frontend BudgetTable:
-- Coluna Progresso: input inline para % físico editável
-  - onChange atualiza estado local (localProgress)
-  - onBlur salva via PATCH /stages/:stageId/progress
-  - Barra azul mostra % físico digitado em tempo real
-  - Spinner enquanto salva
-- avgProgress: média ponderada pelo orçado (antes era média simples)
+FIX 2 - Modal de progresso: remover campo "Valor realizado"
+  - Remover estado realizedVal, setRealizedVal
+  - handleProgressSave: remover realizedValue do body do PATCH
+  - Renomear savingProgress (boolean) para savingProgressModal (evitar colisao com BudgetTable)
+  - Modal agora mostra apenas: % Executado + info de realizado atual (somente leitura)
+  - Label atualizado: "% Executado (físico)"
+
+FIX 3 - Cards Material+MO sempre visiveis
+  - Remover condicional (project?.materialCosts || project?.laborCosts)
+  - Sempre renderizar os 2 cards com valor 0 como fallback
+
+FIX 4 - Botao salvar explicito no BudgetTable (substituir onBlur)
+  - editingProgress: Record<stageId, number> -- valor sendo editado
+  - Input altera editingProgress localmente (sem salvar ainda)
+  - Botao "Salvar" aparece apenas quando valor mudou vs stage.progressPercent
+  - Clicar em salvar: PATCH + limpa editingProgress[stageId]
+  - Sem botao: barra de progresso azul visivel
 
 Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>
