@@ -137,7 +137,8 @@
       "PowerShell(Start-Process powershell -ArgumentList '-NoExit', '-Command', 'cd C:\\\\projetos\\\\sysobra\\\\apps\\\\api; npm run dev' -WindowStyle Normal; Start-Process powershell -ArgumentList '-NoExit', '-Command', 'cd C:\\\\projetos\\\\sysobra\\\\apps\\\\web; npm run dev' -WindowStyle Normal; Write-Host \"Servidores reiniciados\")",
       "PowerShell(cd C:\\\\projetos\\\\sysobra\\\\apps\\\\api; npx ts-node -e \"const { PrismaClient } = require\\('@prisma/client'\\); const p = new PrismaClient\\(\\); p.company.findMany\\({ select: { id: true, name: true } }\\).then\\(r => { console.log\\(JSON.stringify\\(r\\)\\); return p.stockItem.findMany\\({ where: { requiresCustody: true, toolStatus: 'IN_USE' }, select: { name: true, companyId: true, currentProjectId: true } }\\) }\\).then\\(t => { console.log\\(JSON.stringify\\(t\\)\\); p.\\\\$disconnect\\(\\); }\\)\")",
       "Bash(echo \"API PID: $!\")",
-      "Bash(echo \"Web PID: $!\")"
+      "Bash(echo \"Web PID: $!\")",
+      "PowerShell(cd C:\\\\projetos\\\\sysobra; Start-Process powershell -ArgumentList '-NoExit', '-Command', 'cd C:\\\\projetos\\\\sysobra\\\\apps\\\\api; npm run dev' -WindowStyle Normal; Start-Sleep -Seconds 3; Start-Process powershell -ArgumentList '-NoExit', '-Command', 'cd C:\\\\projetos\\\\sysobra\\\\apps\\\\web; npm run dev' -WindowStyle Normal; Write-Host \"Servers starting...\")"
     ]
   }
 }
