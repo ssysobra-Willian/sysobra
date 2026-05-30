@@ -106,113 +106,115 @@ function ProjectCard({ proj }: { proj: Project }) {
   const saldo = proj.totalBudget - proj.totalRealized
 
   return (
-    <div className="bg-white rounded-xl border border-gray-200 overflow-hidden hover:shadow-md transition-shadow flex flex-col">
-      {/* Capa */}
-      <div className="h-32 bg-gradient-to-br from-gray-800 to-gray-600 relative flex-shrink-0">
-        {proj.coverImage ? (
-          <img
-            src={toImageUrl(proj.coverImage)}
-            alt={proj.name}
-            className="w-full h-full object-cover"
-          />
-        ) : (
-          <div className="w-full h-full flex items-center justify-center">
-            <HardHat size={40} className="text-white/30" />
-          </div>
-        )}
-        {/* Status */}
-        <span className={`absolute top-2 left-2 text-[10px] font-semibold px-2 py-0.5 rounded-full ${STATUS_COLORS[proj.status] ?? 'bg-gray-100 text-gray-600'}`}>
-          {STATUS_LABELS[proj.status] ?? proj.status}
-        </span>
-      </div>
-
-      {/* Corpo */}
-      <div className="p-4 flex flex-col flex-1 gap-3">
-        {/* Nome + Código */}
-        <div>
-          <div className="flex items-start justify-between gap-2">
-            <h3 className="font-semibold text-gray-900 text-sm leading-tight line-clamp-2">{proj.name}</h3>
-            {proj.code && <span className="text-[10px] text-gray-400 whitespace-nowrap">{proj.code}</span>}
-          </div>
-          {proj.city && (
-            <p className="text-[11px] text-gray-400 mt-0.5">{proj.city}{proj.state ? `, ${proj.state}` : ''}</p>
-          )}
-        </div>
-
-        {/* Responsável */}
-        {proj.responsible && (
-          <div className="flex items-center gap-1.5">
-            <UserAvatar name={proj.responsible.name} avatarUrl={proj.responsible.avatarUrl} size="xs" />
-            <span className="text-xs text-gray-500">{proj.responsible.name.split(' ')[0]}</span>
-          </div>
-        )}
-
-        {/* Badge orçamento */}
-        <div className="flex items-center gap-1.5 flex-wrap">
-          <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${badge.className}`}>
-            {badge.label}
-          </span>
-          {proj.pendingCosts > 0 && (
-            <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-orange-100 text-orange-700">
-              <PackageX size={10} />
-              {proj.pendingCosts} custo{proj.pendingCosts > 1 ? 's' : ''} p/ apropriar
-            </span>
-          )}
-        </div>
-
-        {/* Métricas */}
-        <div className="grid grid-cols-2 gap-x-3 gap-y-1.5">
-          <div>
-            <p className="text-[9px] text-gray-400 uppercase tracking-wide">Orçado</p>
-            <p className="text-xs font-semibold text-gray-700">{formatCurrency(proj.totalBudget || proj.globalBudget)}</p>
-          </div>
-          <div>
-            <p className="text-[9px] text-gray-400 uppercase tracking-wide">Realizado</p>
-            <p className="text-xs font-semibold text-gray-700">{formatCurrency(proj.totalRealized)}</p>
-          </div>
-          <div>
-            <p className="text-[9px] text-gray-400 uppercase tracking-wide">Saldo</p>
-            <p className={`text-xs font-semibold ${saldo < 0 ? 'text-red-600' : 'text-green-600'}`}>{formatCurrency(saldo)}</p>
-          </div>
-          <div>
-            <p className="text-[9px] text-gray-400 uppercase tracking-wide">Desvio</p>
-            <p className={`text-xs font-semibold ${proj.deviation > 5 ? 'text-red-600' : proj.deviation > 0 ? 'text-yellow-600' : 'text-green-600'}`}>
-              {proj.deviation > 0 ? '+' : ''}{proj.deviation.toFixed(1)}%
-            </p>
-          </div>
-        </div>
-
-        {/* Barra de progresso */}
-        <div>
-          <div className="flex items-center justify-between mb-1">
-            <span className="text-[10px] text-gray-400">Progresso físico</span>
-            <span className="text-[10px] font-semibold text-gray-700">{pct.toFixed(0)}%</span>
-          </div>
-          <div className="w-full h-1.5 bg-gray-100 rounded-full overflow-hidden">
-            <div
-              className={`h-full rounded-full transition-all ${progressColor(proj.deviation)}`}
-              style={{ width: `${pct}%` }}
+    <Link
+      href={`/app/centro-de-custo/${proj.id}`}
+      className="block group"
+    >
+      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden hover:shadow-md hover:border-[#F5A623]/40 transition-all flex flex-col cursor-pointer">
+        {/* Capa */}
+        <div className="h-32 bg-gradient-to-br from-gray-800 to-gray-600 relative flex-shrink-0">
+          {proj.coverImage ? (
+            <img
+              src={toImageUrl(proj.coverImage)}
+              alt={proj.name}
+              className="w-full h-full object-cover"
             />
+          ) : (
+            <div className="w-full h-full flex items-center justify-center">
+              <HardHat size={40} className="text-white/30" />
+            </div>
+          )}
+          {/* Status */}
+          <span className={`absolute top-2 left-2 text-[10px] font-semibold px-2 py-0.5 rounded-full ${STATUS_COLORS[proj.status] ?? 'bg-gray-100 text-gray-600'}`}>
+            {STATUS_LABELS[proj.status] ?? proj.status}
+          </span>
+        </div>
+
+        {/* Corpo */}
+        <div className="p-4 flex flex-col flex-1 gap-3">
+          {/* Nome + Código */}
+          <div>
+            <div className="flex items-start justify-between gap-2">
+              <h3 className="font-semibold text-gray-900 text-sm leading-tight line-clamp-2 group-hover:text-[#F5A623] transition-colors">{proj.name}</h3>
+              {proj.code && <span className="text-[10px] text-gray-400 whitespace-nowrap">{proj.code}</span>}
+            </div>
+            {proj.city && (
+              <p className="text-[11px] text-gray-400 mt-0.5">{proj.city}{proj.state ? `, ${proj.state}` : ''}</p>
+            )}
+          </div>
+
+          {/* Responsável */}
+          {proj.responsible && (
+            <div className="flex items-center gap-1.5">
+              <UserAvatar name={proj.responsible.name} avatarUrl={proj.responsible.avatarUrl} size="xs" />
+              <span className="text-xs text-gray-500">{proj.responsible.name.split(' ')[0]}</span>
+            </div>
+          )}
+
+          {/* Badge orçamento */}
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${badge.className}`}>
+              {badge.label}
+            </span>
+            {proj.pendingCosts > 0 && (
+              <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-orange-100 text-orange-700">
+                <PackageX size={10} />
+                {proj.pendingCosts} custo{proj.pendingCosts > 1 ? 's' : ''} p/ apropriar
+              </span>
+            )}
+          </div>
+
+          {/* Métricas */}
+          <div className="grid grid-cols-2 gap-x-3 gap-y-1.5">
+            <div>
+              <p className="text-[9px] text-gray-400 uppercase tracking-wide">Orçado</p>
+              <p className="text-xs font-semibold text-gray-700">{formatCurrency(proj.totalBudget || proj.globalBudget)}</p>
+            </div>
+            <div>
+              <p className="text-[9px] text-gray-400 uppercase tracking-wide">Realizado</p>
+              <p className="text-xs font-semibold text-gray-700">{formatCurrency(proj.totalRealized)}</p>
+            </div>
+            <div>
+              <p className="text-[9px] text-gray-400 uppercase tracking-wide">Saldo</p>
+              <p className={`text-xs font-semibold ${saldo < 0 ? 'text-red-600' : 'text-green-600'}`}>{formatCurrency(saldo)}</p>
+            </div>
+            <div>
+              <p className="text-[9px] text-gray-400 uppercase tracking-wide">Desvio</p>
+              <p className={`text-xs font-semibold ${proj.deviation > 5 ? 'text-red-600' : proj.deviation > 0 ? 'text-yellow-600' : 'text-green-600'}`}>
+                {proj.deviation > 0 ? '+' : ''}{proj.deviation.toFixed(1)}%
+              </p>
+            </div>
+          </div>
+
+          {/* Barra de progresso */}
+          <div>
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-[10px] text-gray-400">Progresso físico</span>
+              <span className="text-[10px] font-semibold text-gray-700">{pct.toFixed(0)}%</span>
+            </div>
+            <div className="w-full h-1.5 bg-gray-100 rounded-full overflow-hidden">
+              <div
+                className={`h-full rounded-full transition-all ${progressColor(proj.deviation)}`}
+                style={{ width: `${pct}%` }}
+              />
+            </div>
+          </div>
+
+          {/* Datas */}
+          <div className="flex items-center gap-1 text-[10px] text-gray-400">
+            <Calendar size={10} />
+            <span>{formatDateBR(proj.startDate)}</span>
+            <span>→</span>
+            <span className={proj.isDelayed ? 'text-red-500 font-medium' : ''}>{formatDateBR(proj.expectedEndDate)}</span>
+          </div>
+
+          {/* Rodapé */}
+          <div className="mt-auto pt-2 border-t border-gray-100 flex items-center justify-end gap-1 text-[11px] font-medium text-[#F5A623] group-hover:text-[#e09610] transition-colors">
+            Ver detalhes <ChevronRight size={12} />
           </div>
         </div>
-
-        {/* Datas */}
-        <div className="flex items-center gap-1 text-[10px] text-gray-400">
-          <Calendar size={10} />
-          <span>{formatDateBR(proj.startDate)}</span>
-          <span>→</span>
-          <span className={proj.isDelayed ? 'text-red-500 font-medium' : ''}>{formatDateBR(proj.expectedEndDate)}</span>
-        </div>
-
-        {/* Link */}
-        <Link
-          href={`/app/centro-de-custo/${proj.id}`}
-          className="mt-auto flex items-center gap-1 text-[11px] font-medium text-[#F5A623] hover:text-[#e09610] transition-colors"
-        >
-          Ver detalhes <ChevronRight size={12} />
-        </Link>
       </div>
-    </div>
+    </Link>
   )
 }
 

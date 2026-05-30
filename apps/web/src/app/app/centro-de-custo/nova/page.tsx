@@ -25,7 +25,7 @@ interface StageRow {
 }
 
 interface Client   { id: string; name: string }
-interface UserItem { id: string; name: string }
+interface UserItem { id: string; name: string; avatarUrl?: string | null; role?: string }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -124,7 +124,12 @@ export default function NovaObraPage() {
     fetch(`${API}/api/v1/members?companyId=${companyId}`, {
       headers: { Authorization: `Bearer ${token}` },
     }).then(r => r.json()).then(d => {
-      const members: UserItem[] = (d.members ?? []).map((m: any) => ({ id: m.userId ?? m.id, name: m.user?.name ?? m.name ?? '' }))
+      const members: UserItem[] = (d.members ?? []).map((m: any) => ({
+        id:        m.userId ?? m.id,
+        name:      m.user?.name ?? m.name ?? '',
+        avatarUrl: m.user?.avatarUrl ?? m.avatarUrl ?? null,
+        role:      m.role ?? '',
+      }))
       setUsers(members)
     })
   }, [])
@@ -352,10 +357,31 @@ export default function NovaObraPage() {
                 )}
               </div>
               {showRespDrop && !selectedResp && (
-                <div className="absolute z-20 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-40 overflow-y-auto">
+                <div className="absolute z-20 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-48 overflow-y-auto">
                   {users.filter(u => u.name.toLowerCase().includes(respSearch.toLowerCase())).map(u => (
-                    <button key={u.id} onClick={() => { setSelectedResp(u); setShowRespDrop(false) }}
-                      className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50">{u.name}</button>
+                    <button
+                      key={u.id}
+                      onClick={() => { setSelectedResp(u); setShowRespDrop(false) }}
+                      className="w-full text-left px-3 py-2 hover:bg-gray-50 flex items-center gap-2.5 border-b border-gray-50 last:border-0"
+                    >
+                      {/* Avatar */}
+                      {u.avatarUrl ? (
+                        <img
+                          src={u.avatarUrl.startsWith('http') ? u.avatarUrl : `${API}${u.avatarUrl.startsWith('/') ? '' : '/'}${u.avatarUrl}`}
+                          alt={u.name}
+                          className="w-7 h-7 rounded-full object-cover flex-shrink-0"
+                          onError={e => { (e.currentTarget as HTMLImageElement).style.display = 'none' }}
+                        />
+                      ) : (
+                        <div className="w-7 h-7 rounded-full bg-[#F5A623] flex-shrink-0 flex items-center justify-center text-white text-xs font-bold">
+                          {u.name.charAt(0).toUpperCase()}
+                        </div>
+                      )}
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-gray-800 truncate">{u.name}</p>
+                        {u.role && <p className="text-[11px] text-gray-400 truncate">{u.role}</p>}
+                      </div>
+                    </button>
                   ))}
                   {users.filter(u => u.name.toLowerCase().includes(respSearch.toLowerCase())).length === 0 && (
                     <p className="px-3 py-2 text-xs text-gray-400">Nenhum usuário encontrado</p>

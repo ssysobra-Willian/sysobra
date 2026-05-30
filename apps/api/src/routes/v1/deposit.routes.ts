@@ -1710,7 +1710,10 @@ ${_basketFooter}
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1)
     const endOfMonth   = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59)
 
-    const [items, movements, custodies, maintenances, balanceAgg] = await Promise.all([
+    const next30Days = new Date(now)
+    next30Days.setDate(next30Days.getDate() + 30)
+
+    const [items, movements, custodies, maintenances, upcomingMaintenances, balanceAgg] = await Promise.all([
       p().stockItem.findMany({
         where: { companyId: cid, isActive: true },
         select: { quantity: true, minQuantity: true, averageCost: true, unitCost: true, requiresCustody: true, nextMaintenance: true, isUnderWarranty: true, isEpi: true, isUniform: true, isConsumable: true, toolStatus: true },
@@ -1721,6 +1724,7 @@ ${_basketFooter}
       }),
       p().toolCustody.count({ where: { companyId: cid, returnedAt: null, dueDate: { lt: now } } }),
       p().toolMaintenanceRecord.count({ where: { companyId: cid, nextDate: { lt: now } } }),
+      p().toolMaintenanceRecord.count({ where: { companyId: cid, nextDate: { gte: now, lte: next30Days } } }),
       // FIX 8: aggregate total value from StockBalance (per-location pre-calculated)
       p().stockBalance.aggregate({
         where: { companyId: cid },
@@ -1738,8 +1742,9 @@ ${_basketFooter}
     const inMaintenanceCount = items.filter((i: any) => i.toolStatus === 'MAINTENANCE').length
     const exitsThisMonth   = movements.filter((m: any) => ['OUT','EPI_DELIVERY','LOSS'].includes(m.type)).length
     const entriesThisMonth = movements.filter((m: any) => m.type === 'IN').length
-    const overdueReturns   = custodies
-    const overdueMaint     = maintenances
+    const overdueReturns      = custodies
+    const overdueMaint        = maintenances
+    const upcomingMaint       = upcomingMaintenances
 
     // Valor por categoria — usa || para não travar em averageCost=0
     const itemValue = (i: any) => Number(i.quantity) * Number(i.unitCost || i.averageCost || 0)
@@ -1764,7 +1769,8 @@ ${_basketFooter}
       exitsThisMonth,
       entriesThisMonth,
       overdueReturns,
-      overdueMaintenance: overdueMaint,
+      overdueMaintenance:  overdueMaint,
+      upcomingMaintenance: upcomingMaint,
       estoque: {
         totalGeral: totalValue,
         porCategoria,

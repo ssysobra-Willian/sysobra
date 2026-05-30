@@ -332,99 +332,101 @@ function ProjectCard({ project: proj, canCreate }: { project: DiaryProject; canC
   const rpt = proj.lastReport ? (REPORT_STATUS[proj.lastReport.status] ?? REPORT_STATUS.PENDING) : null
 
   return (
-    <div className="bg-white rounded-2xl border border-gray-200 shadow-sm hover:shadow-md hover:border-[#F5A623]/40 transition-all group flex items-stretch gap-0 overflow-hidden">
+    <Link
+      href={`/app/diario/${proj.id}`}
+      className="block group"
+    >
+      <div className="bg-white rounded-2xl border border-gray-200 shadow-sm hover:shadow-md hover:border-[#F5A623]/40 transition-all flex items-stretch gap-0 overflow-hidden cursor-pointer">
 
-      {/* ── Miniatura lateral ─────────────────────────────────── */}
-      <div className="relative w-[68px] flex-shrink-0">
-        {proj.coverImage ? (
-          <Image
-            src={toImageUrl(proj.coverImage)}
-            alt={proj.name}
-            fill
-            className="object-cover"
-            sizes="68px"
-            unoptimized
-          />
-        ) : (
-          <div className={`w-full h-full bg-gradient-to-b ${sc.color}`} />
-        )}
-        {/* Barra de progresso vertical */}
-        <div className="absolute bottom-0 left-0 right-0 h-1 bg-black/20">
-          <div
-            className="h-full bg-white/80 transition-all"
-            style={{ width: `${Math.min(100, proj.progressPercent)}%` }}
-          />
-        </div>
-      </div>
-
-      {/* ── Conteúdo central ─────────────────────────────────── */}
-      <div className="flex-1 min-w-0 px-3 py-2.5 flex flex-col justify-between">
-        {/* Linha 1: nome + status */}
-        <div className="flex items-start gap-1.5">
-          <p className="text-sm font-semibold text-gray-800 truncate flex-1 leading-tight">
-            {proj.name}
-          </p>
-          <Badge variant={sc.variant} size="sm">{sc.label}</Badge>
+        {/* ── Miniatura lateral ─────────────────────────────────── */}
+        <div className="relative w-[68px] flex-shrink-0">
+          {proj.coverImage ? (
+            <Image
+              src={toImageUrl(proj.coverImage)}
+              alt={proj.name}
+              fill
+              className="object-cover"
+              sizes="68px"
+              unoptimized
+            />
+          ) : (
+            <div className={`w-full h-full bg-gradient-to-b ${sc.color}`} />
+          )}
+          {/* Barra de progresso vertical */}
+          <div className="absolute bottom-0 left-0 right-0 h-1 bg-black/20">
+            <div
+              className="h-full bg-white/80 transition-all"
+              style={{ width: `${Math.min(100, proj.progressPercent)}%` }}
+            />
+          </div>
         </div>
 
-        {/* Linha 2: código + cliente */}
-        <p className="text-[11px] text-gray-400 truncate mt-0.5">
-          {[proj.code, proj.client?.name].filter(Boolean).join(' · ') || <span className="italic">Sem cliente</span>}
-        </p>
-
-        {/* Linha 3: Último RDO */}
-        {proj.lastReport ? (
-          <div className="flex items-center gap-1.5 mt-1">
-            {rpt && <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${rpt.dot}`} />}
-            <p className="text-[11px] text-gray-500 truncate">
-              Último: <span className="font-medium text-gray-700">{fmtDate(proj.lastReport.date)}</span>
-              {proj.lastReport.reportNumber && ` — ${proj.lastReport.reportNumber}`}
+        {/* ── Conteúdo central ─────────────────────────────────── */}
+        <div className="flex-1 min-w-0 px-3 py-2.5 flex flex-col justify-between">
+          {/* Linha 1: nome + status */}
+          <div className="flex items-start gap-1.5">
+            <p className="text-sm font-semibold text-gray-800 truncate flex-1 leading-tight group-hover:text-[#F5A623] transition-colors">
+              {proj.name}
             </p>
-          </div>
-        ) : (
-          <p className="text-[11px] text-gray-400 mt-1 italic">Sem RDOs ainda</p>
-        )}
-
-        {/* Linha 4: métricas + botões */}
-        <div className="flex items-center gap-2 mt-2">
-          {/* Métricas */}
-          <div className="flex items-center gap-2 text-[11px] text-gray-400 flex-1 min-w-0">
-            <span>🌧 {proj.totalRainMm.toFixed(0)}mm</span>
-            {proj.unworkableDays > 0 && (
-              <span className="text-red-500">⛔ {proj.unworkableDays}d</span>
-            )}
-            <span>{proj.totalReports} RDO{proj.totalReports !== 1 ? 's' : ''}</span>
+            <Badge variant={sc.variant} size="sm">{sc.label}</Badge>
           </div>
 
-          {/* Botões */}
-          <div className="flex gap-1 flex-shrink-0">
-            <Link href={`/app/diario/${proj.id}`}
-              className="text-[11px] font-medium px-2.5 py-1.5 border border-gray-200 rounded-lg hover:bg-gray-50 hover:border-gray-300 transition-colors whitespace-nowrap">
-              RDOs
-            </Link>
+          {/* Linha 2: código + cliente */}
+          <p className="text-[11px] text-gray-400 truncate mt-0.5">
+            {[proj.code, proj.client?.name].filter(Boolean).join(' · ') || <span className="italic">Sem cliente</span>}
+          </p>
+
+          {/* Linha 3: Último RDO */}
+          {proj.lastReport ? (
+            <div className="flex items-center gap-1.5 mt-1">
+              {rpt && <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${rpt.dot}`} />}
+              <p className="text-[11px] text-gray-500 truncate">
+                Último: <span className="font-medium text-gray-700">{fmtDate(proj.lastReport.date)}</span>
+                {proj.lastReport.reportNumber && ` — ${proj.lastReport.reportNumber}`}
+              </p>
+            </div>
+          ) : (
+            <p className="text-[11px] text-gray-400 mt-1 italic">Sem RDOs ainda</p>
+          )}
+
+          {/* Linha 4: métricas + botão + Novo */}
+          <div className="flex items-center gap-2 mt-2">
+            {/* Métricas */}
+            <div className="flex items-center gap-2 text-[11px] text-gray-400 flex-1 min-w-0">
+              <span>🌧 {proj.totalRainMm.toFixed(0)}mm</span>
+              {proj.unworkableDays > 0 && (
+                <span className="text-red-500">⛔ {proj.unworkableDays}d</span>
+              )}
+              <span>{proj.totalReports} RDO{proj.totalReports !== 1 ? 's' : ''}</span>
+            </div>
+
+            {/* Botão + Novo para criar RDO direto (para propagação para não navegar 2x) */}
             {canCreate && (
-              <Link href={`/app/diario/${proj.id}/novo`}
-                className="text-[11px] font-semibold px-2.5 py-1.5 bg-[#F5A623] text-white rounded-lg hover:bg-[#d4891a] transition-colors whitespace-nowrap">
+              <Link
+                href={`/app/diario/${proj.id}/novo`}
+                onClick={e => e.stopPropagation()}
+                className="text-[11px] font-semibold px-2.5 py-1.5 bg-[#F5A623] text-white rounded-lg hover:bg-[#d4891a] transition-colors whitespace-nowrap flex-shrink-0"
+              >
                 + Novo
               </Link>
             )}
           </div>
         </div>
-      </div>
 
-      {/* ── Progresso direito ─────────────────────────────────── */}
-      <div className="flex-shrink-0 flex flex-col items-center justify-center px-3 border-l border-gray-100 min-w-[52px]">
-        <span className="text-lg font-black text-gray-800 leading-none">
-          {proj.progressPercent.toFixed(0)}
-        </span>
-        <span className="text-[10px] text-gray-400 font-medium">%</span>
-        <div className="w-6 h-1 bg-gray-100 rounded-full mt-1 overflow-hidden">
-          <div
-            className="h-full rounded-full bg-[#F5A623]"
-            style={{ width: `${Math.min(100, proj.progressPercent)}%` }}
-          />
+        {/* ── Progresso direito ─────────────────────────────────── */}
+        <div className="flex-shrink-0 flex flex-col items-center justify-center px-3 border-l border-gray-100 min-w-[52px]">
+          <span className="text-lg font-black text-gray-800 leading-none">
+            {proj.progressPercent.toFixed(0)}
+          </span>
+          <span className="text-[10px] text-gray-400 font-medium">%</span>
+          <div className="w-6 h-1 bg-gray-100 rounded-full mt-1 overflow-hidden">
+            <div
+              className="h-full rounded-full bg-[#F5A623]"
+              style={{ width: `${Math.min(100, proj.progressPercent)}%` }}
+            />
+          </div>
         </div>
       </div>
-    </div>
+    </Link>
   )
 }

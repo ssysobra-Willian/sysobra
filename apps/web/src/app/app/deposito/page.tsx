@@ -53,14 +53,15 @@ async function apiFetch(path: string, opts: RequestInit = {}) {
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface SummaryFull {
-  totalItems:          number
-  totalValue:          number
-  lowStockCount:       number
-  inMaintenanceCount:  number
-  exitsThisMonth:      number
-  entriesThisMonth:    number
-  overdueReturns:      number
-  overdueMaintenance:  number
+  totalItems:           number
+  totalValue:           number
+  lowStockCount:        number
+  inMaintenanceCount:   number
+  exitsThisMonth:       number
+  entriesThisMonth:     number
+  overdueReturns:       number
+  overdueMaintenance:   number
+  upcomingMaintenance:  number
   estoque?: {
     totalGeral: number
     porCategoria: {
@@ -1392,7 +1393,7 @@ function BasketsTab({ onViewReceipt }: { onViewReceipt: (basketId: string) => vo
 
 // ─── Alert Filters ────────────────────────────────────────────────────────────
 
-type AlertFilterKey = 'low_stock' | 'late_return' | 'maintenance' | 'maintenance_due'
+type AlertFilterKey = 'low_stock' | 'late_return' | 'maintenance' | 'maintenance_due' | 'maintenance_upcoming'
 
 const ALERT_FILTERS: Record<AlertFilterKey, { label: string; filter: (item: StockItem) => boolean }> = {
   low_stock: {
@@ -1408,13 +1409,17 @@ const ALERT_FILTERS: Record<AlertFilterKey, { label: string; filter: (item: Stoc
   },
   maintenance: {
     label:  'Em manutenção',
-    filter: (item) =>
-      item.requiresCustody &&
-      !!item.nextMaintenance &&
-      (daysFromNow(item.nextMaintenance) ?? 1) < 0,
+    filter: (item) => item.toolStatus === 'MAINTENANCE',
   },
   maintenance_due: {
-    label:  'Manutenção próxima',
+    label:  'Manutenção vencida',
+    filter: (item) => {
+      const d = daysFromNow(item.nextMaintenance)
+      return item.requiresCustody && d !== null && d < 0
+    },
+  },
+  maintenance_upcoming: {
+    label:  'Manutenção próxima (30d)',
     filter: (item) => {
       const d = daysFromNow(item.nextMaintenance)
       return item.requiresCustody && d !== null && d >= 0 && d <= 30
@@ -1892,7 +1897,7 @@ export default function DepositoPage() {
               },
               {
                 key:   'maintenance_due' as AlertFilterKey,
-                label: 'Manutenções próximas',
+                label: 'Manutenções vencidas',
                 value: summary.overdueMaintenance,
                 icon:  <AlertTriangle size={18} />,
                 ring:  'ring-red-400',
@@ -1900,6 +1905,17 @@ export default function DepositoPage() {
                 iconColor: 'text-red-600',
                 activeBg:  'bg-red-600',
                 hasAlert:  summary.overdueMaintenance > 0,
+              },
+              {
+                key:   'maintenance_upcoming' as AlertFilterKey,
+                label: 'Próximas (30d)',
+                value: summary.upcomingMaintenance ?? 0,
+                icon:  <Calendar size={18} />,
+                ring:  'ring-amber-400',
+                bg:    'bg-amber-50',
+                iconColor: 'text-amber-600',
+                activeBg:  'bg-amber-600',
+                hasAlert:  false,
               },
             ]).map(card => {
               const isActive = activeFilter === card.key
