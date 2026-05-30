@@ -54,6 +54,17 @@ interface StageCostEntry {
   quantity: number; unitCost: number; totalCost: number
 }
 
+interface StageFinancialEntry {
+  id:          string
+  description: string
+  type:        string
+  isPaid:      boolean
+  date:        string | null
+  amount:      number
+  category:    string | null
+  origin:      'FINANCIAL' | 'FINANCIAL_DIRECT'
+}
+
 interface Stage {
   id: string
   code: string | null
@@ -73,6 +84,7 @@ interface Stage {
   isOverBudget: boolean
   recentTransactions: StageTx[]
   costEntries: StageCostEntry[]
+  financialEntries: StageFinancialEntry[]
   startDate: string | null
   endDate: string | null
 }
@@ -545,6 +557,51 @@ function BudgetTable({
                                       </td>
                                       <td className="py-1.5 text-xs font-semibold text-right text-orange-700">
                                         {fmt(entry.totalCost)}
+                                      </td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          )}
+
+                          {/* Lançamentos financeiros apropiados a esta etapa */}
+                          {stage.financialEntries && stage.financialEntries.length > 0 && (
+                            <div className="mt-3 pt-3 border-t border-amber-100">
+                              <div className="flex items-center gap-2 mb-2">
+                                <p className="text-[11px] font-semibold text-gray-500 uppercase">💰 Lançamentos financeiros</p>
+                                <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-50 text-blue-600 font-semibold border border-blue-100">
+                                  {stage.financialEntries.length}
+                                </span>
+                              </div>
+                              <table className="w-full">
+                                <thead>
+                                  <tr className="text-[10px] text-gray-400 uppercase">
+                                    <th className="text-left pb-1 font-semibold">Data</th>
+                                    <th className="text-left pb-1 font-semibold">Descrição</th>
+                                    <th className="text-right pb-1 font-semibold">Valor</th>
+                                    <th className="text-center pb-1 font-semibold">Status</th>
+                                  </tr>
+                                </thead>
+                                <tbody className="divide-y divide-amber-100">
+                                  {stage.financialEntries.map((entry: StageFinancialEntry) => (
+                                    <tr key={entry.id}>
+                                      <td className="py-1.5 pr-3 text-xs text-gray-500 whitespace-nowrap">
+                                        {entry.date ? formatDateBR(entry.date) : '—'}
+                                      </td>
+                                      <td className="py-1.5 pr-3 text-xs text-gray-700 max-w-[200px]">
+                                        <p className="truncate">{entry.description}</p>
+                                        {entry.category && (
+                                          <span className="text-[10px] text-gray-400">{entry.category}</span>
+                                        )}
+                                      </td>
+                                      <td className="py-1.5 text-xs font-semibold text-right whitespace-nowrap text-blue-700">
+                                        {fmt(entry.amount)}
+                                      </td>
+                                      <td className="py-1.5 text-center">
+                                        <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-semibold ${entry.isPaid ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}`}>
+                                          {entry.isPaid ? 'Pago' : 'Pendente'}
+                                        </span>
                                       </td>
                                     </tr>
                                   ))}
@@ -1849,11 +1906,48 @@ export default function ObraDetailPage() {
                               })
                             }
 
+                            // ── Update otimista — UI responde imediatamente ──────────
+                            const chosenStage = (project?.stages ?? []).find((s: any) => s.id === stageModalStageId)
+                            const amount      = Math.abs(Number(stageModalTx.amount || 0))
+
+                            // 1. Atualizar lançamento na lista local
+                            setAllocTxs(prev => prev.map(t => {
+                              if (t.id !== stageModalTx!.txId) return t
+                              return {
+                                ...t,
+                                stageId: stageModalStageId,
+                                costCenterAllocations: t.costCenterAllocations.map(a =>
+                                  a.id === stageModalTx!.allocId
+                                    ? { ...a, stageId: stageModalStageId, stage: chosenStage ? { id: chosenStage.id, name: chosenStage.name } : null }
+                                    : a
+                                ),
+                              }
+                            }))
+
+                            // 2. Atualizar realizedValue da etapa localmente
+                            setProject((prev: any) => {
+                              if (!prev) return prev
+                              return {
+                                ...prev,
+                                stages: (prev.stages ?? []).map((s: any) =>
+                                  s.id === stageModalStageId
+                                    ? { ...s, realizedValue: Number(s.realizedValue || 0) + amount, realizedFromAllocations: Number(s.realizedFromAllocations || 0) + amount }
+                                    : s
+                                ),
+                              }
+                            })
+
+                            // 3. Decrementar badge semEtapaCount no summary
+                            setAllocSummary((prev: any) => prev
+                              ? { ...prev, semEtapaCount: Math.max(0, (prev.semEtapaCount || 1) - 1) }
+                              : null)
+
+                            // 4. Fechar modal imediatamente
                             setStageModalTx(null); setStageModalStageId('')
-                            // Recarregar summary + etapas (realizedValue)
-                            setAllocSummary(null)
+
+                            // 5. Recarregar em background para consistência com o servidor
                             scrollPosRef.current = window.scrollY
-                            await loadProject()
+                            setTimeout(() => { loadProject() }, 150)
                           } catch { /* silencioso */ } finally { setSavingStageModal(false) }
                         }}
                         className="flex-[2] py-2.5 rounded-lg text-sm font-semibold text-white transition-colors"

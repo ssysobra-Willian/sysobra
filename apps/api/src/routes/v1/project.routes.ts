@@ -536,6 +536,42 @@ export async function projectRoutes(app: FastifyInstance) {
         })
       }
 
+      // Lançamentos financeiros por etapa (alocações + diretos) para exibição na linha expandida
+      const stageFinancialMap: Record<string, any[]> = {}
+
+      // Via CostCenterAllocation com stageId preenchido
+      for (const alloc of allocations) {
+        if (!alloc.stageId) continue
+        const tx = alloc.transaction
+        if (!tx) continue
+        if (!stageFinancialMap[alloc.stageId]) stageFinancialMap[alloc.stageId] = []
+        stageFinancialMap[alloc.stageId].push({
+          id:          alloc.id,
+          description: tx.description,
+          type:        tx.type,
+          isPaid:      tx.isPaid,
+          date:        tx.referenceDate ?? tx.createdAt,
+          amount:      Math.abs(Number(alloc.amount)),
+          category:    tx.category ? tx.category.name : null,
+          origin:      'FINANCIAL',
+        })
+      }
+      // Via lançamentos diretos com stageId (já estão em directTxs com netAmount)
+      for (const tx of directTxs) {
+        if (!tx.stageId) continue
+        if (!stageFinancialMap[tx.stageId]) stageFinancialMap[tx.stageId] = []
+        stageFinancialMap[tx.stageId].push({
+          id:          tx.stageId + '-direct',
+          description: '—',
+          type:        'EXPENSE',
+          isPaid:      tx.isPaid,
+          date:        null,
+          amount:      Math.abs(Number(tx.netAmount)),
+          category:    null,
+          origin:      'FINANCIAL_DIRECT',
+        })
+      }
+
       // Enriquecer cada etapa com os dados calculados
       serialised.stages = serialised.stages.map((stage: any) => {
         const realizedFromAllocations = stageRealizedMap[stage.id] ?? 0
@@ -559,6 +595,7 @@ export async function projectRoutes(app: FastifyInstance) {
           isOverBudget:            deviationPercent > 5,
           recentTransactions:      stageTxMap[stage.id] ?? [],
           costEntries:             stageEntriesMap[stage.id] ?? [],
+          financialEntries:        stageFinancialMap[stage.id] ?? [],
         }
       })
     } catch { /* silencioso: enriquecimento não bloqueia resposta */ }
