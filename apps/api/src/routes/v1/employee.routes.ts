@@ -2141,17 +2141,38 @@ ${getPdfFooter(companyName)}
       // ── Registrar custo de mão de obra no Centro de Custo ──────────────────
       if (projectId) {
         try {
+          // Cancelar entradas anteriores do mesmo colaborador neste mês/ano/projeto
+          const mesInicio = new Date(body.year, body.month - 1, 1)
+          const mesFim    = new Date(body.year, body.month, 1)
+          await p.projectCostEntry.updateMany({
+            where: {
+              companyId,
+              projectId,
+              category:    'LABOR',
+              isCancelled: false,
+              date:        { gte: mesInicio, lt: mesFim },
+              description: { contains: empName },
+            },
+            data: {
+              isCancelled: true,
+              cancelledAt: new Date(),
+              cancelledBy: 'PAYROLL_UPDATE',
+            },
+          })
+
           await p.projectCostEntry.create({
             data: {
               companyId,
               projectId,
-              description: `Folha ${mesLabel}/${body.year} — ${empName}${emp?.role ? ` (${emp.role})` : ''}`,
-              category:    'LABOR',
-              quantity:    1,
-              unitCost:    liquido,
-              totalCost:   liquido,
-              date:        referenceDate,
-              notes:       `Tipo: ${emp?.type ?? 'CLT'} | Transação: ${tx.id}${supplierId ? ` | Fornecedor: ${supplierId}` : ''}`,
+              transactionId: tx.id,
+              origin:        'FINANCIAL',
+              description:   `Folha ${mesLabel}/${body.year} — ${empName}${emp?.role ? ` (${emp.role})` : ''}`,
+              category:      'LABOR',
+              quantity:      1,
+              unitCost:      liquido,
+              totalCost:     liquido,
+              date:          referenceDate,
+              notes:         `Tipo: ${emp?.type ?? 'CLT'}${supplierId ? ` | Fornecedor: ${supplierId}` : ''}`,
             },
           })
         } catch { /* silencioso — não bloqueia o lançamento */ }
